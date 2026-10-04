@@ -1,1 +1,9 @@
-# crypto-research
+# crypto-research/
+├── README.md
+├── BTC/
+├── ETH/
+├── SOL/
+├── LINK/
+├── XLM/
+├── SUI/
+└── HYPE/

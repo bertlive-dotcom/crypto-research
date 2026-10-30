@@ -166,18 +166,22 @@ with desk_tab:
             format_func=lambda value: "BTC / ETH / major altcoins" if value == "major" else "Solana tokens / memecoins")
         if market == "major":
             asset = st.selectbox("Asset", ["BTC", "ETH", "SOL", "LINK", "XLM", "SUI", "HYPE"])
-        else:
-            asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
-        price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
-        stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
-        if market == "major":
+            price = latest_crypto_prices.get(asset)
+            if price and float(price) > 0:
+                st.metric("CoinMarketCap reference price (USD)", "{:,.8f}".format(float(price)))
+            else:
+                st.error("No valid live CoinMarketCap price is available for this asset. Refresh market data before opening a paper position.")
+            stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
             volume = st.number_input("24h volume (USD)", min_value=0.0, value=10000000.0, step=100000.0)
             gain45 = st.number_input("45-minute gain (%) if known; enter 0 if unavailable", min_value=-100.0, max_value=1000.0, value=0.0)
-            submitted = st.form_submit_button("Run filters and simulate entry")
+            submitted = st.form_submit_button("Run filters and simulate entry", disabled=not (price and float(price) > 0))
             if submitted:
-                signal = Signal(asset=asset, market=market, price_usd=price,
-                    volume_24h_usd=volume, gain_45m_pct=gain45, source="manual / CMC cross-check")
+                signal = Signal(asset=asset, market=market, price_usd=float(price),
+                    volume_24h_usd=volume, gain_45m_pct=gain45, source="CoinMarketCap live quote")
         else:
+            asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
+            price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
+            stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
             liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=50000.0, step=1000.0)
             top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=25.0)
             dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=2.0)

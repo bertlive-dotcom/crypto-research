@@ -7,6 +7,7 @@ from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
     portfolio_summary, update_position_mark, STARTING_CAPITAL_USD,
 )
+from supabase_store import SupabasePaperStore, SupabaseStoreError
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -29,6 +30,16 @@ twelve_key = secret("TWELVE_DATA_API_KEY")
 if not cmc_key or not twelve_key:
     st.error("Missing API keys in hosting Secrets.")
     st.stop()
+
+supabase_url = secret("SUPABASE_URL")
+supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")
+paper_store = None
+if supabase_url and supabase_service_key:
+    try:
+        paper_store = SupabasePaperStore(supabase_url, supabase_service_key)
+    except ValueError as error:
+        st.error("Supabase configuration error: " + str(error))
+        st.stop()
 
 @st.cache_data(ttl=60)
 def get_crypto(key):
@@ -75,12 +86,14 @@ if st.button("Refresh market data"):
     get_crypto.clear()
     get_quote.clear()
 
+latest_crypto_prices = {}
 market_tab, desk_tab = st.tabs(["Market dashboard", "AI Crypto Trading Desk"])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
     st.subheader("Crypto - CoinMarketCap")
     try:
         crypto_rows = get_crypto(cmc_key)
+        latest_crypto_prices = {row["Asset"]: row["Price USD"] for row in crypto_rows if row.get("Price USD")}
         st.dataframe(pd.DataFrame(crypto_rows), use_container_width=True, hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
@@ -102,11 +115,38 @@ with desk_tab:
     st.subheader("Paper Trading - virtual capital")
     st.warning("SIMULATION ONLY. No exchange orders, wallet connections, or real funds are used.")
     if "paper_portfolio" not in st.session_state:
-        st.session_state.paper_portfolio = new_portfolio(STARTING_CAPITAL_USD)
+        if paper_store:
+            try:
+                saved_state = paper_store.load_state()
+                st.session_state.paper_portfolio = saved_state or new_portfolio(STARTING_CAPITAL_USD)
+                if saved_state is None:
+                    paper_store.save_state(st.session_state.paper_portfolio, {"event_type": "portfolio_initialized", "asset": "", "starting_capital_usd": STARTING_CAPITAL_USD})
+            except SupabaseStoreError as error:
+                st.error("Persistent paper ledger unavailable: " + str(error))
+                st.stop()
+        else:
+            st.session_state.paper_portfolio = new_portfolio(STARTING_CAPITAL_USD)
     if "desk_last_result" not in st.session_state:
         st.session_state.desk_last_result = None
 
     portfolio = st.session_state.paper_portfolio
+    if not paper_store:
+        st.warning("Supabase is not configured: this session is temporary and will not provide a durable 30-day journal. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Streamlit Secrets.")
+    else:
+        st.caption("Persistent paper ledger connected to Supabase.")
+        # Refresh open major-asset positions from the current CoinMarketCap snapshot.
+        for open_position in list(portfolio["open_positions"]):
+            current_price = latest_crypto_prices.get(open_position["asset"].upper())
+            if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
+                stopped_trade = update_position_mark(portfolio, open_position["asset"], float(current_price))
+                event = {"event_type": "stop_loss" if stopped_trade else "market_mark", "asset": open_position["asset"], "price_usd": float(current_price), "trade": stopped_trade}
+                try:
+                    paper_store.save_state(portfolio, event)
+                    if stopped_trade:
+                        st.warning("Guard stop triggered by latest CMC price for {}.".format(open_position["asset"]))
+                except SupabaseStoreError as error:
+                    st.error("Could not persist market update: " + str(error))
+                    st.stop()
     summary = portfolio_summary(portfolio)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Virtual equity", "USD {:.2f}".format(summary["equity_usd"]))
@@ -157,6 +197,8 @@ with desk_tab:
         if result["approved"]:
             try:
                 position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct))
+                if paper_store:
+                    paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
                 st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}.".format(
                     position["notional_usd"], position["stop_price"]))
             except ValueError as error:
@@ -186,12 +228,16 @@ with desk_tab:
             close_position = st.form_submit_button("Close paper position at this price")
         if update_mark:
             stopped_trade = update_position_mark(portfolio, selected, mark_price)
+            if paper_store:
+                paper_store.save_state(portfolio, {"event_type": "stop_loss" if stopped_trade else "manual_mark", "asset": selected, "price_usd": mark_price, "trade": stopped_trade})
             if stopped_trade:
                 st.warning("Guard stop triggered. Simulated exit P&L: USD {:.2f}".format(stopped_trade["realized_pnl_usd"]))
             else:
                 st.success("Paper mark price updated.")
         if close_position:
             trade = paper_exit(portfolio, selected, mark_price)
+            if paper_store:
+                paper_store.save_state(portfolio, {"event_type": "manual_exit", "asset": selected, "trade": trade})
             st.success("Paper position closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
     else:
         st.info("No open paper positions.")
@@ -202,8 +248,20 @@ with desk_tab:
     else:
         st.caption("No closed trades yet.")
 
-    st.caption("Risk defaults: 1% cash risk budget per trade, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side. Ledger is held in this Streamlit browser session and is not yet persistent.")
+    st.caption("Risk defaults: 1% cash risk budget per trade, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side.")
+    if paper_store:
+        st.markdown("#### 30-day paper-trading journal")
+        try:
+            recent_events = paper_store.load_events(days=30)
+            if recent_events:
+                st.dataframe(pd.DataFrame(recent_events), use_container_width=True, hide_index=True)
+            else:
+                st.caption("No ledger events in the last 30 days yet.")
+        except SupabaseStoreError as error:
+            st.warning("Could not load journal history: " + str(error))
     if st.button("Reset virtual portfolio to USD 80"):
         st.session_state.paper_portfolio = new_portfolio(STARTING_CAPITAL_USD)
+        if paper_store:
+            paper_store.save_state(st.session_state.paper_portfolio, {"event_type": "portfolio_reset", "asset": "", "starting_capital_usd": STARTING_CAPITAL_USD})
         st.session_state.desk_last_result = None
         st.rerun()

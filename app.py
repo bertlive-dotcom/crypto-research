@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, mark_position, STARTING_CAPITAL_USD,
+    portfolio_summary, update_position_mark, STARTING_CAPITAL_USD,
 )
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
@@ -200,10 +200,11 @@ with tab_desk:
             update_mark = st.form_submit_button("Update simulated market price")
             close_position = st.form_submit_button("Close paper position at this price")
         if update_mark:
-            for position in portfolio["open_positions"]:
-                if position["asset"] == selected:
-                    position["last_price_usd"] = mark_price
-            st.success("Paper mark price updated.")
+            stopped_trade = update_position_mark(portfolio, selected, mark_price)
+            if stopped_trade:
+                st.warning(f"Guard stop triggered. Paper position closed at the simulated price. P&L: ${stopped_trade['realized_pnl_usd']:.2f}")
+            else:
+                st.success("Paper mark price updated.")
         if close_position:
             trade = paper_exit(portfolio, selected, mark_price)
             st.success(f"Paper position closed. Realized P&L: ${trade['realized_pnl_usd']:.2f}")

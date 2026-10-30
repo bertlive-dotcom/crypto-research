@@ -37,10 +37,24 @@ The dashboard now includes a separate paper-trading tab with USD 80 virtual star
 
 The first increment is intentionally manual: token metrics and candidate signals are entered by the user. It does not track the 640 wallets mentioned in the reference post, discover Solana tokens automatically, or connect to wallets/exchanges. The five agent names represent deterministic software stages, not autonomous AI agents.
 
-The paper portfolio is stored in Streamlit session state only. It is not a durable or cross-device trading journal. Do not use its results as evidence of profitability without a longer forward test and independent validation.
+The paper ledger can be persisted in Supabase. Run `supabase/schema.sql` once in the Supabase SQL Editor, then add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to Streamlit Community Cloud Secrets. The service-role key must remain server-side and must never be committed to Git. Without these two secrets the app falls back to temporary session-only state; do not treat that as a durable 30-day journal. Major-asset positions can be marked from the CoinMarketCap snapshot when the app reruns; Solana token prices and on-chain metrics remain manual in this increment.
 
 Run the local rule-engine tests with:
 
     python -m unittest discover -s tests -v
 
 See [AI_TRADING_DESK.md](AI_TRADING_DESK.md) for rules, risk assumptions, limitations, and validation gates.
+
+
+## Supabase paper-trading persistence
+1. Create a Supabase project.
+2. Open SQL Editor and run the complete script in `supabase/schema.sql`.
+3. Copy the project URL and the **service_role** secret from Supabase project API settings.
+4. In Streamlit Community Cloud, add these keys under App settings → Secrets:
+
+```toml
+SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY = "YOUR-SERVICE-ROLE-KEY"
+```
+
+The Streamlit server uses the service-role key for the database RPC and read-only history queries. It is not sent to browser JavaScript. Row-level security is enabled and direct access is revoked for anon/authenticated roles. Do not share this key or put it in GitHub. The paper ledger is a single-user MVP; do not expose the app password publicly. Back up the Supabase project before relying on the journal.

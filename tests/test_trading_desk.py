@@ -1,5 +1,5 @@
 import unittest
-from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, size_position
+from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, size_position, update_position_mark
 
 class TradingDeskTests(unittest.TestCase):
     def valid_solana(self):
@@ -21,6 +21,15 @@ class TradingDeskTests(unittest.TestCase):
     def test_position_size_respects_risk_and_exposure(self):
         self.assertEqual(size_position(80,10),8.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
+    def test_stop_loss_closes_paper_position(self):
+        p=new_portfolio(80)
+        paper_entry(p,self.valid_solana(),stop_loss_pct=10)
+        pos=p["open_positions"][0]
+        trade=update_position_mark(p,"TEST",pos["stop_price"]*0.99)
+        self.assertEqual(trade["exit_reason"],"stop_loss")
+        self.assertEqual(len(p["open_positions"]),0)
+        self.assertLess(trade["realized_pnl_usd"],0)
+
     def test_paper_trade_round_trip_accounts_for_costs(self):
         p=new_portfolio(80); paper_entry(p,self.valid_solana(),stop_loss_pct=10)
         self.assertEqual(len(p["open_positions"]),1)

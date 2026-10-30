@@ -30,3 +30,17 @@ TWELVE_DATA_API_KEY = "your-Twelve-Data-key"
 - API fields, quotas and symbols depend on provider plan and coverage.
 - Quote values are snapshots and timestamps/calculation methods can differ between providers.
 - A source-comparison layer and stale-data warning rules remain to be added before decision-critical use.
+
+
+## AI Crypto Trading Desk (simulation only)
+The dashboard now includes a separate paper-trading tab with USD 80 virtual starting capital, a Solana-token ruleset, a major-asset volume ruleset, position sizing, fee/slippage assumptions, and simulated stop-loss handling.
+
+The first increment is intentionally manual: token metrics and candidate signals are entered by the user. It does not track the 640 wallets mentioned in the reference post, discover Solana tokens automatically, or connect to wallets/exchanges. The five agent names represent deterministic software stages, not autonomous AI agents.
+
+The paper portfolio is stored in Streamlit session state only. It is not a durable or cross-device trading journal. Do not use its results as evidence of profitability without a longer forward test and independent validation.
+
+Run the local rule-engine tests with:
+
+    python -m unittest discover -s tests -v
+
+See [AI_TRADING_DESK.md](AI_TRADING_DESK.md) for rules, risk assumptions, limitations, and validation gates.

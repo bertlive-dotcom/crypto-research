@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone
 
 from trading_desk import (
@@ -31,6 +32,11 @@ if not cmc_key or not twelve_key:
     st.error("Missing API keys in hosting Secrets.")
     st.stop()
 
+# Refresh the whole dashboard once per minute. Market requests are cached slightly
+# less than 60 seconds so each rerun can obtain a fresh quote without a timing race.
+st_autorefresh(interval=60_000, limit=None, key="market-data-auto-refresh")
+st.caption("Market data and open paper-position marks refresh automatically every 60 seconds. Stop-loss checks run on each fresh quote.")
+
 supabase_url = secret("SUPABASE_URL")
 supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")
 paper_store = None
@@ -41,7 +47,7 @@ if supabase_url and supabase_service_key:
         st.error("Supabase configuration error: " + str(error))
         st.stop()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=55)
 def get_crypto(key):
     response = requests.get(
         "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest",
@@ -67,7 +73,7 @@ def get_crypto(key):
         })
     return rows
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=55)
 def get_quote(symbol, key):
     response = requests.get("https://api.twelvedata.com/quote",
         params={"symbol": symbol, "apikey": key}, timeout=15)

@@ -164,3 +164,14 @@ def portfolio_summary(portfolio: dict) -> dict:
         "total_return_pct": (equity / portfolio["starting_capital"] - 1.0) * 100.0 if portfolio["starting_capital"] else 0.0,
         "open_positions": len(portfolio["open_positions"]), "closed_trades": len(portfolio["closed_trades"]),
     }
+
+
+def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optional[dict]:
+    """Update a paper mark and simulate a stop exit if the observed price crosses it."""
+    position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
+    if position is None:
+        raise ValueError(f"No open paper position for {asset}.")
+    position["last_price_usd"] = price_usd
+    if price_usd <= position["stop_price"]:
+        return paper_exit(portfolio, asset, price_usd, reason="stop_loss")
+    return None

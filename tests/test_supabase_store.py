@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch, Mock
+import requests
 
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 
@@ -35,11 +36,11 @@ class SupabaseStoreTests(unittest.TestCase):
     def test_http_error_is_wrapped(self, request):
         response = Mock()
         response.content = b""
-        response.raise_for_status.side_effect = Exception("unexpected")
+        response.raise_for_status.side_effect = requests.Timeout("timeout")
         request.return_value = response
         store = SupabasePaperStore("https://example.supabase.co", "secret")
         # A generic mocked exception should not be silently treated as success.
-        with self.assertRaises(Exception):
+        with self.assertRaises(SupabaseStoreError):
             store.load_state()
 
 

@@ -178,14 +178,34 @@ def portfolio_summary(portfolio: dict) -> dict:
 
 
 def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optional[dict]:
-    """Update a paper mark and simulate a stop exit if the observed price crosses it."""
+    """Update a paper mark and simulate stop/take-profit exits, including legacy positions."""
     position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
     if position is None:
         raise ValueError(f"No open paper position for {asset}.")
+    if price_usd <= 0:
+        raise ValueError("Mark price must be greater than zero.")
+
+    # Backward compatibility: Supabase may contain positions created before
+    # direction/take-profit fields were added.
+    direction = str(position.get("direction", "long")).lower()
+    is_short = direction == "short"
+    position.setdefault("direction", direction)
+    reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
+                             or position.get("entry_price_usd") or position.get("last_price_usd") or price_usd)
+    stop_pct = float(position.get("stop_loss_pct", 10.0))
+    take_profit_pct = float(position.get("take_profit_pct", 20.0))
+    if not position.get("stop_price"):
+        position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if is_short else 1.0 - stop_pct / 100.0)
+    if not position.get("take_profit_price"):
+        position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if is_short else 1.0 + take_profit_pct / 100.0)
+    position.setdefault("take_profit_pct", take_profit_pct)
+    position.setdefault("stop_loss_pct", stop_pct)
+
     position["last_price_usd"] = price_usd
-    is_short = position.get("direction", "long") == "short"
-    if (price_usd >= position["stop_price"]) if is_short else (price_usd <= position["stop_price"]):
+    stop_hit = price_usd >= position["stop_price"] if is_short else price_usd <= position["stop_price"]
+    take_profit_hit = price_usd <= position["take_profit_price"] if is_short else price_usd >= position["take_profit_price"]
+    if stop_hit:
         return paper_exit(portfolio, asset, price_usd, reason="stop_loss")
-    if (price_usd <= position["take_profit_price"]) if is_short else (price_usd >= position["take_profit_price"]):
+    if take_profit_hit:
         return paper_exit(portfolio, asset, price_usd, reason="take_profit")
     return None

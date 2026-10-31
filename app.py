@@ -9,6 +9,7 @@ from trading_desk import (
     portfolio_summary, update_position_mark, STARTING_CAPITAL_USD,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
+from scanner.store import ScannerStore, ScannerStoreError
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -93,7 +94,7 @@ if st.button("Refresh market data"):
     get_quote.clear()
 
 latest_crypto_prices = {}
-market_tab, desk_tab = st.tabs(["Market dashboard", "AI Crypto Trading Desk"])
+market_tab, desk_tab, scanner_tab = st.tabs(["Market dashboard", "AI Crypto Trading Desk", "Market Scanner"])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
     st.subheader("Crypto - CoinMarketCap")
@@ -289,3 +290,39 @@ with desk_tab:
             paper_store.save_state(st.session_state.paper_portfolio, {"event_type": "portfolio_reset", "asset": "", "starting_capital_usd": STARTING_CAPITAL_USD})
         st.session_state.desk_last_result = None
         st.rerun()
+
+
+with scanner_tab:
+    st.subheader("Market Scanner v1 - independent paper portfolio")
+    st.caption("Read-only view of the standalone Binance Spot scanner. Its paper portfolio is separate from the manual AI Trading Desk portfolio.")
+    if not supabase_url or not supabase_service_key:
+        st.info("Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to view scanner data.")
+    else:
+        try:
+            scanner_store = ScannerStore(supabase_url, supabase_service_key)
+            scanner_state = scanner_store.load_state()
+            scanner_candidates = scanner_store.latest_candidates(limit=50)
+            if scanner_state:
+                scanner_summary = portfolio_summary(scanner_state)
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Scanner equity", "USD {:.2f}".format(scanner_summary["equity_usd"]))
+                c2.metric("Available cash", "USD {:.2f}".format(scanner_summary["cash_usd"]))
+                c3.metric("Open positions", scanner_summary["open_positions"])
+                c4.metric("Closed trades", scanner_summary["closed_trades"])
+                st.caption("Scanner realized P&L: USD {:.2f} | Unrealized P&L: USD {:.2f}".format(
+                    scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
+                if scanner_state.get("open_positions"):
+                    st.markdown("#### Scanner open paper positions")
+                    st.dataframe(pd.DataFrame(scanner_state["open_positions"]), use_container_width=True, hide_index=True)
+                if scanner_state.get("closed_trades"):
+                    st.markdown("#### Scanner closed paper trades")
+                    st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), use_container_width=True, hide_index=True)
+            else:
+                st.info("The scanner has not completed its first cycle yet.")
+            st.markdown("#### Latest market candidates")
+            if scanner_candidates:
+                st.dataframe(pd.DataFrame(scanner_candidates), use_container_width=True, hide_index=True)
+            else:
+                st.info("No scanner candidates stored yet.")
+        except (ScannerStoreError, ValueError) as error:
+            st.error("Could not load Market Scanner data: " + str(error))

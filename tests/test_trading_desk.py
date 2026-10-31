@@ -30,6 +30,16 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(len(p["open_positions"]),0)
         self.assertLess(trade["realized_pnl_usd"],0)
 
+    def test_take_profit_closes_paper_position_automatically(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        pos = p["open_positions"][0]
+        trade = update_position_mark(p, "TEST", pos["take_profit_price"] * 1.01)
+        self.assertEqual(trade["exit_reason"], "take_profit")
+        self.assertEqual(len(p["open_positions"]), 0)
+        self.assertEqual(len(p["closed_trades"]), 1)
+        self.assertGreater(trade["realized_pnl_usd"], 0)
+
     def test_paper_trade_round_trip_accounts_for_costs(self):
         p=new_portfolio(80); paper_entry(p,self.valid_solana(),stop_loss_pct=10)
         self.assertEqual(len(p["open_positions"]),1)

@@ -1,6 +1,7 @@
 """Supabase persistence isolated from the existing dashboard paper ledger."""
 from __future__ import annotations
 import requests
+from datetime import datetime, timedelta, timezone
 from .config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 class ScannerStoreError(RuntimeError):
@@ -43,7 +44,8 @@ class ScannerStore:
         })
 
     def latest_candidates(self, limit: int = 50) -> list[dict]:
+        since = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
         return self._request("GET", "market_candidates", params={
             "select": "symbol,score,eligible,auto_entry_eligible,price_usdt,quote_volume_24h,change_24h_pct,scanned_at,features,reasons",
-            "order": "score.desc", "limit": str(limit)
+            "scanned_at": "gte." + since, "order": "score.desc", "limit": str(limit)
         }) or []

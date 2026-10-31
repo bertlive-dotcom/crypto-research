@@ -145,7 +145,7 @@ with desk_tab:
             current_price = latest_crypto_prices.get(open_position["asset"].upper())
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
                 stopped_trade = update_position_mark(portfolio, open_position["asset"], float(current_price))
-                event = {"event_type": "stop_loss" if stopped_trade else "market_mark", "asset": open_position["asset"], "price_usd": float(current_price), "trade": stopped_trade}
+                event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": open_position["asset"], "price_usd": float(current_price), "trade": stopped_trade}
                 try:
                     paper_store.save_state(portfolio, event)
                     if stopped_trade:
@@ -168,6 +168,7 @@ with desk_tab:
     st.caption("First increment: candidates and Solana on-chain metrics are entered manually. The 640-wallet scanner and automated holder/bundle analytics are not connected.")
 
     with st.form("signal_form"):
+        direction = st.selectbox("Direction", ["long", "short"], format_func=lambda value: "Long (profit if price rises)" if value == "long" else "Short (profit if price falls)")
         market = st.selectbox("Market", ["major", "solana"],
             format_func=lambda value: "BTC / ETH / major altcoins" if value == "major" else "Solana tokens / memecoins")
         if market == "major":
@@ -208,7 +209,7 @@ with desk_tab:
         st.session_state.desk_last_result = {"signal": signal, "result": result}
         if result["approved"]:
             try:
-                position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct))
+                position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct), direction=direction)
                 if paper_store:
                     paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
                 st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}; take-profit price {:.8f}.".format(
@@ -241,7 +242,7 @@ with desk_tab:
         if update_mark:
             stopped_trade = update_position_mark(portfolio, selected, mark_price)
             if paper_store:
-                paper_store.save_state(portfolio, {"event_type": "stop_loss" if stopped_trade else "manual_mark", "asset": selected, "price_usd": mark_price, "trade": stopped_trade})
+                paper_store.save_state(portfolio, {"event_type": stopped_trade["exit_reason"] if stopped_trade else "manual_mark", "asset": selected, "price_usd": mark_price, "trade": stopped_trade})
             if stopped_trade:
                 st.warning("Automatic {} triggered. Simulated exit P&L: USD {:.2f}".format(stopped_trade["exit_reason"].replace("_", " "), stopped_trade["realized_pnl_usd"]))
             else:
@@ -260,7 +261,7 @@ with desk_tab:
     else:
         st.caption("No closed trades yet.")
 
-    st.caption("Risk defaults: 1% cash risk budget per trade, 10% stop-loss, 20% take-profit, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side.")
+    st.caption("Long/short simulation enabled. Risk defaults: 1% cash risk budget per trade, 10% stop-loss, 20% take-profit, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side.")
     if paper_store:
         st.markdown("#### 30-day paper-trading journal")
         try:

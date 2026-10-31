@@ -33,7 +33,10 @@ def score_candidate(ticker: dict, one_hour: dict, four_hour: dict, daily: dict) 
     multi_tf = four_hour["close"] > four_hour["ema20"] and daily["close"] > daily["ema20"]
     atr = one_hour["atr_pct"]
     volatility_ok = atr is not None and 0.5 <= atr <= 8.0
-    not_extended = one_hour["ema20"] > 0 and ((price / one_hour["ema20"]) - 1.0) * 100.0 <= 4.0
+    extension_pct = ((price / one_hour["ema20"]) - 1.0) * 100.0 if one_hour["ema20"] > 0 else float("inf")
+    not_extended = 0.0 <= extension_pct <= 4.0
+    # Hard entry gates are deliberately separate from the weighted score.
+    hard_checks_pass = trend and volume_ok and multi_tf and volatility_ok and not_extended
     parts = {
         "trend": 25 if trend else 0,
         "momentum": 20 if momentum and rsi_ok else (10 if momentum or rsi_ok else 0),
@@ -53,7 +56,8 @@ def score_candidate(ticker: dict, one_hour: dict, four_hour: dict, daily: dict) 
     if not not_extended: reasons.append("Price extended more than 4% above 1h EMA20")
     return {
         **ticker, "score": score, "score_components": parts, "eligible": score >= MIN_SCORE,
-        "auto_entry_eligible": score >= AUTO_ENTRY_SCORE and not reasons,
+        "auto_entry_eligible": score >= AUTO_ENTRY_SCORE and hard_checks_pass,
+        "hard_checks_pass": hard_checks_pass,
         "features": {"1h": one_hour, "4h": four_hour, "1d": daily},
         "reasons": reasons, "scanned_at": datetime.now(timezone.utc).isoformat(),
     }

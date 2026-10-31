@@ -40,6 +40,26 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(len(p["closed_trades"]), 1)
         self.assertGreater(trade["realized_pnl_usd"], 0)
 
+    def test_short_position_profit_when_price_falls_and_take_profit_triggers(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")
+        pos = p["open_positions"][0]
+        self.assertGreater(pos["stop_price"], pos["entry_fill_price"])
+        self.assertLess(pos["take_profit_price"], pos["entry_fill_price"])
+        trade = update_position_mark(p, "TEST", pos["take_profit_price"] * 0.99)
+        self.assertEqual(trade["exit_reason"], "take_profit")
+        self.assertEqual(trade["direction"], "short")
+        self.assertGreater(trade["realized_pnl_usd"], 0)
+        self.assertEqual(len(p["open_positions"]), 0)
+
+    def test_short_stop_loss_triggers_when_price_rises(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")
+        pos = p["open_positions"][0]
+        trade = update_position_mark(p, "TEST", pos["stop_price"] * 1.01)
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertLess(trade["realized_pnl_usd"], 0)
+
     def test_paper_trade_round_trip_accounts_for_costs(self):
         p=new_portfolio(80); paper_entry(p,self.valid_solana(),stop_loss_pct=10)
         self.assertEqual(len(p["open_positions"]),1)

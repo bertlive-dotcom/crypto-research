@@ -96,7 +96,7 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}
 
-def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_profit_pct: float = 20.0,
+def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_profit_pct: float = 20.0, direction: str = "long",
                 fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
     """Open a paper position only. No live order is ever sent."""
     check = evaluate_signal(signal)
@@ -104,21 +104,26 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
         raise ValueError("Signal rejected: " + "; ".join(check["reasons"]))
     if stop_loss_pct <= 0 or take_profit_pct <= 0:
         raise ValueError("Stop Loss and Take Profit percentages must be greater than zero.")
+    direction = direction.lower()
+    if direction not in ("long", "short"):
+        raise ValueError("Direction must be long or short.")
     exposure = sum(p["notional_usd"] for p in portfolio["open_positions"])
     notional = size_position(portfolio["cash"], stop_loss_pct, exposure)
     if notional <= 0:
         raise ValueError("No available paper-trading risk budget or cash.")
-    fill_price = signal.price_usd * (1.0 + slippage_rate)
+    fill_price = signal.price_usd * (1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate)
     quantity = notional / fill_price
     entry_fee = notional * fee_rate
     if notional + entry_fee > portfolio["cash"]:
         raise ValueError("Insufficient virtual cash.")
     position = {
-        "asset": signal.asset, "market": signal.market,
+        "asset": signal.asset, "market": signal.market, "direction": direction,
         "entry_reference_price": signal.price_usd, "entry_fill_price": fill_price,
         "quantity": quantity, "notional_usd": notional, "entry_fee_usd": entry_fee,
-        "stop_loss_pct": stop_loss_pct, "stop_price": fill_price * (1.0 - stop_loss_pct / 100.0),
-        "take_profit_pct": take_profit_pct, "take_profit_price": fill_price * (1.0 + take_profit_pct / 100.0),
+        "stop_loss_pct": stop_loss_pct,
+        "stop_price": fill_price * (1.0 - stop_loss_pct / 100.0 if direction == "long" else 1.0 + stop_loss_pct / 100.0),
+        "take_profit_pct": take_profit_pct,
+        "take_profit_price": fill_price * (1.0 + take_profit_pct / 100.0 if direction == "long" else 1.0 - take_profit_pct / 100.0),
         "last_price_usd": signal.price_usd, "opened_at": datetime.now(timezone.utc).isoformat(),
         "source": signal.source,
     }
@@ -130,10 +135,11 @@ def mark_position(position: dict, price_usd: float, fee_rate: float = DEFAULT_FE
                   slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
     if price_usd <= 0:
         raise ValueError("Mark price must be greater than zero.")
-    exit_fill = price_usd * (1.0 - slippage_rate)
+    is_short = position.get("direction", "long") == "short"
+    exit_fill = price_usd * (1.0 + slippage_rate if is_short else 1.0 - slippage_rate)
     proceeds = position["quantity"] * exit_fill
     exit_fee = proceeds * fee_rate
-    pnl = proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"]
+    pnl = (position["notional_usd"] - proceeds - exit_fee - position["entry_fee_usd"]) if is_short else (proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"])
     return {"mark_price_usd": price_usd, "estimated_exit_fill_usd": exit_fill, "unrealized_pnl_usd": pnl}
 
 def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "manual",
@@ -143,21 +149,23 @@ def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "man
     if idx is None:
         raise ValueError(f"No open paper position for {asset}.")
     position = portfolio["open_positions"].pop(idx)
-    exit_fill = price_usd * (1.0 - slippage_rate)
+    is_short = position.get("direction", "long") == "short"
+    exit_fill = price_usd * (1.0 + slippage_rate if is_short else 1.0 - slippage_rate)
     proceeds = position["quantity"] * exit_fill
     exit_fee = proceeds * fee_rate
-    portfolio["cash"] = round(portfolio["cash"] + proceeds - exit_fee, 8)
+    realized_pnl = (position["notional_usd"] - proceeds - exit_fee - position["entry_fee_usd"]) if is_short else (proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"])
+    portfolio["cash"] = round(portfolio["cash"] + (position["notional_usd"] + realized_pnl if is_short else proceeds - exit_fee), 8)
     trade = {
         **position, "exit_reference_price": price_usd, "exit_fill_price": exit_fill,
         "exit_fee_usd": exit_fee,
-        "realized_pnl_usd": proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"],
+        "realized_pnl_usd": realized_pnl,
         "closed_at": datetime.now(timezone.utc).isoformat(), "exit_reason": reason,
     }
     portfolio["closed_trades"].append(trade)
     return trade
 
 def portfolio_summary(portfolio: dict) -> dict:
-    open_value = sum(p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
+    open_value = sum((p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] + p["entry_fee_usd"]) if p.get("direction", "long") == "short" else p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
     unrealized = sum(mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] for p in portfolio["open_positions"])
     realized = sum(t["realized_pnl_usd"] for t in portfolio["closed_trades"])
     equity = portfolio["cash"] + open_value
@@ -175,8 +183,9 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     if position is None:
         raise ValueError(f"No open paper position for {asset}.")
     position["last_price_usd"] = price_usd
-    if price_usd <= position["stop_price"]:
+    is_short = position.get("direction", "long") == "short"
+    if (price_usd >= position["stop_price"]) if is_short else (price_usd <= position["stop_price"]):
         return paper_exit(portfolio, asset, price_usd, reason="stop_loss")
-    if price_usd >= position["take_profit_price"]:
+    if (price_usd <= position["take_profit_price"]) if is_short else (price_usd >= position["take_profit_price"]):
         return paper_exit(portfolio, asset, price_usd, reason="take_profit")
     return None

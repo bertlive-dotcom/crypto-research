@@ -52,6 +52,17 @@ class TradingDeskTests(unittest.TestCase):
         self.assertGreater(trade["realized_pnl_usd"], 0)
         self.assertEqual(len(p["open_positions"]), 0)
 
+    def test_legacy_position_without_take_profit_fields_is_migrated(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        position = p["open_positions"][0]
+        position.pop("take_profit_price", None)
+        position.pop("take_profit_pct", None)
+        trade = update_position_mark(p, "TEST", position["entry_fill_price"] * 1.01)
+        self.assertIsNone(trade)
+        self.assertIn("take_profit_price", position)
+        self.assertEqual(position["take_profit_pct"], 20.0)
+
     def test_short_stop_loss_triggers_when_price_rises(self):
         p = new_portfolio(80)
         paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")

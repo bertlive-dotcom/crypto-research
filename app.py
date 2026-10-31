@@ -167,42 +167,63 @@ with desk_tab:
     st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")
     st.caption("First increment: candidates and Solana on-chain metrics are entered manually. The 640-wallet scanner and automated holder/bundle analytics are not connected.")
 
-    with st.form("signal_form"):
-        direction = st.selectbox("Direction", ["long", "short"], format_func=lambda value: "Long (profit if price rises)" if value == "long" else "Short (profit if price falls)")
-        market = st.selectbox("Market", ["major", "solana"],
-            format_func=lambda value: "BTC / ETH / major altcoins" if value == "major" else "Solana tokens / memecoins")
-        if market == "major":
-            asset = st.selectbox("Asset", ["BTC", "ETH", "SOL", "LINK", "XLM", "SUI", "HYPE"])
-            price = latest_crypto_prices.get(asset)
-            if price and float(price) > 0:
-                st.metric("CoinMarketCap reference price (USD)", "{:,.8f}".format(float(price)))
-            else:
-                st.error("No valid live CoinMarketCap price is available for this asset. Refresh market data before opening a paper position.")
-            stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
-            take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20)
-            volume = st.number_input("24h volume (USD)", min_value=0.0, value=10000000.0, step=100000.0)
-            gain45 = st.number_input("45-minute gain (%) if known; enter 0 if unavailable", min_value=-100.0, max_value=1000.0, value=0.0)
-            submitted = st.form_submit_button("Run filters and simulate entry", disabled=not (price and float(price) > 0))
-            if submitted:
-                signal = Signal(asset=asset, market=market, price_usd=float(price),
-                    volume_24h_usd=volume, gain_45m_pct=gain45, source="CoinMarketCap live quote")
+    direction = st.selectbox("Direction", ["long", "short"], format_func=lambda value: "Long (profit if price rises)" if value == "long" else "Short (profit if price falls)")
+    market = st.selectbox("Market", ["major", "solana"],
+        format_func=lambda value: "BTC / ETH / major altcoins" if value == "major" else "Solana tokens / memecoins")
+    if market == "major":
+        asset = st.selectbox("Asset", ["BTC", "ETH", "SOL", "LINK", "XLM", "SUI", "HYPE"])
+        price = latest_crypto_prices.get(asset)
+        if price and float(price) > 0:
+            st.metric("CoinMarketCap reference price (USD)", "{:,.8f}".format(float(price)))
         else:
-            asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
-            price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
-            stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
-            take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20)
-            liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=50000.0, step=1000.0)
-            top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=25.0)
-            dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=2.0)
-            bundled = st.selectbox("Bundled buys in first 60 seconds?", [False, True])
-            gain45 = st.number_input("Price gain in last 45 minutes (%)", min_value=-100.0, max_value=1000.0, value=12.0)
-            source_sold = st.selectbox("Source wallet already sold?", [False, True])
-            submitted = st.form_submit_button("Run filters and simulate entry")
-            if submitted:
-                signal = Signal(asset=asset, market=market, price_usd=price,
-                    liquidity_usd=liquidity, top10_holder_pct=top10, dev_wallet_pct=dev,
-                    bundled_buys_first_60s=bundled, gain_45m_pct=gain45,
-                    source_wallet_sold=source_sold, source="manual / on-chain metrics")
+            st.error("No valid live CoinMarketCap price is available for this asset. Refresh market data before opening a paper position.")
+        entry_fill_preview = (float(price) * (1.0 + 0.003 if direction == "long" else 1.0 - 0.003)) if price and float(price) > 0 else None
+stop_col, stop_price_col = st.columns([2, 1])
+with stop_col:
+    stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10, key=f"stop_{market}_{asset}")
+with stop_price_col:
+    stop_preview = (entry_fill_preview * (1.0 - stop_pct / 100.0 if direction == "long" else 1.0 + stop_pct / 100.0)) if entry_fill_preview else None
+    st.metric("Preu Stop Loss", f"${stop_preview:,.8f}" if stop_preview else "—")
+        tp_col, tp_price_col = st.columns([2, 1])
+with tp_col:
+    take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20, key=f"tp_{market}_{asset}")
+with tp_price_col:
+    take_profit_preview = (entry_fill_preview * (1.0 + take_profit_pct / 100.0 if direction == "long" else 1.0 - take_profit_pct / 100.0)) if entry_fill_preview else None
+    st.metric("Preu Take Profit", f"${take_profit_preview:,.8f}" if take_profit_preview else "—")
+        volume = st.number_input("24h volume (USD)", min_value=0.0, value=10000000.0, step=100000.0)
+        gain45 = st.number_input("45-minute gain (%) if known; enter 0 if unavailable", min_value=-100.0, max_value=1000.0, value=0.0)
+        submitted = st.button("Run filters and simulate entry", disabled=not (price and float(price) > 0))
+        if submitted:
+            signal = Signal(asset=asset, market=market, price_usd=float(price),
+                volume_24h_usd=volume, gain_45m_pct=gain45, source="CoinMarketCap live quote")
+    else:
+        asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
+        price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
+        entry_fill_preview = (float(price) * (1.0 + 0.003 if direction == "long" else 1.0 - 0.003)) if price and float(price) > 0 else None
+stop_col, stop_price_col = st.columns([2, 1])
+with stop_col:
+    stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10, key=f"stop_{market}_{asset}")
+with stop_price_col:
+    stop_preview = (entry_fill_preview * (1.0 - stop_pct / 100.0 if direction == "long" else 1.0 + stop_pct / 100.0)) if entry_fill_preview else None
+    st.metric("Preu Stop Loss", f"${stop_preview:,.8f}" if stop_preview else "—")
+        tp_col, tp_price_col = st.columns([2, 1])
+with tp_col:
+    take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20, key=f"tp_{market}_{asset}")
+with tp_price_col:
+    take_profit_preview = (entry_fill_preview * (1.0 + take_profit_pct / 100.0 if direction == "long" else 1.0 - take_profit_pct / 100.0)) if entry_fill_preview else None
+    st.metric("Preu Take Profit", f"${take_profit_preview:,.8f}" if take_profit_preview else "—")
+        liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=50000.0, step=1000.0)
+        top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=25.0)
+        dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=2.0)
+        bundled = st.selectbox("Bundled buys in first 60 seconds?", [False, True])
+        gain45 = st.number_input("Price gain in last 45 minutes (%)", min_value=-100.0, max_value=1000.0, value=12.0)
+        source_sold = st.selectbox("Source wallet already sold?", [False, True])
+        submitted = st.form_submit_button("Run filters and simulate entry")
+        if submitted:
+            signal = Signal(asset=asset, market=market, price_usd=price,
+                liquidity_usd=liquidity, top10_holder_pct=top10, dev_wallet_pct=dev,
+                bundled_buys_first_60s=bundled, gain_45m_pct=gain45,
+                source_wallet_sold=source_sold, source="manual / on-chain metrics")
 
     if submitted:
         result = evaluate_signal(signal)

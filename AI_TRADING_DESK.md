@@ -27,14 +27,17 @@ For major assets, wallet/holder checks are not applicable. The MVP requires 24-h
 - Maximum position: 10% of virtual cash.
 - Maximum aggregate open exposure: 25% of virtual cash.
 - Entry and exit simulation includes adverse slippage (0.30% per side) and fees (0.10% per side).
-- Default stop: chosen by the user per signal; the app does not guarantee stop execution.
+- Default stop-loss: 10% below simulated entry fill.
+- Default take-profit: 20% above simulated entry fill.
+- Both thresholds are checked against each fresh market quote (60-second refresh) and against manual paper marks; crossing either threshold closes the simulated position and records the exit reason in Supabase.
+- Thresholds are configurable per signal. Simulated execution includes adverse slippage and fees; real fills are not guaranteed because this is paper trading.
 
 ## Current limitations
 - No automatic 640-wallet tracker or wallet performance ranking.
 - No automatic Solana token discovery / on-chain holder analytics yet.
 - Candidate signals are manually entered in the UI in this first increment.
 - Portfolio state is held in Streamlit session state and is not a durable, cross-device ledger.
-- Price updates are user-entered for paper positions in this increment.
+- Major-asset prices and open-position marks refresh automatically from CoinMarketCap every 60 seconds; manual marks remain available for testing.
 - No claim of AI-generated analysis or proven profitability; current agents are deterministic rule-based components.
 
 ## Validation gates before any live-trading discussion

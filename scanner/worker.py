@@ -23,11 +23,11 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         return {"status": "locked"}
     try:
         portfolio = store.load_state() or new_portfolio(STARTING_CAPITAL_USD)
+        portfolio.setdefault("processed_signal_ids", [])
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 
-        # Update existing scanner paper positions from the latest public spot tickers.
-        prices = {row["base_asset"]: row["price_usdt"] for row in client.universe()}
+        prices = client.prices()
         closed = []
         for position in list(portfolio.get("open_positions", [])):
             price = prices.get(position["asset"].upper())
@@ -38,7 +38,11 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
 
         approved = apply_paper_rules(candidates, portfolio)
         signals = []
+        processed = set(portfolio["processed_signal_ids"])
         for row in approved:
+            signal_id = f'{row["symbol"]}:1h:{row["features"]["1h"]["candle_close_time"]}:long'
+            if signal_id in processed:
+                continue
             signal = Signal(
                 asset=row["base_asset"], market="major", price_usd=float(row["price_usdt"]),
                 volume_24h_usd=float(row["quote_volume_24h"]),
@@ -50,7 +54,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
             except ValueError as exc:
                 log.warning("Paper entry rejected for %s: %s", row["symbol"], exc)
                 continue
-            signal_id = f'{row["symbol"]}:1h:{row["features"]["1h"]["candle_close_time"]}:long'
+            processed.add(signal_id)
             signals.append({
                 "signal_id": signal_id, "symbol": row["symbol"], "direction": "long",
                 "score": row["score"], "status": "paper_opened", "price_usdt": row["price_usdt"],
@@ -58,6 +62,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 "position": position, "reasons": row["reasons"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
+        portfolio["processed_signal_ids"] = sorted(processed)[-1000:]
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),

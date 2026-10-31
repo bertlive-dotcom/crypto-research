@@ -71,7 +71,7 @@ create or replace function public.acquire_market_scanner_lock(
 ) returns boolean
 language plpgsql security definer set search_path = public
 as $$
-declare acquired boolean;
+declare affected_rows integer;
 begin
     insert into public.market_scanner_lock (id, worker_id, lease_until)
     values ('singleton', p_worker_id, now() + make_interval(secs => greatest(30, p_lease_seconds)))
@@ -79,8 +79,8 @@ begin
       set worker_id = excluded.worker_id, lease_until = excluded.lease_until
       where public.market_scanner_lock.lease_until < now()
          or public.market_scanner_lock.worker_id = p_worker_id;
-    get diagnostics acquired = row_count;
-    return acquired;
+    get diagnostics affected_rows = row_count;
+    return affected_rows > 0;
 end;
 $$;
 
@@ -88,12 +88,12 @@ create or replace function public.release_market_scanner_lock(p_worker_id text)
 returns boolean
 language plpgsql security definer set search_path = public
 as $$
-declare released boolean;
+declare affected_rows integer;
 begin
     delete from public.market_scanner_lock
      where id = 'singleton' and worker_id = p_worker_id;
-    get diagnostics released = row_count;
-    return released;
+    get diagnostics affected_rows = row_count;
+    return affected_rows > 0;
 end;
 $$;
 

@@ -35,7 +35,7 @@ if not cmc_key or not twelve_key:
 # Refresh the whole dashboard once per minute. Market requests are cached slightly
 # less than 60 seconds so each rerun can obtain a fresh quote without a timing race.
 st_autorefresh(interval=60_000, limit=None, key="market-data-auto-refresh")
-st.caption("Market data and open paper-position marks refresh automatically every 60 seconds. Stop-loss checks run on each fresh quote.")
+st.caption("Market data and open paper-position marks refresh automatically every 60 seconds. Stop-loss and take-profit checks run on each fresh quote.")
 
 supabase_url = secret("SUPABASE_URL")
 supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")
@@ -149,7 +149,7 @@ with desk_tab:
                 try:
                     paper_store.save_state(portfolio, event)
                     if stopped_trade:
-                        st.warning("Guard stop triggered by latest CMC price for {}.".format(open_position["asset"]))
+                        st.warning("Automatic {} triggered by latest CMC price for {}.".format(stopped_trade["exit_reason"].replace("_", " "), open_position["asset"]))
                 except SupabaseStoreError as error:
                     st.error("Could not persist market update: " + str(error))
                     st.stop()
@@ -164,7 +164,7 @@ with desk_tab:
         summary["open_positions"], summary["closed_trades"]))
 
     st.markdown("#### Five-agent pipeline")
-    st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: stop-loss and exposure controls.")
+    st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")
     st.caption("First increment: candidates and Solana on-chain metrics are entered manually. The 640-wallet scanner and automated holder/bundle analytics are not connected.")
 
     with st.form("signal_form"):
@@ -178,6 +178,7 @@ with desk_tab:
             else:
                 st.error("No valid live CoinMarketCap price is available for this asset. Refresh market data before opening a paper position.")
             stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
+            take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20)
             volume = st.number_input("24h volume (USD)", min_value=0.0, value=10000000.0, step=100000.0)
             gain45 = st.number_input("45-minute gain (%) if known; enter 0 if unavailable", min_value=-100.0, max_value=1000.0, value=0.0)
             submitted = st.form_submit_button("Run filters and simulate entry", disabled=not (price and float(price) > 0))
@@ -188,6 +189,7 @@ with desk_tab:
             asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
             price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
             stop_pct = st.slider("Stop Loss (%)", min_value=1, max_value=30, value=10)
+            take_profit_pct = st.slider("Take Profit (%)", min_value=1, max_value=100, value=20)
             liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=50000.0, step=1000.0)
             top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=25.0)
             dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=2.0)
@@ -206,11 +208,11 @@ with desk_tab:
         st.session_state.desk_last_result = {"signal": signal, "result": result}
         if result["approved"]:
             try:
-                position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct))
+                position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct))
                 if paper_store:
                     paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
-                st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}.".format(
-                    position["notional_usd"], position["stop_price"]))
+                st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}; take-profit price {:.8f}.".format(
+                    position["notional_usd"], position["stop_price"], position["take_profit_price"]))
             except ValueError as error:
                 st.error(str(error))
         else:
@@ -241,7 +243,7 @@ with desk_tab:
             if paper_store:
                 paper_store.save_state(portfolio, {"event_type": "stop_loss" if stopped_trade else "manual_mark", "asset": selected, "price_usd": mark_price, "trade": stopped_trade})
             if stopped_trade:
-                st.warning("Guard stop triggered. Simulated exit P&L: USD {:.2f}".format(stopped_trade["realized_pnl_usd"]))
+                st.warning("Automatic {} triggered. Simulated exit P&L: USD {:.2f}".format(stopped_trade["exit_reason"].replace("_", " "), stopped_trade["realized_pnl_usd"]))
             else:
                 st.success("Paper mark price updated.")
         if close_position:
@@ -258,7 +260,7 @@ with desk_tab:
     else:
         st.caption("No closed trades yet.")
 
-    st.caption("Risk defaults: 1% cash risk budget per trade, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side.")
+    st.caption("Risk defaults: 1% cash risk budget per trade, 10% stop-loss, 20% take-profit, max 10% position size, max 25% aggregate open exposure, 0.10% fee and 0.30% adverse slippage per side.")
     if paper_store:
         st.markdown("#### 30-day paper-trading journal")
         try:

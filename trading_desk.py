@@ -96,12 +96,14 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}
 
-def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float,
+def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_profit_pct: float = 20.0,
                 fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
     """Open a paper position only. No live order is ever sent."""
     check = evaluate_signal(signal)
     if not check["approved"]:
         raise ValueError("Signal rejected: " + "; ".join(check["reasons"]))
+    if stop_loss_pct <= 0 or take_profit_pct <= 0:
+        raise ValueError("Stop Loss and Take Profit percentages must be greater than zero.")
     exposure = sum(p["notional_usd"] for p in portfolio["open_positions"])
     notional = size_position(portfolio["cash"], stop_loss_pct, exposure)
     if notional <= 0:
@@ -116,6 +118,7 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float,
         "entry_reference_price": signal.price_usd, "entry_fill_price": fill_price,
         "quantity": quantity, "notional_usd": notional, "entry_fee_usd": entry_fee,
         "stop_loss_pct": stop_loss_pct, "stop_price": fill_price * (1.0 - stop_loss_pct / 100.0),
+        "take_profit_pct": take_profit_pct, "take_profit_price": fill_price * (1.0 + take_profit_pct / 100.0),
         "last_price_usd": signal.price_usd, "opened_at": datetime.now(timezone.utc).isoformat(),
         "source": signal.source,
     }
@@ -174,4 +177,6 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     position["last_price_usd"] = price_usd
     if price_usd <= position["stop_price"]:
         return paper_exit(portfolio, asset, price_usd, reason="stop_loss")
+    if price_usd >= position["take_profit_price"]:
+        return paper_exit(portfolio, asset, price_usd, reason="take_profit")
     return None

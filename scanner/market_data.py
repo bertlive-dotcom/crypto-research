@@ -31,8 +31,19 @@ class BinanceSpotClient:
             if item.get("status") == "TRADING"
             and item.get("isSpotTradingAllowed", True)
             and item.get("quoteAsset") == QUOTE_ASSET
-            and item.get("quoteOrderQtyMarketAllowed", True)
         }
+
+    def prices(self) -> dict[str, float]:
+        rows = self._get("/api/v3/ticker/price")
+        result = {}
+        for row in rows:
+            try:
+                symbol = row["symbol"]
+                if symbol.endswith(QUOTE_ASSET):
+                    result[symbol[:-len(QUOTE_ASSET)]] = float(row["price"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        return result
 
     def universe(self) -> list[dict]:
         tradable = self.exchange_symbols()
@@ -43,7 +54,6 @@ class BinanceSpotClient:
             if symbol not in tradable:
                 continue
             base = symbol[:-len(QUOTE_ASSET)]
-            # Avoid stablecoin pairs and leveraged-token products.
             if base in {"USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "USDD", "BUSD"}:
                 continue
             if any(base.endswith(tag) for tag in ("UP", "DOWN", "BULL", "BEAR")):
@@ -64,9 +74,11 @@ class BinanceSpotClient:
         rows.sort(key=lambda x: x["quote_volume_24h"], reverse=True)
         selected = rows[:TOP_UNIVERSE_SIZE]
         by_symbol = {row["symbol"]: row for row in rows}
+        selected_symbols = {row["symbol"] for row in selected}
         for symbol in WATCHLIST:
-            if symbol in by_symbol and symbol not in {x["symbol"] for x in selected}:
+            if symbol in by_symbol and symbol not in selected_symbols:
                 selected.append(by_symbol[symbol])
+                selected_symbols.add(symbol)
         return selected
 
     def klines(self, symbol: str, interval: str, limit: int = 120) -> list[list]:

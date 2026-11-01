@@ -405,69 +405,99 @@ with global_tab:
 
             tactical = [row for row in eligible if row["interval"] == "4h"]
             daily = [row for row in eligible if row["interval"] == "1d"]
-            if tactical:
-                st.markdown("#### Tactical ranking - 4 hours")
-                tactical_rows = []
-                for row in tactical:
-                    ind = row["indicators"]
-                    tactical_rows.append({
-                        "Symbol": row["symbol"],
-                        "Price": row["latest_close"],
-                        "RSI 14": ind["rsi_14"],
-                        "MACD": ind["macd_12_26"],
-                        "MACD signal": ind["macd_signal_9"],
-                        "SMA 20": ind["sma_20"],
-                        "SMA 50": ind["sma_50"],
-                        "Volatility %": ind["realized_volatility_pct_annualized_approx"],
-                        "Technical score": row["technical_screen_score"],
-                        "Age (min)": round(row["age_seconds"] / 60, 1),
-                    })
-                tactical_rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                st.dataframe(pd.DataFrame(tactical_rows), use_container_width=True, hide_index=True)
-
-            if daily:
-                st.markdown("#### Trend confirmation - daily")
-                daily_rows = []
-                for row in daily:
-                    ind = row["indicators"]
-                    daily_rows.append({
-                        "Symbol": row["symbol"], "Price": row["latest_close"],
-                        "RSI 14": ind["rsi_14"], "MACD": ind["macd_12_26"],
-                        "MACD signal": ind["macd_signal_9"], "SMA 20": ind["sma_20"],
-                        "SMA 50": ind["sma_50"],
-                        "Technical score": row["technical_screen_score"],
-                        "Age (h)": round(row["age_seconds"] / 3600, 1),
-                    })
-                daily_rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
-
             aligned = global_report.get("cross_timeframe", [])
+            structure_labels = {
+                "confirmed_trend": "Tendència confirmada",
+                "possible_reversal": "Possible gir (pendent del diari)",
+                "incipient_recovery": "Recuperació incipient",
+                "timeframe_divergence": "Divergència temporal",
+                "weakness": "Feblesa",
+                "mixed_structure": "Estructura mixta",
+                "insufficient_timeframes": "Intervals insuficients",
+            }
+            daily_by_symbol = {row["symbol"]: row for row in daily}
+            tactical_by_symbol = {row["symbol"]: row for row in tactical}
+
             if aligned:
-                st.markdown("#### Multi-timeframe alignment - daily 60% + 4h 40%")
-                st.caption("Only symbols with both fresh, closed intervals are included. Scores combine the existing technical screening scores; they are not expected returns or trade signals.")
-                structure_labels = {
-                    "confirmed_trend": "Tendència confirmada",
-                    "possible_reversal": "Possible gir (pendent del diari)",
-                    "incipient_recovery": "Recuperació incipient",
-                    "timeframe_divergence": "Divergència temporal",
-                    "weakness": "Feblesa",
-                    "mixed_structure": "Estructura mixta",
-                    "insufficient_timeframes": "Intervals insuficients",
-                }
-                alignment_rows = [{
-                    "Actiu": row["symbol"],
-                    "Puntuació diària": row["daily_score"],
-                    "Puntuació 4h": row["4h_score"],
-                    "Alineació": row["alignment_score"],
-                    "Classificació": structure_labels.get(row.get("structure"), row.get("structure")),
-                    "Rendiment 7d %": row.get("return_7d_pct"),
-                    "Rendiment 30d %": row.get("return_30d_pct"),
-                    "Força vs BTC 7d (pp)": row.get("relative_strength_vs_btc_7d_pct"),
-                    "Força vs BTC 30d (pp)": row.get("relative_strength_vs_btc_30d_pct"),
-                    "Lectura": row.get("structure_explanation", ""),
-                } for row in aligned]
-                st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)
-                st.caption("Possible gir només s'assigna quan el 4h confirma RSI >= 50 i MACD alcista; si no, es mostra recuperació incipient. Tendència confirmada exigeix RSI >= 50 i MACD alcista en tots dos intervals. Força relativa vs BTC = rendiment de l'actiu menys rendiment de BTC, en punts percentuals. Són mètriques descriptives, no senyals ni recomanacions d'operar.")
+                st.markdown("#### Resum del mercat")
+                st.caption("Vista compacta: classificació, rendiment i força relativa respecte a BTC. Valors en blanc indiquen historial insuficient.")
+                summary_rows = []
+                for row in aligned:
+                    d_row = daily_by_symbol.get(row["symbol"], {})
+                    t_row = tactical_by_symbol.get(row["symbol"], {})
+                    d_ind = d_row.get("indicators", {})
+                    t_ind = t_row.get("indicators", {})
+                    summary_rows.append({
+                        "Actiu": row["symbol"].replace("USDT", ""),
+                        "Estat": structure_labels.get(row.get("structure"), row.get("structure")),
+                        "RSI diari": d_ind.get("rsi_14"),
+                        "RSI 4h": t_ind.get("rsi_14"),
+                        "7d %": row.get("return_7d_pct"),
+                        "30d %": row.get("return_30d_pct"),
+                        "vs BTC 7d pp": row.get("relative_strength_vs_btc_7d_pct"),
+                        "vs BTC 30d pp": row.get("relative_strength_vs_btc_30d_pct"),
+                    })
+                summary_rows.sort(
+                    key=lambda item: (
+                        item["vs BTC 30d pp"] is not None,
+                        item["vs BTC 30d pp"] if item["vs BTC 30d pp"] is not None else -999
+                    ), reverse=True
+                )
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                st.caption("Força relativa positiva: l'actiu ha superat BTC en el període. Negativa: ha quedat per sota. No és una previsió ni una recomanació d'operar.")
+
+            with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):
+                if tactical:
+                    st.markdown("#### Rànquing tàctic - 4 hores")
+                    tactical_rows = []
+                    for row in tactical:
+                        ind = row["indicators"]
+                        tactical_rows.append({
+                            "Actiu": row["symbol"],
+                            "Preu": row["latest_close"],
+                            "RSI 14": ind["rsi_14"],
+                            "MACD": ind["macd_12_26"],
+                            "Senyal MACD": ind["macd_signal_9"],
+                            "SMA 20": ind["sma_20"],
+                            "SMA 50": ind["sma_50"],
+                            "Volatilitat %": ind["realized_volatility_pct_annualized_approx"],
+                            "Puntuació": row["technical_screen_score"],
+                            "Antiguitat (min)": round(row["age_seconds"] / 60, 1),
+                        })
+                    tactical_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
+                    st.dataframe(pd.DataFrame(tactical_rows), use_container_width=True, hide_index=True)
+
+                if daily:
+                    st.markdown("#### Confirmació de tendència - diari")
+                    daily_rows = []
+                    for row in daily:
+                        ind = row["indicators"]
+                        daily_rows.append({
+                            "Actiu": row["symbol"],
+                            "Preu": row["latest_close"],
+                            "RSI 14": ind["rsi_14"],
+                            "MACD": ind["macd_12_26"],
+                            "Senyal MACD": ind["macd_signal_9"],
+                            "SMA 20": ind["sma_20"],
+                            "SMA 50": ind["sma_50"],
+                            "Puntuació": row["technical_screen_score"],
+                            "Antiguitat (h)": round(row["age_seconds"] / 3600, 1),
+                        })
+                    daily_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
+                    st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+
+                if aligned:
+                    st.markdown("#### Alineació multi-temporal")
+                    alignment_rows = [{
+                        "Actiu": row["symbol"],
+                        "Puntuació diària": row["daily_score"],
+                        "Puntuació 4h": row["4h_score"],
+                        "Alineació": row["alignment_score"],
+                        "Classificació": structure_labels.get(row.get("structure"), row.get("structure")),
+                        "Lectura": row.get("structure_explanation", ""),
+                    } for row in aligned]
+                    st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)
+                st.caption("Les puntuacions tècniques són filtres descriptius, no probabilitats, rendiments esperats ni senyals d'operació.")
 
             if rejected:
                 st.markdown("#### Rejected data series")

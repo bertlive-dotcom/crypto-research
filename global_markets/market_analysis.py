@@ -268,4 +268,5 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         "eligible_series": len(eligible), "rejected_series": len(rejected),
         "cross_timeframe": cross_timeframe,
         "provider_unavailable": feed_result.get("unavailable", []),
+        "availability_counts": feed_result.get("summary", {}).get("availability_counts", {}),
     }

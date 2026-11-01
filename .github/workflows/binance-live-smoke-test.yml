@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/binance-live-smoke-test.yml"
+      - "global_markets/market_analysis.py"
 
 permissions:
   contents: read
@@ -62,8 +63,6 @@ jobs:
                   f"interval={item.get('interval')}; reason={item.get('reason')}"
               )
 
-          # BTC and ETH must each have at least one fresh interval for a
-          # successful real-data quality smoke test.
           fresh_symbols = {item["symbol"] for item in report["analyses"] if item["eligible"]}
           if not {"BTCUSDT", "ETHUSDT"}.issubset(fresh_symbols):
               raise SystemExit("FAIL: BTC and ETH did not both pass live freshness/history checks.")

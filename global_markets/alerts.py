@@ -22,7 +22,9 @@ def build_technical_alerts(report: dict, previous_structures: dict | None = None
         def add(kind, label, detail, stamp):
             alerts.append({
                 "dedupe_key": f"{symbol}:{kind}:{stamp}",
-                "event_type": kind, "asset": asset, "label": label,
+                "event_type": kind,
+                "alert_class": "relative_strength" if kind == "relative_strength_outperformance" else "technical_confirmation",
+                "asset": asset, "label": label,
                 "detail": detail, "daily_close": d_close, "four_hour_close": h_close,
             })
 

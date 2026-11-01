@@ -100,14 +100,10 @@ def get_quotes(symbols, key):
             return "El pla de Twelve Data no permet aquesta consulta."
         return f"Twelve Data no ha pogut retornar dades (codi {code or 'desconegut'})."
 
-    batch_requests = {
-        f"request_{index}": "/quote?symbol=" + requests.utils.quote(symbol, safe="")
-        for index, symbol in enumerate(symbols, start=1)
-    }
     try:
-        response = requests.post(
-            "https://api.twelvedata.com/batch",
-            json=batch_requests,
+        response = requests.get(
+            "https://api.twelvedata.com/quote",
+            params={"symbol": ",".join(symbols)},
             headers={"Authorization": f"apikey {key}"},
             timeout=20,
         )
@@ -120,22 +116,29 @@ def get_quotes(symbols, key):
         batch_data = response.json()
     except ValueError:
         return errors("Twelve Data ha retornat dades no vàlides.")
-    if not isinstance(batch_data, dict):
+
+    if isinstance(batch_data, dict) and (
+        batch_data.get("status") == "error" or "code" in batch_data
+    ):
+        return errors(provider_error(batch_data.get("code")))
+
+    if isinstance(batch_data, list):
+        quote_map = {
+            str(item.get("symbol", "")).upper(): item
+            for item in batch_data if isinstance(item, dict)
+        }
+    elif isinstance(batch_data, dict) and batch_data.get("symbol"):
+        quote_map = {str(batch_data["symbol"]).upper(): batch_data}
+    elif isinstance(batch_data, dict):
+        quote_map = {str(symbol).upper(): quote for symbol, quote in batch_data.items()}
+    else:
         return errors("Twelve Data ha retornat dades no vàlides.")
 
     results = {}
-    for index, symbol in enumerate(symbols, start=1):
-        item = batch_data.get(f"request_{index}")
-        if not isinstance(item, dict):
-            results[symbol] = {"_error": "Twelve Data no ha retornat dades per a aquest símbol."}
-            continue
-        if item.get("status") == "error" or "code" in item:
-            results[symbol] = {"_error": provider_error(item.get("code"))}
-            continue
-
-        quote = item.get("data", item)
+    for symbol in symbols:
+        quote = quote_map.get(symbol.upper())
         if not isinstance(quote, dict):
-            results[symbol] = {"_error": "Twelve Data ha retornat dades no vàlides."}
+            results[symbol] = {"_error": "Twelve Data no ha retornat dades per a aquest símbol."}
             continue
         if quote.get("status") == "error" or "code" in quote:
             results[symbol] = {"_error": provider_error(quote.get("code"))}

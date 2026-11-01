@@ -416,6 +416,12 @@ with global_tab:
                 "mixed_structure": "Estructura mixta",
                 "insufficient_timeframes": "Intervals insuficients",
             }
+            confirmation_labels = {
+                "confirmed_both": "RSI + MACD confirmats en 1d i 4h",
+                "daily_only": "Confirmació només diària",
+                "4h_only": "Confirmació només 4h",
+                "not_confirmed": "Sense confirmació RSI + MACD",
+            }
             daily_by_symbol = {row["symbol"]: row for row in daily}
             tactical_by_symbol = {row["symbol"]: row for row in tactical}
 
@@ -483,6 +489,7 @@ with global_tab:
                     summary_rows.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Estat": structure_labels.get(row.get("structure"), row.get("structure")),
+                        "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "7d %": row.get("return_7d_pct"),
                         "30d %": row.get("return_30d_pct"),
                     })
@@ -490,6 +497,9 @@ with global_tab:
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "RSI diari": d_ind.get("rsi_14"),
                         "RSI 4h": t_ind.get("rsi_14"),
+                        "MACD hist. diari": d_ind.get("macd_histogram"),
+                        "MACD hist. 4h": t_ind.get("macd_histogram"),
+                        "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "Força vs BTC 7d (pp)": row.get("relative_strength_vs_btc_7d_pct"),
                         "Força vs BTC 30d (pp)": row.get("relative_strength_vs_btc_30d_pct"),
                     })
@@ -507,7 +517,7 @@ with global_tab:
                     row["symbol"].replace("USDT", "")
                     for row in daily if row.get("normalized_history")
                 )
-                default_symbols = [symbol for symbol in ["BTC", "ETH", "SOL", "LINK"] if symbol in history_symbols]
+                default_symbols = [symbol for symbol in ["BTC", "ETH", "PEPE", "HYPE"] if symbol in history_symbols]
                 selected_symbols = st.multiselect(
                     "Actius del gràfic", history_symbols,
                     default=default_symbols, key="global_crypto_comparison_symbols"
@@ -554,6 +564,8 @@ with global_tab:
                             "Preu": row["latest_close"],
                             "RSI 14": ind["rsi_14"],
                             "MACD": ind["macd_12_26"],
+                            "Histograma MACD": ind["macd_histogram"],
+                            "Canvi histograma": ind["macd_histogram_change"],
                             "Senyal MACD": ind["macd_signal_9"],
                             "SMA 20": ind["sma_20"],
                             "SMA 50": ind["sma_50"],
@@ -575,6 +587,8 @@ with global_tab:
                             "RSI 14": ind["rsi_14"],
                             "MACD": ind["macd_12_26"],
                             "Senyal MACD": ind["macd_signal_9"],
+                            "Histograma MACD": ind["macd_histogram"],
+                            "Canvi histograma": ind["macd_histogram_change"],
                             "SMA 20": ind["sma_20"],
                             "SMA 50": ind["sma_50"],
                             "Puntuació": row["technical_screen_score"],
@@ -591,6 +605,7 @@ with global_tab:
                         "Puntuació 4h": row["4h_score"],
                         "Alineació": row["alignment_score"],
                         "Classificació": structure_labels.get(row.get("structure"), row.get("structure")),
+                        "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "Lectura": row.get("structure_explanation", ""),
                     } for row in aligned]
                     st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)

@@ -268,6 +268,16 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         btc_30d = btc_indicators.get("return_30d_pct")
         asset_7d = daily_indicators.get("return_7d_pct")
         asset_30d = daily_indicators.get("return_30d_pct")
+        asset_risk = daily.get("risk_metrics", {})
+        btc_risk = btc_daily.get("risk_metrics", {}) if btc_daily else {}
+        relative_returns = {}
+        for horizon in (20, 60, 120):
+            asset_return = asset_risk.get(f"return_{horizon}d_pct")
+            btc_return = btc_risk.get(f"return_{horizon}d_pct")
+            relative_returns[f"relative_strength_vs_btc_{horizon}d_pp"] = (
+                round(asset_return - btc_return, 2)
+                if asset_return is not None and btc_return is not None else None
+            )
         cross_timeframe.append({
             "symbol": symbol,
             "daily_score": daily["technical_screen_score"],
@@ -282,6 +292,8 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             "return_30d_pct": asset_30d,
             "relative_strength_vs_btc_7d_pct": round(asset_7d - btc_7d, 2) if asset_7d is not None and btc_7d is not None else None,
             "relative_strength_vs_btc_30d_pct": round(asset_30d - btc_30d, 2) if asset_30d is not None and btc_30d is not None else None,
+            **relative_returns,
+            "risk_metrics": asset_risk,
             "daily_price": daily["latest_close"],
             "4h_price": tactical["latest_close"],
         })

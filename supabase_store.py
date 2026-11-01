@@ -77,18 +77,19 @@ class SupabasePaperStore:
             },
         ) or []
 
-    def save_market_alerts(self, alerts: list[dict]) -> None:
-        """Insert new alerts; duplicate dedupe keys are ignored by the database."""
+    def save_market_alerts(self, alerts: list[dict]) -> list[dict]:
+        """Insert new alerts and return only rows actually inserted by PostgREST."""
         if not alerts:
-            return
+            return []
         # alert_class is presentation metadata introduced in the app; keep the
         # durable row compatible with existing tables that predate that field.
         columns = ("dedupe_key", "event_type", "asset", "label", "detail",
                    "daily_close", "four_hour_close")
         rows = [{key: alert.get(key) for key in columns} for alert in alerts]
-        self._request(
+        inserted = self._request(
             "POST", "market_alert_events",
-            params={"on_conflict": "dedupe_key"},
-            headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=minimal"},
+            params={"on_conflict": "dedupe_key", "select": "dedupe_key,created_at"},
+            headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=representation"},
             json=rows,
         )
+        return inserted or []

@@ -44,8 +44,30 @@ class ScannerStore:
         })
 
     def latest_candidates(self, limit: int = 50) -> list[dict]:
+        """Return one row per symbol from the newest completed scan, not 20 minutes of cycles."""
+        safe_limit = max(1, min(int(limit), 500))
         since = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
-        return self._request("GET", "market_candidates", params={
-            "select": "symbol,score,eligible,auto_entry_eligible,price_usdt,quote_volume_24h,change_24h_pct,scanned_at,features,reasons",
-            "scanned_at": "gte." + since, "order": "score.desc", "limit": str(limit)
+        latest = self._request("GET", "market_candidates", params={
+            "select": "scanned_at",
+            "scanned_at": "gte." + since,
+            "order": "scanned_at.desc",
+            "limit": "1",
         }) or []
+        if not latest or not latest[0].get("scanned_at"):
+            return []
+
+        scan_time = latest[0]["scanned_at"]
+        rows = self._request("GET", "market_candidates", params={
+            "select": "symbol,score,eligible,auto_entry_eligible,price_usdt,quote_volume_24h,change_24h_pct,scanned_at,features,reasons",
+            "scanned_at": "eq." + scan_time,
+            "order": "score.desc,quote_volume_24h.desc",
+            "limit": str(safe_limit),
+        }) or []
+
+        # Defensive de-duplication in case legacy rows or provider responses contain repeats.
+        unique = {}
+        for row in rows:
+            symbol = str(row.get("symbol", "")).strip().upper()
+            if symbol and symbol not in unique:
+                unique[symbol] = row
+        return list(unique.values())

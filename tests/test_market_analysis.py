@@ -267,6 +267,32 @@ class MarketAnalysisTests(unittest.TestCase):
         result = analyze_candles(self.rows(count=60, interval="4h"), now=self.now)
         self.assertEqual(result["normalized_history"], [])
 
+    def test_entry_filter_penalizes_extreme_volatility_and_recent_weakness(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 105, "indicators": {
+            "sma_20": 100, "rsi_14": 58, "macd_histogram": 1},
+            "risk_metrics": {"realized_volatility_20d_pct_annualized": 135,
+                             "max_drawdown_120d_pct": -42, "return_20d_pct": -5}}
+        tactical = {"eligible": True, "latest_close": 102, "indicators": {
+            "sma_20": 100, "rsi_14": 55, "macd_histogram": 0.5}}
+        result = classify_entry_opportunity(daily, tactical,
+            {"category": "confirmed_trend"}, relative_strength_20d_pp=-4)
+        self.assertEqual(result["risk_penalty"], 40)
+        self.assertEqual(result["deterioration_penalty"], 16)
+        self.assertEqual(result["quality_score"], 44)
+        self.assertNotEqual(result["category"], "confirmed_entry_setup")
+
+    def test_entry_filter_requires_daily_and_4h_confirmation(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 105, "indicators": {
+            "sma_20": 100, "rsi_14": 58, "macd_histogram": 1}}
+        tactical = {"eligible": True, "latest_close": 102, "indicators": {
+            "sma_20": 100, "rsi_14": 48, "macd_histogram": -0.1}}
+        result = classify_entry_opportunity(daily, tactical,
+            {"category": "mixed_structure"})
+        self.assertFalse(result["confirmed_both"])
+        self.assertEqual(result["category"], "no_clear_opportunity")
+
 
 if __name__ == "__main__":
     unittest.main()

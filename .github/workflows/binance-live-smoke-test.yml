@@ -1,0 +1,76 @@
+name: Binance live crypto feed smoke test
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/binance-live-smoke-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install feed dependency
+        run: python -m pip install "requests>=2.31,<3.0"
+      - name: Fetch live public Binance candles
+        run: |
+          python - <<'PY'
+          import time
+          from global_markets.crypto_feed import CryptoWatchlistFeed
+
+          symbols = [
+              "BTCUSD", "ETHUSD", "SOLUSD", "LINKUSD", "XLMUSD", "SUIUSD",
+              "HYPEUSD", "XMRUSD", "LEOUSD", "BATUSD", "PEPEUSD", "BEAMUSD",
+              "ANVLUSD",
+          ]
+
+          feed = CryptoWatchlistFeed()
+          result = feed.fetch(symbols=symbols, intervals=("1d", "4h"), limit=3)
+
+          print("SOURCE: Binance public spot market data")
+          print(f"OBSERVED_AT: {result['observed_at']}")
+          print(f"SUMMARY: {result['summary']}")
+
+          by_symbol = {}
+          for row in result["data"]:
+              by_symbol.setdefault(row["symbol"], []).append(row)
+
+          for canonical in symbols:
+              pair = {
+                  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "SOLUSD": "SOLUSDT",
+                  "LINKUSD": "LINKUSDT", "XLMUSD": "XLMUSDT", "SUIUSD": "SUIUSDT",
+                  "HYPEUSD": "HYPEUSDT", "XMRUSD": "XMRUSDT", "LEOUSD": "LEOUSDT",
+                  "BATUSD": "BATUSDT", "PEPEUSD": "PEPEUSDT", "BEAMUSD": "BEAMUSDT",
+                  "ANVLUSD": "ANVLUSDT",
+              }[canonical]
+              rows = by_symbol.get(pair, [])
+              if rows:
+                  intervals = sorted({r["interval"] for r in rows})
+                  latest = max(rows, key=lambda r: r["timestamp"])
+                  print(
+                      f"AVAILABLE {canonical} ({pair}): intervals={intervals}; "
+                      f"latest_close={latest['close']}; latest_timestamp={latest['timestamp']}"
+                  )
+              else:
+                  reasons = [
+                      item["reason"] for item in result["unavailable"]
+                      if item["symbol"] == canonical
+                  ]
+                  print(f"UNAVAILABLE {canonical} ({pair}): {reasons}")
+
+          # BTC and ETH are required smoke-test anchors. Other symbols can be
+          # unavailable due to listing/region restrictions and are reported.
+          if "BTCUSDT" not in by_symbol or "ETHUSDT" not in by_symbol:
+              raise SystemExit("FAIL: Binance live feed did not return both BTCUSDT and ETHUSDT.")
+          if not result["data"]:
+              raise SystemExit("FAIL: Binance live feed returned no observations.")
+
+          print("SUCCESS: live Binance spot candles received for BTC and ETH.")
+          PY

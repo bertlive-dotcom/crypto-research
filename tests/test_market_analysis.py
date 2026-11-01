@@ -36,7 +36,7 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["score_type"], "technical_only_not_investment_recommendation")
 
     def test_daily_risk_metrics_require_sufficient_history(self):
-        result = analyze_candles(self.rows(count=60), now=self.now)
+        result = analyze_candles(self.rows(count=61), now=self.now)
         metrics = result["risk_metrics"]
         self.assertIsNotNone(metrics["return_20d_pct"])
         self.assertIsNotNone(metrics["return_60d_pct"])

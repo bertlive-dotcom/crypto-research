@@ -28,6 +28,21 @@ class AlphaVantageClientTests(unittest.TestCase):
         self.assertEqual(rows[0]["symbol"], "EURUSD")
         self.assertEqual(rows[0]["close"], 1.165)
         self.assertEqual(rows[0]["source"], "alpha_vantage")
+        self.assertEqual(rows[0]["interval"], "1d")
+        self.assertEqual(rows[0]["volume"], 0.0)
+        self.assertFalse(rows[0]["volume_available"])
+        self.assertTrue(rows[0]["timestamp"].startswith("2026-10-30T00:00:00"))
+        self.assertTrue(rows[0]["close_timestamp"].startswith("2026-10-30T23:59:59"))
+
+    def test_fx_daily_rejects_inconsistent_ohlc(self):
+        self.session.get.return_value = self.response({
+            "Time Series FX (Daily)": {"2026-10-30": {
+                "1. open": "1.16", "2. high": "1.10",
+                "3. low": "1.15", "4. close": "1.165",
+            }}
+        })
+        with self.assertRaisesRegex(AlphaVantageError, "inconsistent OHLC"):
+            self.client.get_fx_daily("EUR", "USD")
 
     def test_crypto_daily_normalizes_usd_fields(self):
         self.session.get.return_value = self.response({

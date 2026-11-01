@@ -365,6 +365,19 @@ with global_tab:
                 daily_rows.sort(key=lambda item: item["Technical score"], reverse=True)
                 st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
 
+            aligned = global_report.get("cross_timeframe", [])
+            if aligned:
+                st.markdown("#### Multi-timeframe alignment - daily 60% + 4h 40%")
+                st.caption("Only symbols with both fresh, closed intervals are included. Scores combine the existing technical screening scores; they are not expected returns or trade signals.")
+                alignment_rows = [{
+                    "Symbol": row["symbol"],
+                    "Daily score": row["daily_score"],
+                    "4h score": row["4h_score"],
+                    "Alignment score": row["alignment_score"],
+                    "Bias": row["stance"],
+                } for row in aligned]
+                st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)
+
             if rejected:
                 st.markdown("#### Rejected data series")
                 st.dataframe(pd.DataFrame([{

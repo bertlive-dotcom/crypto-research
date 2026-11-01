@@ -255,6 +255,8 @@ def build_risk_adjusted_relative_strength(rows: list[dict]) -> tuple[list[dict],
             "symbol": symbol, "available_components": 5 - len(missing), "total_components": 5,
             "data_quality_pct": round(100 * (5 - len(missing)) / 5, 1),
             "missing_components": missing,
+            "latest_daily_candle_close": row.get("daily_latest_candle_close"),
+            "daily_data_age_hours": round(row["daily_age_seconds"] / 3600, 2) if row.get("daily_age_seconds") is not None else None,
             "ranking_status": "complete" if not missing else "insufficient_history",
         })
         if not missing:
@@ -365,6 +367,8 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             "relative_strength_vs_btc_30d_pct": round(asset_30d - btc_30d, 2) if asset_30d is not None and btc_30d is not None else None,
             **relative_returns,
             "risk_metrics": asset_risk,
+            "daily_latest_candle_close": daily.get("latest_candle_close"),
+            "daily_age_seconds": daily.get("age_seconds"),
             "daily_price": daily["latest_close"],
             "4h_price": tactical["latest_close"],
         })

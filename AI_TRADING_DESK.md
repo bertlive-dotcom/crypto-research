@@ -20,7 +20,7 @@ For Solana candidates, missing on-chain inputs fail closed:
 - 45-minute gain <= 80%;
 - source wallet has not sold.
 
-For major assets, wallet/holder checks are not applicable. The MVP requires 24-hour volume >= USD 1,000,000 and rejects an indicated 45-minute gain above 80%. This is a separate ruleset, not equivalent to the Solana checks.
+For major assets, wallet/holder checks are not applicable. The MVP automatically reads 24-hour volume and 1-hour price change from CoinMarketCap. It requires 24-hour volume >= USD 1,000,000 and rejects an indicated 1-hour gain above 80%. The quote must be no older than five minutes. Missing market inputs fail closed. This is a separate ruleset, not equivalent to the Solana checks.
 
 ## Risk model
 - Default risk budget: 1% of current virtual cash per trade.
@@ -35,9 +35,9 @@ For major assets, wallet/holder checks are not applicable. The MVP requires 24-h
 ## Current limitations
 - No automatic 640-wallet tracker or wallet performance ranking.
 - No automatic Solana token discovery / on-chain holder analytics yet.
-- Candidate signals are manually entered in the UI in this first increment.
+- Solana candidate signals and on-chain metrics remain manual and require explicit values plus source and observation time. Major-asset entry price, 24-hour volume and 1-hour price change are populated from CoinMarketCap.
 - Portfolio state is held in Streamlit session state and is not a durable, cross-device ledger.
-- Major-asset prices and open-position marks refresh automatically from CoinMarketCap every 60 seconds; manual marks remain available for testing.
+- Major-asset prices and open-position marks refresh automatically from CoinMarketCap every 60 seconds; quote fields used for paper-entry filters are checked for five-minute freshness. Manual marks remain available for testing.
 - No claim of AI-generated analysis or proven profitability; current agents are deterministic rule-based components.
 
 ## Validation gates before any live-trading discussion

@@ -79,6 +79,10 @@ class FinancialDataClient:
                         delay = min(self.backoff_seconds * (2 ** attempt), 30.0)
                     self.sleep(max(0.0, delay))
                     continue
+                if response.status_code in {401, 403}:
+                    raise FinancialDataError(
+                        f"provider access denied (HTTP {response.status_code}); check API-key validity and endpoint plan entitlement"
+                    )
                 if response.status_code >= 400:
                     raise FinancialDataError(f"provider returned HTTP {response.status_code}")
                 try:
@@ -176,9 +180,17 @@ class FinancialDataClient:
             if not math.isfinite(volume) or volume < 0:
                 raise FinancialDataError("daily volume must be finite and non-negative")
             if values["high"] < max(values["open"], values["close"], values["low"]):
-                raise FinancialDataError("daily high is inconsistent with OHLC values")
+                raise FinancialDataError(
+                    f"daily high is inconsistent for {symbol} on {day.isoformat()} "
+                    f"(open={values['open']}, high={values['high']}, "
+                    f"low={values['low']}, close={values['close']})"
+                )
             if values["low"] > min(values["open"], values["close"], values["high"]):
-                raise FinancialDataError("daily low is inconsistent with OHLC values")
+                raise FinancialDataError(
+                    f"daily low is inconsistent for {symbol} on {day.isoformat()} "
+                    f"(open={values['open']}, high={values['high']}, "
+                    f"low={values['low']}, close={values['close']})"
+                )
             normalized.append({
                 "asset_id": f"financialdata.net:{asset_class}:{symbol}",
                 "symbol": symbol,

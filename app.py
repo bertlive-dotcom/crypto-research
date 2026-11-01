@@ -418,6 +418,25 @@ with global_tab:
             daily_by_symbol = {row["symbol"]: row for row in daily}
             tactical_by_symbol = {row["symbol"]: row for row in tactical}
 
+            # Session-scoped transition detection: compare only consecutive fresh scans
+            # visible to this dashboard session; no historical signal is fabricated.
+            current_structures = {row["symbol"]: row.get("structure") for row in aligned}
+            previous_structures = st.session_state.get("global_crypto_previous_structures")
+            if previous_structures is not None:
+                transitions = [{
+                    "Actiu": symbol.replace("USDT", ""),
+                    "Abans": structure_labels.get(previous_structures.get(symbol), previous_structures.get(symbol, "—")),
+                    "Ara": structure_labels.get(category, category),
+                } for symbol, category in current_structures.items()
+                    if symbol in previous_structures and previous_structures[symbol] != category]
+                if transitions:
+                    st.markdown("#### Canvis de classificació des de l'última lectura")
+                    st.dataframe(pd.DataFrame(transitions), use_container_width=True, hide_index=True)
+                    confirmed = [item for item in transitions if item["Ara"] == "Tendència confirmada"]
+                    if confirmed:
+                        st.success("Confirmació tècnica multi-temporal: " + ", ".join(item["Actiu"] for item in confirmed))
+            st.session_state["global_crypto_previous_structures"] = current_structures
+
             if aligned:
                 st.markdown("#### Resum del mercat")
                 st.caption("Vista mòbil: actiu, estat i rendiment. Les mètriques complementàries són a l'apartat desplegable.")
@@ -448,6 +467,31 @@ with global_tab:
                     ), reverse=True
                 )
                 st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+                st.markdown("#### Evolució comparativa (base 100)")
+                st.caption("Preus diaris tancats, normalitzats a 100 al començament del període disponible. Serveix per comparar rendiment relatiu, no el preu absolut.")
+                history_symbols = sorted(
+                    row["symbol"].replace("USDT", "")
+                    for row in daily if row.get("normalized_history")
+                )
+                default_symbols = [symbol for symbol in ["BTC", "ETH", "SOL", "LINK"] if symbol in history_symbols]
+                selected_symbols = st.multiselect(
+                    "Actius del gràfic", history_symbols,
+                    default=default_symbols, key="global_crypto_comparison_symbols"
+                )
+                chart_series = {}
+                for row in daily:
+                    symbol = row["symbol"].replace("USDT", "")
+                    if symbol in selected_symbols and row.get("normalized_history"):
+                        chart_series[symbol] = {
+                            point["date"]: point["value"] for point in row["normalized_history"]
+                        }
+                if chart_series:
+                    chart_frame = pd.DataFrame(chart_series).sort_index()
+                    st.line_chart(chart_frame, use_container_width=True)
+                else:
+                    st.info("No hi ha historial diari suficient per als actius seleccionats.")
+
                 with st.expander("RSI i força relativa respecte a BTC", expanded=False):
                     rsi_rows = [{
                         "Actiu": item["Actiu"],

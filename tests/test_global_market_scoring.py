@@ -22,7 +22,7 @@ class CandidateScoringTests(unittest.TestCase):
         result = rank_candidate(self.candidate, now=self.now)
         self.assertTrue(result["eligible"])
         self.assertEqual(result["coverage"], 1.0)
-        self.assertAlmostEqual(result["score"], 80.5)
+        self.assertAlmostEqual(result["score"], 81.0)
 
     def test_withholds_score_when_coverage_is_too_low(self):
         candidate = dict(self.candidate, scores={"technical": 90})

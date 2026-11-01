@@ -301,14 +301,23 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
                   or (t_rsi is not None and t_rsi >= 70))
     extended = extension is not None and extension >= 8
     structure_category = (structure or {}).get("category")
+    daily_confirmed = d_rsi is not None and d_rsi >= 50 and d_hist is not None and d_hist > 0
+    tactical_confirmed = t_rsi is not None and t_rsi >= 50 and t_hist is not None and t_hist > 0
     confirmed_both = (
         data_quality_pct >= 100
         and structure_category == "confirmed_trend"
-        and d_rsi is not None and d_rsi >= 50
-        and t_rsi is not None and t_rsi >= 50
-        and d_hist is not None and d_hist > 0
-        and t_hist is not None and t_hist > 0
+        and daily_confirmed and tactical_confirmed
     )
+    if daily_confirmed and tactical_confirmed:
+        confirmation_status = "Confirmació tècnica en diari i 4h"
+    elif daily_confirmed:
+        confirmation_status = "Només diari: falta confirmació 4h"
+    elif tactical_confirmed:
+        confirmation_status = "Només 4h: falta confirmació diària"
+    else:
+        confirmation_status = "Sense confirmació conjunta RSI + MACD"
+    if data_quality_pct < 100:
+        confirmation_status += " · historial incomplet"
     if overbought or extended:
         category, label = "late_entry_risk", "Risc d'entrada tardana"
         if overbought:
@@ -337,7 +346,10 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
         "volatility_20d_pct_annualized": volatility,
         "max_drawdown_120d_pct": drawdown, "return_20d_pct": return_20d,
         "relative_strength_20d_pp": relative_strength_20d_pp,
-        "confirmed_both": confirmed_both, "daily_rsi": d_rsi, "4h_rsi": t_rsi,
+        "confirmed_both": confirmed_both, "daily_confirmed": daily_confirmed,
+        "4h_confirmed": tactical_confirmed, "confirmation_status": confirmation_status,
+        "momentum_score": raw_score, "risk_quality_penalty": risk_penalty,
+        "daily_rsi": d_rsi, "4h_rsi": t_rsi,
         "daily_extension_vs_sma20_pct": round(extension, 2) if extension is not None else None,
         "reasons": reasons,
     }
@@ -449,12 +461,14 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     for item in feed_result.get("unavailable", []):
         freshness.append({
             "symbol": item.get("provider_symbol") or item.get("symbol"),
+            "canonical_symbol": item.get("symbol"),
             "interval": item.get("interval"),
             "latest_candle_close": None,
             "age_seconds": None,
             "bars": None,
             "status": "unavailable",
             "reasons": [item.get("reason", "unknown")],
+            "detail": item.get("detail"),
         })
     freshness.sort(key=lambda item: (item.get("symbol") or "", item.get("interval") or ""))
 

@@ -12,6 +12,7 @@ MAX_TOP10_HOLDER_PCT = 40.0
 MAX_DEV_WALLET_PCT = 8.0
 MIN_SOLANA_LIQUIDITY_USD = 30_000.0
 MAX_GAIN_45M_PCT = 80.0
+MAX_MAJOR_GAIN_1H_PCT = 80.0
 MIN_MAJOR_VOLUME_24H_USD = 1_000_000.0
 DEFAULT_RISK_FRACTION = 0.01
 MAX_POSITION_FRACTION = 0.10
@@ -31,6 +32,7 @@ class Signal:
     gain_45m_pct: Optional[float] = None
     source_wallet_sold: Optional[bool] = None
     volume_24h_usd: Optional[float] = None
+    gain_1h_pct: Optional[float] = None
     source: str = "manual"
     observed_at: str = ""
 
@@ -74,8 +76,14 @@ def evaluate_signal(signal: Signal) -> dict:
             reasons.append("Missing 24-hour volume; major-asset signal rejected.")
         elif signal.volume_24h_usd < MIN_MAJOR_VOLUME_24H_USD:
             reasons.append(f"24-hour volume below ${MIN_MAJOR_VOLUME_24H_USD:,.0f}.")
-        if signal.gain_45m_pct is not None and signal.gain_45m_pct > MAX_GAIN_45M_PCT:
-            reasons.append("Asset gained more than 80% in 45 minutes; reject late entry.")
+        major_gain = signal.gain_1h_pct
+        # Backward compatibility for callers that still submit the old field.
+        if major_gain is None:
+            major_gain = signal.gain_45m_pct
+        if major_gain is None:
+            reasons.append("Missing 1-hour price change; major-asset signal rejected.")
+        elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+            reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
     else:
         reasons.append("Unknown market. Use 'solana' or 'major'.")
     return {"approved": not reasons, "reasons": reasons, "checks_passed": 0 if reasons else (6 if signal.market == "solana" else 2)}

@@ -133,9 +133,18 @@ class FinancialDataClientTests(unittest.TestCase):
             {"trading_symbol": "GC", "date": "2026-10-30", "open": 10,
              "high": 8, "low": 9, "close": 11, "volume": 100},
         ])
-        with self.assertRaisesRegex(FinancialDataError, "GC on 2026-10-30.*open=10.0, high=8.0"):
-            self.client.fetch_daily_prices("GC", "commodity")
+        result = self.client.fetch_daily_prices_with_quality("GC", "commodity")
+        self.assertEqual(result["candles"], [])
 
+
+    def test_daily_quality_skips_bad_rows(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "GC", "date": "2026-10-30", "open": 10, "high": 12, "low": 9, "close": 11, "volume": 100},
+            {"trading_symbol": "GC", "date": "2026-10-29", "open": 10, "high": 8, "low": 9, "close": 11, "volume": 100},
+        ])
+        result = self.client.fetch_daily_prices_with_quality("GC", "commodity")
+        self.assertEqual(len(result["candles"]), 1)
+        self.assertEqual(len(result["rejected_records"]), 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from global_markets.market_analysis import analyze_candles, analyze_feed
+from global_markets.market_analysis import analyze_candles, analyze_feed, classify_timeframe_structure
 
 
 class MarketAnalysisTests(unittest.TestCase):
@@ -90,6 +90,29 @@ class MarketAnalysisTests(unittest.TestCase):
             "source": "binance", "data": self.rows(interval="1d"), "unavailable": [],
         }, now=self.now)
         self.assertEqual(result["cross_timeframe"], [])
+
+    def test_classifies_daily_strength_without_4h_confirmation_as_divergence(self):
+        daily = {"eligible": True, "technical_screen_score": 100, "indicators": {}}
+        tactical = {"eligible": True, "technical_screen_score": 37.5, "indicators": {}}
+        result = classify_timeframe_structure(daily, tactical)
+        self.assertEqual(result["category"], "timeframe_divergence")
+
+    def test_classifies_weak_daily_with_strong_4h_as_possible_reversal(self):
+        daily = {"eligible": True, "technical_screen_score": 12.5, "indicators": {}}
+        tactical = {"eligible": True, "technical_screen_score": 75,
+                    "indicators": {"macd_12_26": 2.0, "macd_signal_9": 1.0}}
+        result = classify_timeframe_structure(daily, tactical)
+        self.assertEqual(result["category"], "possible_reversal")
+        self.assertIn("MACD momentum is improving", result["explanation"])
+
+    def test_classifies_weakness_when_both_timeframes_are_weak(self):
+        daily = {"eligible": True, "technical_screen_score": 0, "indicators": {}}
+        tactical = {"eligible": True, "technical_screen_score": 25, "indicators": {}}
+        self.assertEqual(classify_timeframe_structure(daily, tactical)["category"], "weakness")
+
+    def test_requires_both_fresh_timeframes_for_structure(self):
+        daily = {"eligible": True, "technical_screen_score": 80, "indicators": {}}
+        self.assertEqual(classify_timeframe_structure(daily, None)["category"], "insufficient_timeframes")
 
 
 if __name__ == "__main__":

@@ -420,8 +420,9 @@ with global_tab:
 
             if aligned:
                 st.markdown("#### Resum del mercat")
-                st.caption("Vista compacta: classificació, rendiment i força relativa respecte a BTC. Valors en blanc indiquen historial insuficient.")
+                st.caption("Vista mòbil: actiu, estat i rendiment. Les mètriques complementàries són a l'apartat desplegable.")
                 summary_rows = []
+                detail_rows = []
                 for row in aligned:
                     d_row = daily_by_symbol.get(row["symbol"], {})
                     t_row = tactical_by_symbol.get(row["symbol"], {})
@@ -430,21 +431,27 @@ with global_tab:
                     summary_rows.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Estat": structure_labels.get(row.get("structure"), row.get("structure")),
-                        "RSI diari": d_ind.get("rsi_14"),
-                        "RSI 4h": t_ind.get("rsi_14"),
                         "7d %": row.get("return_7d_pct"),
                         "30d %": row.get("return_30d_pct"),
-                        "vs BTC 7d pp": row.get("relative_strength_vs_btc_7d_pct"),
-                        "vs BTC 30d pp": row.get("relative_strength_vs_btc_30d_pct"),
+                    })
+                    detail_rows.append({
+                        "Actiu": row["symbol"].replace("USDT", ""),
+                        "RSI diari": d_ind.get("rsi_14"),
+                        "RSI 4h": t_ind.get("rsi_14"),
+                        "Força vs BTC 7d (pp)": row.get("relative_strength_vs_btc_7d_pct"),
+                        "Força vs BTC 30d (pp)": row.get("relative_strength_vs_btc_30d_pct"),
                     })
                 summary_rows.sort(
                     key=lambda item: (
-                        item["vs BTC 30d pp"] is not None,
-                        item["vs BTC 30d pp"] if item["vs BTC 30d pp"] is not None else -999
+                        item["30d %"] is not None,
+                        item["30d %"] if item["30d %"] is not None else -999
                     ), reverse=True
                 )
                 st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-                st.caption("Força relativa positiva: l'actiu ha superat BTC en el període. Negativa: ha quedat per sota. No és una previsió ni una recomanació d'operar.")
+                with st.expander("RSI i força relativa respecte a BTC", expanded=False):
+                    st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+                    st.caption("Força relativa positiva: l'actiu ha superat BTC en el període. Negativa: ha quedat per sota. Els valors buits indiquen historial insuficient.")
+                st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):
                 if tactical:

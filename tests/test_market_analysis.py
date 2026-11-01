@@ -294,5 +294,20 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["category"], "no_clear_opportunity")
 
 
+    def test_early_turn_watch_detects_improving_negative_4h_histogram(self):
+        daily = {"eligible": True, "technical_screen_score": 25, "indicators": {"rsi_14": 42, "macd_12_26": -2, "macd_signal_9": -1}}
+        tactical = {"eligible": True, "technical_screen_score": 50, "indicators": {"rsi_14": 48, "previous_rsi_14": 45, "macd_12_26": -1.2, "macd_signal_9": -1, "macd_histogram": -0.2, "previous_macd_histogram": -0.5}}
+        self.assertEqual(classify_timeframe_structure(daily, tactical)["category"], "early_turn_watch")
+
+    def test_incomplete_history_penalizes_quality_and_blocks_confirmation(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 105, "indicators": {"sma_20": 100, "rsi_14": 58, "macd_histogram": 1}}
+        tactical = {"eligible": True, "latest_close": 102, "indicators": {"sma_20": 100, "rsi_14": 55, "macd_histogram": 0.5}}
+        result = classify_entry_opportunity(daily, tactical, {"category": "confirmed_trend"}, data_quality_pct=60)
+        self.assertEqual(result["data_quality_penalty"], 20)
+        self.assertFalse(result["confirmed_both"])
+        self.assertNotEqual(result["category"], "confirmed_entry_setup")
+
+
 if __name__ == "__main__":
     unittest.main()

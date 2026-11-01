@@ -189,6 +189,41 @@ class MarketAnalysisTests(unittest.TestCase):
                     "indicators": {"rsi_14": 55, "macd_12_26": 2, "macd_signal_9": 1}}
         self.assertEqual(classify_timeframe_structure(daily, tactical)["category"], "confirmed_trend")
 
+    def test_entry_classification_detects_confirmed_trend(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 105, "indicators": {
+            "sma_20": 100, "rsi_14": 58, "macd_histogram": 1}}
+        tactical = {"eligible": True, "latest_close": 102, "indicators": {
+            "sma_20": 100, "rsi_14": 55, "macd_histogram": 0.5}}
+        result = classify_entry_opportunity(daily, tactical, {"category": "confirmed_trend"})
+        self.assertEqual(result["category"], "confirmed_uptrend")
+        self.assertEqual(result["quality_score"], 100)
+
+    def test_entry_classification_flags_late_entry_risk(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 112, "indicators": {
+            "sma_20": 100, "rsi_14": 72, "macd_histogram": 1}}
+        tactical = {"eligible": True, "latest_close": 110, "indicators": {
+            "sma_20": 100, "rsi_14": 76, "macd_histogram": 1}}
+        result = classify_entry_opportunity(daily, tactical, {"category": "confirmed_trend"})
+        self.assertEqual(result["category"], "late_entry_risk")
+        self.assertTrue(any("RSI elevat" in reason for reason in result["reasons"]))
+
+    def test_entry_classification_marks_early_recovery(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 98, "indicators": {
+            "sma_20": 100, "rsi_14": 44, "macd_histogram": -0.1}}
+        tactical = {"eligible": True, "latest_close": 101, "indicators": {
+            "sma_20": 100, "rsi_14": 54, "macd_histogram": 0.2}}
+        result = classify_entry_opportunity(daily, tactical, {"category": "possible_reversal"})
+        self.assertEqual(result["category"], "early_recovery")
+
+    def test_entry_classification_requires_both_timeframes(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        result = classify_entry_opportunity(None, None)
+        self.assertEqual(result["category"], "insufficient_data")
+        self.assertIsNone(result["quality_score"])
+
     def test_daily_analysis_calculates_7d_and_30d_returns(self):
         result = analyze_candles(self.rows(count=60), now=self.now)
         self.assertIsNotNone(result["indicators"]["return_7d_pct"])

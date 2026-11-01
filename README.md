@@ -35,9 +35,9 @@ TWELVE_DATA_API_KEY = "your-Twelve-Data-key"
 ## AI Crypto Trading Desk (simulation only)
 The dashboard now includes a separate paper-trading tab with USD 80 virtual starting capital, a Solana-token ruleset, a major-asset volume ruleset, position sizing, fee/slippage assumptions, and simulated stop-loss handling.
 
-The first increment is intentionally manual: token metrics and candidate signals are entered by the user. It does not track the 640 wallets mentioned in the reference post, discover Solana tokens automatically, or connect to wallets/exchanges. The five agent names represent deterministic software stages, not autonomous AI agents.
+The first increment automates major-asset entry price, 24-hour volume and 1-hour price change from CoinMarketCap. Solana token metrics and candidate signals are still entered by the user with explicit values, source and observation time. It does not track the 640 wallets mentioned in the reference post, discover Solana tokens automatically, or connect to wallets/exchanges. The five agent names represent deterministic software stages, not autonomous AI agents.
 
-The paper ledger can be persisted in Supabase. Run `supabase/schema.sql` once in the Supabase SQL Editor, then add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to Streamlit Community Cloud Secrets. The service-role key must remain server-side and must never be committed to Git. Without these two secrets the app falls back to temporary session-only state; do not treat that as a durable 30-day journal. Major-asset positions can be marked from the CoinMarketCap snapshot when the app reruns; Solana token prices and on-chain metrics remain manual in this increment.
+The paper ledger can be persisted in Supabase. Run `supabase/schema.sql` once in the Supabase SQL Editor, then add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to Streamlit Community Cloud Secrets. The service-role key must remain server-side and must never be committed to Git. Without these two secrets the app falls back to temporary session-only state; do not treat that as a durable 30-day journal. Major-asset entry filters and position marks use the CoinMarketCap snapshot when the app reruns; Solana token prices and on-chain metrics remain manual in this increment.
 
 Run the local rule-engine tests with:
 

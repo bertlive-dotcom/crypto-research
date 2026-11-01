@@ -25,8 +25,8 @@ class BinanceMarketDataClient:
         self.session = session or requests.Session()
         self.timeout = timeout
 
-    def get_active_spot_symbols(self) -> set[str]:
-        """Return symbols currently tradable on Binance Spot."""
+    def get_spot_symbol_status(self) -> dict[str, dict[str, Any]]:
+        """Return current and inactive Binance symbol metadata for diagnosis."""
         try:
             response = self.session.get(EXCHANGE_INFO_URL, timeout=self.timeout)
             response.raise_for_status()
@@ -37,12 +37,24 @@ class BinanceMarketDataClient:
             raise BinanceMarketDataError("Binance returned invalid exchange-info JSON") from exc
         if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
             raise BinanceMarketDataError("Binance returned an unexpected exchange-info response")
+        result = {}
+        for item in payload["symbols"]:
+            if not isinstance(item, dict) or not item.get("symbol"):
+                continue
+            symbol = str(item["symbol"]).upper()
+            result[symbol] = {
+                "status": str(item.get("status", "UNKNOWN")).upper(),
+                "spot_allowed": item.get("isSpotTradingAllowed", True) is True,
+                "base_asset": item.get("baseAsset"),
+                "quote_asset": item.get("quoteAsset"),
+            }
+        return result
+
+    def get_active_spot_symbols(self) -> set[str]:
+        """Return symbols currently tradable on Binance Spot."""
         return {
-            str(item.get("symbol", "")).upper()
-            for item in payload["symbols"]
-            if isinstance(item, dict)
-            and item.get("status") == "TRADING"
-            and item.get("isSpotTradingAllowed", True) is True
+            symbol for symbol, details in self.get_spot_symbol_status().items()
+            if details["status"] == "TRADING" and details["spot_allowed"]
         }
 
     def get_klines(self, symbol: str, interval: str = "1d", limit: int = 500) -> list[dict[str, Any]]:

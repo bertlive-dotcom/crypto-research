@@ -221,7 +221,7 @@ class MarketAnalysisTests(unittest.TestCase):
         tactical = {"eligible": True, "latest_close": 102, "indicators": {
             "sma_20": 100, "rsi_14": 55, "macd_histogram": 0.5}}
         result = classify_entry_opportunity(daily, tactical, {"category": "confirmed_trend"})
-        self.assertEqual(result["category"], "confirmed_uptrend")
+        self.assertEqual(result["category"], "confirmed_entry_setup")
         self.assertEqual(result["quality_score"], 100)
 
     def test_entry_classification_flags_late_entry_risk(self):
@@ -241,7 +241,7 @@ class MarketAnalysisTests(unittest.TestCase):
         tactical = {"eligible": True, "latest_close": 101, "indicators": {
             "sma_20": 100, "rsi_14": 54, "macd_histogram": 0.2}}
         result = classify_entry_opportunity(daily, tactical, {"category": "possible_reversal"})
-        self.assertEqual(result["category"], "early_recovery")
+        self.assertEqual(result["category"], "recovery_watch")
 
     def test_entry_classification_requires_both_timeframes(self):
         from global_markets.market_analysis import classify_entry_opportunity

@@ -414,6 +414,7 @@ with global_tab:
                 "timeframe_divergence": "Divergència temporal",
                 "weakness": "Feblesa",
                 "mixed_structure": "Estructura mixta",
+                "early_turn_watch": "Possible gir inicial (4h)",
                 "insufficient_timeframes": "Intervals insuficients",
             }
             confirmation_labels = {
@@ -424,6 +425,7 @@ with global_tab:
             }
             daily_by_symbol = {row["symbol"]: row for row in daily}
             tactical_by_symbol = {row["symbol"]: row for row in tactical}
+            entry_data_quality = {item["symbol"]: item.get("data_quality_pct", 0) for item in global_report.get("risk_adjusted_relative_strength_coverage", [])}
 
             # Session-scoped transition detection: compare only consecutive fresh scans
             # visible to this dashboard session; no historical signal is fabricated.
@@ -506,6 +508,7 @@ with global_tab:
                         d_row, t_row,
                         {"category": row.get("structure")},
                         relative_strength_20d_pp=row.get("relative_strength_vs_btc_20d_pp"),
+                        data_quality_pct=entry_data_quality.get(row["symbol"], 100),
                     )
                     summary_rows.append({
                         "Actiu": row["symbol"].replace("USDT", ""),

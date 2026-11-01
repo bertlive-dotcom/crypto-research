@@ -100,10 +100,10 @@ class MarketAnalysisTests(unittest.TestCase):
     def test_classifies_weak_daily_with_strong_4h_as_possible_reversal(self):
         daily = {"eligible": True, "technical_screen_score": 12.5, "indicators": {}}
         tactical = {"eligible": True, "technical_screen_score": 75,
-                    "indicators": {"macd_12_26": 2.0, "macd_signal_9": 1.0}}
+                    "indicators": {"macd_12_26": 2.0, "macd_signal_9": 1.0, "rsi_14": 54}}
         result = classify_timeframe_structure(daily, tactical)
         self.assertEqual(result["category"], "possible_reversal")
-        self.assertIn("MACD momentum is improving", result["explanation"])
+        self.assertIn("la tendència diària continua feble", result["explanation"])
 
     def test_classifies_weakness_when_both_timeframes_are_weak(self):
         daily = {"eligible": True, "technical_screen_score": 0, "indicators": {}}
@@ -113,6 +113,26 @@ class MarketAnalysisTests(unittest.TestCase):
     def test_requires_both_fresh_timeframes_for_structure(self):
         daily = {"eligible": True, "technical_screen_score": 80, "indicators": {}}
         self.assertEqual(classify_timeframe_structure(daily, None)["category"], "insufficient_timeframes")
+
+
+    def test_recovery_without_rsi_confirmation_is_only_incipient(self):
+        daily = {"eligible": True, "technical_screen_score": 12.5, "indicators": {}}
+        tactical = {"eligible": True, "technical_screen_score": 75,
+                    "indicators": {"macd_12_26": 2.0, "macd_signal_9": 1.0, "rsi_14": 48}}
+        self.assertEqual(classify_timeframe_structure(daily, tactical)["category"], "incipient_recovery")
+
+    def test_confirmed_trend_requires_rsi_and_macd_on_both_frames(self):
+        daily = {"eligible": True, "technical_screen_score": 75,
+                 "indicators": {"rsi_14": 58, "macd_12_26": 2, "macd_signal_9": 1}}
+        tactical = {"eligible": True, "technical_screen_score": 75,
+                    "indicators": {"rsi_14": 55, "macd_12_26": 2, "macd_signal_9": 1}}
+        self.assertEqual(classify_timeframe_structure(daily, tactical)["category"], "confirmed_trend")
+
+    def test_daily_analysis_calculates_7d_and_30d_returns(self):
+        result = analyze_candles(self.rows(count=60), now=self.now)
+        self.assertIsNotNone(result["indicators"]["return_7d_pct"])
+        self.assertIsNotNone(result["indicators"]["return_30d_pct"])
+        self.assertGreater(result["indicators"]["return_30d_pct"], 0)
 
 
 if __name__ == "__main__":

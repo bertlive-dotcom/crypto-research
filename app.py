@@ -12,6 +12,7 @@ from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
 from global_markets.market_analysis import analyze_feed, analyze_candles
+from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
 
@@ -422,6 +423,38 @@ with global_tab:
             # visible to this dashboard session; no historical signal is fabricated.
             current_structures = {row["symbol"]: row.get("structure") for row in aligned}
             previous_structures = st.session_state.get("global_crypto_previous_structures")
+            new_alerts = build_technical_alerts(global_report, previous_structures or {})
+            alert_storage_ok = False
+            if paper_store:
+                try:
+                    paper_store.save_market_alerts(new_alerts)
+                    stored_alerts = paper_store.load_market_alerts(days=90, limit=500)
+                    alert_storage_ok = True
+                except SupabaseStoreError as alert_error:
+                    stored_alerts = st.session_state.get("global_crypto_alert_history", [])
+                    st.warning("Historial persistent d'alertes no disponible. Crea la taula market_alert_events a Supabase. " + str(alert_error))
+            else:
+                stored_alerts = st.session_state.get("global_crypto_alert_history", [])
+                st.info("Sense Supabase: les alertes només es conserven durant aquesta sessió. Configura Supabase i la taula market_alert_events per mantenir l'historial després de reiniciar.")
+            if not alert_storage_ok:
+                known = {item.get("dedupe_key") for item in stored_alerts}
+                stored_alerts = new_alerts + [item for item in stored_alerts if item.get("dedupe_key") not in {a.get("dedupe_key") for a in new_alerts}]
+                st.session_state["global_crypto_alert_history"] = stored_alerts[:500]
+            if new_alerts:
+                st.markdown("#### Alertes tècniques noves")
+                st.dataframe(pd.DataFrame([{
+                    "Actiu": item["asset"], "Alerta": item["label"], "Detall": item["detail"]
+                } for item in new_alerts]), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Cap alerta tècnica nova en aquesta lectura.")
+            if stored_alerts:
+                with st.expander("Historial d'alertes (90 dies)", expanded=False):
+                    st.dataframe(pd.DataFrame([{
+                        "Data": item.get("created_at", item.get("daily_close", "")),
+                        "Actiu": item.get("asset"), "Alerta": item.get("label"),
+                        "Detall": item.get("detail"),
+                    } for item in stored_alerts]), use_container_width=True, hide_index=True)
+
             if previous_structures is not None:
                 transitions = [{
                     "Actiu": symbol.replace("USDT", ""),

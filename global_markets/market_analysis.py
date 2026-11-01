@@ -220,63 +220,107 @@ def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> d
 
 
 def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
-                              structure: dict | None = None) -> dict:
-    """Describe entry context; this is a deterministic screen, never a trade signal."""
+                              structure: dict | None = None,
+                              relative_strength_20d_pp: float | None = None) -> dict:
+    """Score entry context with explicit confirmation, volatility and deterioration penalties."""
     if not daily or not tactical or not daily.get("eligible") or not tactical.get("eligible"):
         return {"category": "insufficient_data", "label": "Dades insuficients",
-                "quality_score": None, "reasons": ["Calen veles diàries i 4h recents i tancades."]}
+                "quality_score": None, "risk_penalty": 0, "deterioration_penalty": 0,
+                "confirmed_both": False,
+                "reasons": ["Calen veles diàries i 4h recents i tancades."]}
 
     d, t = daily.get("indicators", {}), tactical.get("indicators", {})
     d_rsi, t_rsi = d.get("rsi_14"), t.get("rsi_14")
     d_hist, t_hist = d.get("macd_histogram"), t.get("macd_histogram")
     d_price, d_sma = daily.get("latest_close"), d.get("sma_20")
     extension = ((d_price / d_sma) - 1) * 100 if d_price and d_sma else None
-    reasons = []
-    score = 0
+    reasons, raw_score = [], 0
     if d_price is not None and d_sma is not None and d_price > d_sma:
-        score += 15
+        raw_score += 15
         reasons.append("Preu diari per sobre de SMA20.")
     if t.get("sma_20") is not None and tactical.get("latest_close", 0) > t["sma_20"]:
-        score += 15
+        raw_score += 15
         reasons.append("Preu 4h per sobre de SMA20.")
     if d_hist is not None and d_hist > 0:
-        score += 20
+        raw_score += 20
         reasons.append("MACD diari positiu.")
     if t_hist is not None and t_hist > 0:
-        score += 20
+        raw_score += 20
         reasons.append("MACD 4h positiu.")
     if d_rsi is not None and 50 <= d_rsi < 70:
-        score += 15
+        raw_score += 15
         reasons.append("RSI diari en zona constructiva, sense sobrecompra.")
     if t_rsi is not None and 50 <= t_rsi < 70:
-        score += 15
+        raw_score += 15
         reasons.append("RSI 4h en zona constructiva, sense sobrecompra.")
 
+    risk = daily.get("risk_metrics", {})
+    volatility = risk.get("realized_volatility_20d_pct_annualized")
+    drawdown = risk.get("max_drawdown_120d_pct")
+    risk_penalty = 0
+    if isinstance(volatility, (int, float)):
+        if volatility >= 120:
+            risk_penalty += 20
+            reasons.append("Penalització elevada: volatilitat anualitzada 20d >= 120%.")
+        elif volatility >= 80:
+            risk_penalty += 10
+            reasons.append("Penalització: volatilitat anualitzada 20d >= 80%.")
+    if isinstance(drawdown, (int, float)):
+        if drawdown <= -40:
+            risk_penalty += 20
+            reasons.append("Penalització elevada: drawdown màxim de 120d <= -40%.")
+        elif drawdown <= -30:
+            risk_penalty += 10
+            reasons.append("Penalització: drawdown màxim de 120d <= -30%.")
+
+    deterioration_penalty = 0
+    return_20d = risk.get("return_20d_pct")
+    if isinstance(return_20d, (int, float)) and return_20d < 0:
+        deterioration_penalty += 8
+        reasons.append("Deteriorament: rendiment de 20 dies negatiu.")
+    if isinstance(relative_strength_20d_pp, (int, float)) and relative_strength_20d_pp < 0:
+        deterioration_penalty += 8
+        reasons.append("Deteriorament: pèrdua de força relativa respecte a BTC en 20 dies.")
+
+    score = max(0, min(100, raw_score - risk_penalty - deterioration_penalty))
     overbought = ((d_rsi is not None and d_rsi >= 70)
-                  or (t_rsi is not None and t_rsi >= 78))
+                  or (t_rsi is not None and t_rsi >= 70))
     extended = extension is not None and extension >= 8
     structure_category = (structure or {}).get("category")
+    confirmed_both = (
+        structure_category == "confirmed_trend"
+        and d_rsi is not None and d_rsi >= 50
+        and t_rsi is not None and t_rsi >= 50
+        and d_hist is not None and d_hist > 0
+        and t_hist is not None and t_hist > 0
+    )
     if overbought or extended:
         category, label = "late_entry_risk", "Risc d'entrada tardana"
         if overbought:
-            reasons.append("RSI elevat: risc de perseguir el moviment.")
+            reasons.append("RSI >= 70: risc de perseguir un moviment estès.")
         if extended:
             reasons.append("Preu diari almenys un 8% per sobre de SMA20.")
-    elif structure_category == "confirmed_trend":
-        category, label = "confirmed_uptrend", "Tendència alcista confirmada"
-        reasons.append("RSI i MACD alineats en diari i 4h.")
+    elif confirmed_both and risk_penalty < 20 and deterioration_penalty < 16:
+        category, label = "confirmed_entry_setup", "Configuració confirmada (no ordre)"
+        reasons.append("RSI i MACD positius simultàniament en diari i 4h.")
     elif structure_category in {"possible_reversal", "incipient_recovery"}:
-        category, label = "early_recovery", "Recuperació inicial"
-        reasons.append("El 4h millora, però el diari encara no confirma completament.")
+        category, label = "recovery_watch", "Recuperació en observació"
+        reasons.append("El 4h millora, però encara falta confirmació diària completa.")
     else:
         category, label = "no_clear_opportunity", "Sense oportunitat clara"
-        reasons.append("No hi ha prou confluència entre estructura diària i 4h.")
+        reasons.append("No hi ha confirmació RSI + MACD simultània en diari i 4h.")
 
-    return {"category": category, "label": label, "quality_score": score,
-            "daily_rsi": d_rsi, "4h_rsi": t_rsi,
-            "daily_extension_vs_sma20_pct": round(extension, 2) if extension is not None else None,
-            "reasons": reasons}
-
+    return {
+        "category": category, "label": label, "quality_score": score,
+        "raw_quality_score": raw_score, "risk_penalty": risk_penalty,
+        "deterioration_penalty": deterioration_penalty,
+        "volatility_20d_pct_annualized": volatility,
+        "max_drawdown_120d_pct": drawdown, "return_20d_pct": return_20d,
+        "relative_strength_20d_pp": relative_strength_20d_pp,
+        "confirmed_both": confirmed_both, "daily_rsi": d_rsi, "4h_rsi": t_rsi,
+        "daily_extension_vs_sma20_pct": round(extension, 2) if extension is not None else None,
+        "reasons": reasons,
+    }
 
 
 def _percentile_scores(values: dict[str, float], *, higher_is_better: bool = True) -> dict[str, float]:

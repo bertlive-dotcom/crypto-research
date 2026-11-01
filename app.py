@@ -398,9 +398,10 @@ with global_tab:
             rejected = [row for row in analyses if not row["eligible"]]
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Valid series", global_report["eligible_series"])
-            c2.metric("Rejected series", global_report["rejected_series"])
+            c2.metric("Rejected series (data quality)", global_report["rejected_series"])
             c3.metric("Symbols with valid data", len({row["symbol"] for row in eligible}))
-            c4.metric("Unavailable requests", len(global_report["provider_unavailable"]))
+            c4.metric("Unavailable requests (no usable feed)", len(global_report["provider_unavailable"]))
+            st.caption("Rejected series are returned candles that failed data-quality checks. Unavailable requests are pairs or intervals for which Binance returned no usable data; they are not included in the rejected-series count.")
             st.caption("Data source: {} | Feed timestamp: {}".format(
                 global_report.get("source"), global_report.get("observed_at")))
 

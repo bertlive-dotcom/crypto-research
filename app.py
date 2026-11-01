@@ -431,23 +431,36 @@ with global_tab:
             previous_structures = st.session_state.get("global_crypto_previous_structures")
             new_alerts = build_technical_alerts(global_report, previous_structures or {})
             alert_storage_ok = False
+            inserted_alerts = []
             if paper_store:
                 try:
-                    paper_store.save_market_alerts(new_alerts)
+                    inserted_alerts = paper_store.save_market_alerts(new_alerts)
                     stored_alerts = paper_store.load_market_alerts(days=90, limit=500)
+                    persisted_keys = {item.get("dedupe_key") for item in stored_alerts}
+                    expected_keys = {item.get("dedupe_key") for item in new_alerts}
+                    missing_keys = expected_keys - persisted_keys
+                    if missing_keys:
+                        raise SupabaseStoreError(
+                            "La lectura de verificació no troba {} alertes enviades.".format(len(missing_keys))
+                        )
                     alert_storage_ok = True
+                    st.success(
+                        "Historial Supabase verificat: {} alertes noves inserides; {} ja existien o s'han deduplicat.".format(
+                            len(inserted_alerts), max(0, len(new_alerts) - len(inserted_alerts))
+                        )
+                    )
                 except SupabaseStoreError as alert_error:
                     stored_alerts = st.session_state.get("global_crypto_alert_history", [])
-                    st.warning("Historial persistent d'alertes no disponible. Crea la taula market_alert_events a Supabase. " + str(alert_error))
+                    st.warning("No s'ha pogut verificar la persistència de l'historial d'alertes: " + str(alert_error))
             else:
                 stored_alerts = st.session_state.get("global_crypto_alert_history", [])
                 st.info("Sense Supabase: les alertes només es conserven durant aquesta sessió. Configura Supabase i la taula market_alert_events per mantenir l'historial després de reiniciar.")
             if not alert_storage_ok:
-                known = {item.get("dedupe_key") for item in stored_alerts}
-                stored_alerts = new_alerts + [item for item in stored_alerts if item.get("dedupe_key") not in {a.get("dedupe_key") for a in new_alerts}]
+                current_keys = {item.get("dedupe_key") for item in new_alerts}
+                stored_alerts = new_alerts + [item for item in stored_alerts if item.get("dedupe_key") not in current_keys]
                 st.session_state["global_crypto_alert_history"] = stored_alerts[:500]
             if new_alerts:
-                st.markdown("#### Alertes tècniques noves")
+                st.markdown("#### Alertes detectades en aquesta lectura")
                 st.dataframe(pd.DataFrame([{
                     "Actiu": item["asset"],
                     "Tipus": "Força relativa (no és entrada)" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica (no és entrada)",
@@ -795,11 +808,13 @@ with scanner_tab:
                     st.markdown("#### Scanner open paper positions")
                     st.dataframe(pd.DataFrame(scanner_state["open_positions"]), use_container_width=True, hide_index=True)
                 if scanner_state.get("closed_trades"):
-                    st.markdown("#### Scanner closed paper trades")
+                    st.markdown("#### Operacions paper tancades (històric)")
+                    st.caption("Registre d'operacions anteriors. No implica que aquests actius continuïn cotitzant a Binance Spot ni que siguin candidats actuals.")
                     st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), use_container_width=True, hide_index=True)
             else:
                 st.info("The scanner has not completed its first cycle yet.")
-            st.markdown("#### Latest market candidates")
+            st.markdown("#### Candidats de l'últim escaneig")
+            st.caption("Aquesta llista prové de l'últim cicle complet i només inclou parells que Binance Spot marcava com a actius en aquell escaneig. No barreja operacions històriques tancades amb candidats actuals.")
             if scanner_candidates:
                 st.dataframe(pd.DataFrame(scanner_candidates), use_container_width=True, hide_index=True)
             else:

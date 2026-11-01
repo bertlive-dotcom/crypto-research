@@ -122,6 +122,29 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
     )
     return_7d = ((closes[-1] / closes[-8]) - 1) * 100 if interval == "1d" and len(closes) >= 8 else None
     return_30d = ((closes[-1] / closes[-31]) - 1) * 100 if interval == "1d" and len(closes) >= 31 else None
+    risk_metrics = {}
+    if interval == "1d":
+        for horizon in (20, 60, 120):
+            risk_metrics[f"return_{horizon}d_pct"] = (
+                round((closes[-1] / closes[-(horizon + 1)] - 1) * 100, 2)
+                if len(closes) > horizon else None
+            )
+        for horizon in (20, 60):
+            window = returns[-horizon:]
+            risk_metrics[f"realized_volatility_{horizon}d_pct_annualized"] = (
+                round(pstdev(window) * sqrt(365) * 100, 2)
+                if len(window) == horizon else None
+            )
+        drawdown_window = closes[-120:]
+        running_peak = drawdown_window[0]
+        max_drawdown = 0.0
+        for close in drawdown_window:
+            running_peak = max(running_peak, close)
+            max_drawdown = min(max_drawdown, (close / running_peak - 1) * 100)
+        risk_metrics["max_drawdown_120d_pct"] = (
+            round(max_drawdown, 2) if len(drawdown_window) >= 2 else None
+        )
+        risk_metrics["drawdown_window_bars"] = len(drawdown_window)
     score_parts = [
         25 if closes[-1] > sma20 else 0,
         25 if sma50 is not None and sma20 > sma50 else 12.5 if sma50 is None else 0,
@@ -153,6 +176,7 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
             "return_7d_pct": round(return_7d, 2) if return_7d is not None else None,
             "return_30d_pct": round(return_30d, 2) if return_30d is not None else None,
         },
+        "risk_metrics": risk_metrics,
         "technical_screen_score": sum(score_parts),
         "score_type": "technical_only_not_investment_recommendation", "reasons": [],
     }

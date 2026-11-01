@@ -91,42 +91,44 @@ def get_quote(symbol, key):
             timeout=15,
         )
     except requests.RequestException:
-        raise RuntimeError("No s'ha pogut connectar amb Twelve Data.") from None
+        return {"_error": "No s'ha pogut connectar amb Twelve Data."}
 
     if response.status_code == 429:
-        raise RuntimeError(
-            "S'ha assolit el límit de Twelve Data. Espera que es restableixi la quota "
-            "o revisa el consum del compte."
-        )
+        return {
+            "_error": "S'ha assolit el límit de Twelve Data. Espera que es restableixi "
+            "la quota o revisa el consum del compte."
+        }
     if not response.ok:
-        raise RuntimeError(f"Twelve Data ha retornat HTTP {response.status_code}.")
+        return {"_error": f"Twelve Data ha retornat HTTP {response.status_code}."}
 
     try:
         data = response.json()
-    except ValueError:
-        raise RuntimeError("Twelve Data ha retornat una resposta no vàlida.") from None
+        if not isinstance(data, dict):
+            raise ValueError("Unexpected response format.")
 
-    if data.get("status") == "error" or "code" in data:
-        error_code = str(data.get("code", ""))
-        if error_code == "429":
-            raise RuntimeError(
-                "S'ha assolit el límit de Twelve Data. Espera que es restableixi la quota "
-                "o revisa el consum del compte."
-            )
-        if error_code == "401":
-            raise RuntimeError("La clau API de Twelve Data no és vàlida.")
-        if error_code == "403":
-            raise RuntimeError("El pla de Twelve Data no permet aquesta consulta.")
-        raise RuntimeError(
-            f"Twelve Data no ha pogut retornar dades (codi {error_code or 'desconegut'})."
-        )
+        if data.get("status") == "error" or "code" in data:
+            error_code = str(data.get("code", ""))
+            if error_code == "429":
+                return {
+                    "_error": "S'ha assolit el límit de Twelve Data. Espera que es "
+                    "restableixi la quota o revisa el consum del compte."
+                }
+            if error_code == "401":
+                return {"_error": "La clau API de Twelve Data no és vàlida."}
+            if error_code == "403":
+                return {"_error": "El pla de Twelve Data no permet aquesta consulta."}
+            return {
+                "_error": f"Twelve Data no ha pogut retornar dades (codi {error_code or 'desconegut'})."
+            }
 
-    price = data.get("close") or data.get("price")
-    return {
-        "Asset": symbol, "Price USD": float(price) if price else None,
-        "24h %": float(data["percent_change"]) if data.get("percent_change") else None,
-        "Updated": data.get("datetime"), "Source": "Twelve Data",
-    }
+        price = data.get("close") or data.get("price")
+        return {
+            "Asset": symbol, "Price USD": float(price) if price else None,
+            "24h %": float(data["percent_change"]) if data.get("percent_change") else None,
+            "Updated": data.get("datetime"), "Source": "Twelve Data",
+        }
+    except (TypeError, ValueError, KeyError):
+        return {"_error": "Twelve Data ha retornat dades no vàlides."}
 
 if st.button("Refresh crypto market data"):
     get_crypto.clear()
@@ -238,9 +240,11 @@ with market_tab:
     rows = []
     for symbol in symbols:
         try:
-            rows.append(get_quote(symbol, twelve_key))
-        except RuntimeError as error:
-            st.warning(symbol + ": " + str(error))
+            quote_result = get_quote(symbol, twelve_key)
+            if "_error" in quote_result:
+                st.warning(symbol + ": " + quote_result["_error"])
+            else:
+                rows.append(quote_result)
         except Exception:
             st.warning(symbol + ": No s'ha pogut actualitzar la cotització de Twelve Data.")
     if rows:

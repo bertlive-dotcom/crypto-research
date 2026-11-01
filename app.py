@@ -449,8 +449,21 @@ with global_tab:
                 )
                 st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
                 with st.expander("RSI i força relativa respecte a BTC", expanded=False):
-                    st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
-                    st.caption("Força relativa positiva: l'actiu ha superat BTC en el període. Negativa: ha quedat per sota. Els valors buits indiquen historial insuficient.")
+                    rsi_rows = [{
+                        "Actiu": item["Actiu"],
+                        "RSI diari": item["RSI diari"],
+                        "RSI 4h": item["RSI 4h"],
+                    } for item in detail_rows]
+                    relative_rows = [{
+                        "Actiu": item["Actiu"],
+                        "Vs BTC 7d (pp)": item["Força vs BTC 7d (pp)"],
+                        "Vs BTC 30d (pp)": item["Força vs BTC 30d (pp)"],
+                    } for item in detail_rows]
+                    st.markdown("**RSI**")
+                    st.dataframe(pd.DataFrame(rsi_rows), use_container_width=True, hide_index=True)
+                    st.markdown("**Força relativa**")
+                    st.dataframe(pd.DataFrame(relative_rows), use_container_width=True, hide_index=True)
+                    st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):
@@ -507,19 +520,51 @@ with global_tab:
                 st.caption("Les puntuacions tècniques són filtres descriptius, no probabilitats, rendiments esperats ni senyals d'operació.")
 
             if rejected:
-                st.markdown("#### Rejected data series")
-                st.dataframe(pd.DataFrame([{
-                    "Symbol": row.get("symbol"), "Interval": row.get("interval"),
-                    "Bars": row.get("bars"), "Age (seconds)": row.get("age_seconds"),
-                    "Reasons": ", ".join(row.get("reasons", [])),
-                } for row in rejected]), use_container_width=True, hide_index=True)
+                reason_labels = {
+                    "stale_data": "Dades antigues",
+                    "insufficient_history": "Historial insuficient",
+                    "invalid_ohlc": "Preus inconsistents",
+                    "future_timestamp": "Data futura",
+                    "mixed_symbol": "Símbol inconsistent",
+                    "mixed_interval": "Intervals barrejats",
+                }
+                rejected_rows = [{
+                    "Actiu": row.get("symbol"),
+                    "Interval": row.get("interval"),
+                    "Espelmes": row.get("bars"),
+                    "Motiu": ", ".join(reason_labels.get(reason, reason.replace("_", " ")) for reason in row.get("reasons", [])),
+                } for row in rejected]
+                with st.expander("Sèries descartades per qualitat de dades", expanded=False):
+                    st.dataframe(pd.DataFrame(rejected_rows), use_container_width=True, hide_index=True)
 
             if global_report["provider_unavailable"]:
-                st.markdown("#### Provider unavailable")
-                st.dataframe(pd.DataFrame(global_report["provider_unavailable"]),
-                    use_container_width=True, hide_index=True)
+                unavailable_rows = []
+                for item in global_report["provider_unavailable"]:
+                    raw_reason = str(item.get("reason", "unknown"))
+                    if raw_reason == "pair_not_currently_trading_on_binance_spot":
+                        human_reason = "No cotitza actualment a Binance Spot"
+                    elif raw_reason == "spot_listing_check_failed":
+                        human_reason = "No s'ha pogut verificar el mercat Spot"
+                    elif raw_reason == "provider_error":
+                        human_reason = "Error del proveïdor de dades"
+                    else:
+                        human_reason = raw_reason.replace("_", " ").capitalize()
+                    unavailable_rows.append({
+                        "Actiu": item.get("symbol", item.get("provider_symbol", "—")),
+                        "Interval": item.get("interval", "—"),
+                        "Disponibilitat": human_reason,
+                    })
+                st.markdown("#### Dades no disponibles")
+                st.dataframe(pd.DataFrame(unavailable_rows), use_container_width=True, hide_index=True)
+                with st.expander("Detall tècnic dels errors", expanded=False):
+                    st.dataframe(pd.DataFrame([{
+                        "Símbol intern": item.get("symbol"),
+                        "Símbol del proveïdor": item.get("provider_symbol"),
+                        "Interval": item.get("interval"),
+                        "Codi": item.get("reason"),
+                    } for item in global_report["provider_unavailable"]]), use_container_width=True, hide_index=True)
 
-            st.caption("Technical score is a screening indicator based on trend, MACD, moving averages and RSI. It is not a probability, expected return or investment recommendation. Fundamental and catalyst coverage is not yet included.")
+            st.caption("La puntuació tècnica és un filtre descriptiu basat en tendència, MACD, mitjanes mòbils i RSI. No representa una probabilitat, rendiment esperat ni recomanació d'inversió. Encara no s'hi inclouen dades fonamentals ni catalitzadors.")
         except Exception as error:
             st.error("Global crypto scan failed: " + str(error))
     else:

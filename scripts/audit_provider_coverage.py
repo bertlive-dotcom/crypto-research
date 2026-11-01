@@ -4,6 +4,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
+
+# Running this file directly sets sys.path[0] to scripts/, not the repository root.
+# Add the project root so the local global_markets package is importable in Actions.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from global_markets.config import DEFAULT_UNIVERSE_SEEDS
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError

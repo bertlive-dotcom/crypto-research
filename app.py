@@ -657,14 +657,18 @@ with global_tab:
                 unavailable_rows = []
                 for item in global_report["provider_unavailable"]:
                     raw_reason = str(item.get("reason", "unknown"))
-                    if raw_reason == "pair_not_currently_trading_on_binance_spot":
-                        human_reason = "No cotitza actualment a Binance Spot"
-                    elif raw_reason == "spot_listing_check_failed":
-                        human_reason = "No s'ha pogut verificar el mercat Spot"
-                    elif raw_reason == "provider_error":
-                        human_reason = "Error del proveïdor de dades"
-                    else:
-                        human_reason = raw_reason.replace("_", " ").capitalize()
+                    reason_labels = {
+                        "pair_not_listed_on_binance_spot": "El parell no consta al catàleg actual de Binance Spot",
+                        "pair_not_trading_on_binance_spot": "El parell consta al catàleg, però no està en estat TRADING",
+                        "spot_trading_not_allowed_for_pair": "El parell no permet operativa Spot",
+                        "no_binance_pair_mapping": "No hi ha una equivalència configurada amb Binance",
+                        "spot_listing_check_failed": "No s'ha pogut verificar el catàleg Spot",
+                        "rate_limit": "Límit de consultes de Binance assolit",
+                        "provider_request_failed": "Ha fallat la consulta al proveïdor",
+                        "invalid_provider_response": "Resposta del proveïdor invàlida",
+                        "provider_error": "Error del proveïdor de dades",
+                    }
+                    human_reason = reason_labels.get(raw_reason, raw_reason.replace("_", " ").capitalize())
                     unavailable_rows.append({
                         "Actiu": item.get("symbol", item.get("provider_symbol", "—")),
                         "Interval": item.get("interval", "—"),
@@ -677,8 +681,17 @@ with global_tab:
                         "Símbol intern": item.get("symbol"),
                         "Símbol del proveïdor": item.get("provider_symbol"),
                         "Interval": item.get("interval"),
-                        "Codi": item.get("reason"),
+                        "Classificació": item.get("reason"),
+                        "Detall tècnic": item.get("detail", ""),
                     } for item in global_report["provider_unavailable"]]), use_container_width=True, hide_index=True)
+                availability_counts = global_report.get("availability_counts", {})
+                if availability_counts:
+                    st.markdown("**Resum de causes**")
+                    st.dataframe(pd.DataFrame([
+                        {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
+                         "Sol·licituds": count}
+                        for reason, count in sorted(availability_counts.items())
+                    ]), use_container_width=True, hide_index=True)
 
             st.caption("La puntuació tècnica és un filtre descriptiu basat en tendència, MACD, mitjanes mòbils i RSI. No representa una probabilitat, rendiment esperat ni recomanació d'inversió. Encara no s'hi inclouen dades fonamentals ni catalitzadors.")
         except Exception as error:

@@ -11,7 +11,8 @@ from trading_desk import (
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
-from global_markets.market_analysis import analyze_feed
+from global_markets.market_analysis import analyze_feed, analyze_candles
+from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -100,6 +101,37 @@ def get_global_crypto_analysis():
     feed = CryptoWatchlistFeed()
     raw = feed.fetch(intervals=("1d", "4h"), limit=120)
     return analyze_feed(raw)
+
+@st.cache_data(ttl=900)
+def get_global_daily_asset_analysis(api_key):
+    client = FinancialDataClient(api_key, max_retries=1, max_pages=2)
+    seeds = {
+        "equity": [("NVDA", False), ("TSM", False), ("ASML", False),
+                   ("MSFT", False), ("GOOGL", False), ("AMZN", False),
+                   ("AVGO", False), ("SU.PA", True)],
+        "etf": [(symbol, False) for symbol in ["SPY", "QQQ", "VT", "IWDA", "EEM"]],
+        "commodity": [(symbol, False) for symbol in ["GC", "SI", "CL", "BZ", "HG", "NG"]],
+    }
+    analyses, unavailable = [], []
+    for asset_class, instruments in seeds.items():
+        for symbol, international in instruments:
+            try:
+                rows = client.fetch_daily_prices(
+                    symbol, asset_class, international=international, limit=120
+                )
+                result = analyze_candles(rows, max_age_seconds=5 * 86400)
+                result["asset_class"] = asset_class
+                result["symbol"] = symbol
+                analyses.append(result)
+            except (FinancialDataError, ValueError) as error:
+                unavailable.append({
+                    "asset_class": asset_class, "symbol": symbol,
+                    "reason": str(error),
+                })
+    return {
+        "source": "FinancialData.Net", "observed_at": datetime.now(timezone.utc).isoformat(),
+        "analyses": analyses, "unavailable": unavailable,
+    }
 
 
 latest_crypto_prices = {}
@@ -396,6 +428,54 @@ with global_tab:
             st.error("Global crypto scan failed: " + str(error))
     else:
         st.info("Select the scan button to fetch the 13-asset crypto watchlist and calculate fresh indicators. No market request is made until you start the scan.")
+
+    st.divider()
+    st.subheader("Equities, ETFs and commodities - daily history")
+    fd_key = secret("FINANCIALDATA_API_KEY")
+    if not fd_key:
+        st.info("Optional: add FINANCIALDATA_API_KEY in hosting Secrets to activate daily history for the equity, ETF and commodity seed lists.")
+    else:
+        st.caption("FinancialData.Net daily OHLCV · read-only · up to 120 observations per instrument · weekend-aware freshness window of 5 days.")
+        if st.button("Fetch global daily asset data", key="run_global_daily_asset_scan"):
+            get_global_daily_asset_analysis.clear()
+            st.session_state["global_daily_asset_scan_requested"] = True
+        if st.session_state.get("global_daily_asset_scan_requested"):
+            try:
+                with st.spinner("Requesting daily history for equities, ETFs and commodities..."):
+                    daily_report = get_global_daily_asset_analysis(fd_key)
+                good = [row for row in daily_report["analyses"] if row["eligible"]]
+                bad = [row for row in daily_report["analyses"] if not row["eligible"]]
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Valid instruments", len(good))
+                m2.metric("Rejected histories", len(bad))
+                m3.metric("Unavailable requests", len(daily_report["unavailable"]))
+                if good:
+                    rows = []
+                    for item in good:
+                        ind = item["indicators"]
+                        rows.append({
+                            "Asset class": item["asset_class"], "Symbol": item["symbol"],
+                            "Last close": item["latest_close"], "RSI 14": ind["rsi_14"],
+                            "MACD": ind["macd_12_26"], "SMA 20": ind["sma_20"],
+                            "SMA 50": ind["sma_50"],
+                            "Technical score": item["technical_screen_score"],
+                            "Data age (days)": round(item["age_seconds"] / 86400, 2),
+                        })
+                    rows.sort(key=lambda item: item["Technical score"], reverse=True)
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                if bad:
+                    st.markdown("#### Rejected histories")
+                    st.dataframe(pd.DataFrame([{
+                        "Asset class": item.get("asset_class"), "Symbol": item.get("symbol"),
+                        "Reasons": ", ".join(item.get("reasons", [])),
+                    } for item in bad]), use_container_width=True, hide_index=True)
+                if daily_report["unavailable"]:
+                    st.markdown("#### Provider unavailable / no exact symbol data")
+                    st.dataframe(pd.DataFrame(daily_report["unavailable"]),
+                        use_container_width=True, hide_index=True)
+                st.caption("FinancialData.Net historical daily data. This feed does not imply real-time prices or verified subscription entitlement for every symbol. Technical screening only; no paper positions are changed.")
+            except Exception as error:
+                st.error("Global daily asset scan failed: " + str(error))
 
 
 with scanner_tab:

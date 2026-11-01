@@ -88,23 +88,32 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["bars"], 60)
         self.assertEqual(result["latest_close"], 129.5)
 
-    def test_risk_adjusted_relative_strength_rewards_momentum_and_lower_risk(self):
+    def test_risk_adjusted_ranking_requires_complete_history_and_uses_120d(self):
         from global_markets.market_analysis import build_risk_adjusted_relative_strength
-        rows = [
-            {"symbol": "AAAUSDT", "relative_strength_vs_btc_20d_pp": 20,
-             "relative_strength_vs_btc_60d_pp": 30,
-             "risk_metrics": {"realized_volatility_20d_pct_annualized": 30, "max_drawdown_120d_pct": -10}},
-            {"symbol": "BBBUSDT", "relative_strength_vs_btc_20d_pp": -10,
-             "relative_strength_vs_btc_60d_pp": -5,
-             "risk_metrics": {"realized_volatility_20d_pct_annualized": 90, "max_drawdown_120d_pct": -40}},
-            {"symbol": "BTCUSDT", "relative_strength_vs_btc_20d_pp": 0,
-             "relative_strength_vs_btc_60d_pp": 0,
-             "risk_metrics": {"realized_volatility_20d_pct_annualized": 20, "max_drawdown_120d_pct": -5}},
-        ]
-        ranked = build_risk_adjusted_relative_strength(rows)
+        rows = []
+        for symbol, rs20, rs60, rs120, vol, dd in [
+            ("AAAUSDT", 20, 30, 40, 30, -10),
+            ("BBBUSDT", -10, -5, -2, 90, -40),
+            ("HYPEUSDT", 10, None, None, 60, -20),
+            ("BTCUSDT", 0, 0, 0, 20, -5),
+        ]:
+            rows.append({
+                "symbol": symbol,
+                "relative_strength_vs_btc_20d_pp": rs20,
+                "relative_strength_vs_btc_60d_pp": rs60,
+                "relative_strength_vs_btc_120d_pp": rs120,
+                "risk_metrics": {
+                    "realized_volatility_20d_pct_annualized": vol,
+                    "max_drawdown_120d_pct": dd,
+                },
+            })
+        ranked, coverage = build_risk_adjusted_relative_strength(rows)
         self.assertEqual([row["symbol"] for row in ranked], ["AAAUSDT", "BBBUSDT"])
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
-        self.assertEqual(ranked[0]["components_available"], 4)
+        self.assertEqual(ranked[0]["relative_strength_120d_pp"], 40)
+        hype = next(row for row in coverage if row["symbol"] == "HYPEUSDT")
+        self.assertEqual(hype["data_quality_pct"], 60.0)
+        self.assertEqual(hype["ranking_status"], "insufficient_history")
 
     def test_feed_analysis_exposes_empty_ranking_when_only_benchmark_exists(self):
         daily = self.rows(count=130, interval="1d")
@@ -114,6 +123,7 @@ class MarketAnalysisTests(unittest.TestCase):
         }, now=self.now)
         self.assertIn("risk_adjusted_relative_strength", result)
         self.assertEqual(result["risk_adjusted_relative_strength"], [])
+        self.assertEqual(result["risk_adjusted_relative_strength_coverage"], [])
 
     def test_feed_analysis_keeps_provider_unavailable_pairs(self):
         result = analyze_feed({

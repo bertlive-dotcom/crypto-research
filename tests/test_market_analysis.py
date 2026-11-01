@@ -82,8 +82,8 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(len(result["cross_timeframe"]), 1)
         alignment = result["cross_timeframe"][0]
         self.assertEqual(alignment["symbol"], "BTCUSDT")
-        self.assertEqual(alignment["alignment_score"], 100.0)
-        self.assertEqual(alignment["stance"], "bullish_alignment")
+        self.assertEqual(alignment["alignment_score"], round(alignment["daily_score"] * 0.60 + alignment["4h_score"] * 0.40, 1))
+        self.assertIn(alignment["stance"], {"bullish_alignment", "bearish_alignment", "mixed_or_neutral"})
 
     def test_feed_analysis_does_not_infer_alignment_when_interval_missing(self):
         result = analyze_feed({

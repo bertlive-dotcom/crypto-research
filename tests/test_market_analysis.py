@@ -114,6 +114,31 @@ class MarketAnalysisTests(unittest.TestCase):
         hype = next(row for row in coverage if row["symbol"] == "HYPEUSDT")
         self.assertEqual(hype["data_quality_pct"], 60.0)
         self.assertEqual(hype["ranking_status"], "insufficient_history")
+    def test_risk_adjusted_ranking_excludes_nan_and_infinite_metrics(self):
+        from global_markets.market_analysis import build_risk_adjusted_relative_strength
+        rows = [{
+            "symbol": "AAAUSDT",
+            "relative_strength_vs_btc_20d_pp": 1.0,
+            "relative_strength_vs_btc_60d_pp": 2.0,
+            "relative_strength_vs_btc_120d_pp": 3.0,
+            "risk_metrics": {
+                "realized_volatility_20d_pct_annualized": float("nan"),
+                "max_drawdown_120d_pct": -10.0,
+            },
+        }, {
+            "symbol": "BBBUSDT",
+            "relative_strength_vs_btc_20d_pp": 1.0,
+            "relative_strength_vs_btc_60d_pp": 2.0,
+            "relative_strength_vs_btc_120d_pct": 3.0,
+            "risk_metrics": {
+                "realized_volatility_20d_pct_annualized": 20.0,
+                "max_drawdown_120d_pct": float("-inf"),
+            },
+        }]
+        ranked, coverage = build_risk_adjusted_relative_strength(rows)
+        self.assertEqual(ranked, [])
+        self.assertTrue(all(row["data_quality_pct"] == 80.0 for row in coverage))
+
 
     def test_feed_analysis_exposes_empty_ranking_when_only_benchmark_exists(self):
         daily = self.rows(count=130, interval="1d")

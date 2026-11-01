@@ -17,7 +17,10 @@ DEFAULT_UNIVERSE_SEEDS = {
     "equity": ["NVDA", "TSM", "ASML", "MSFT", "GOOGL", "AMZN", "AVGO", "SU.PA"],
     "etf": ["SPY", "QQQ", "VT", "IWDA", "EEM"],
     "index": ["SPX", "NDX", "SX5E", "HSI", "N225"],
-    "crypto": ["BTCUSD", "ETHUSD", "SOLUSD", "LINKUSD", "XLMUSD", "SUIUSD", "HYPEUSD"],
+    "crypto": [
+        "BTCUSD", "ETHUSD", "SOLUSD", "LINKUSD", "XLMUSD", "SUIUSD", "HYPEUSD",
+        "XMRUSD", "LEOUSD", "BATUSD", "PEPEUSD", "BEAMUSD", "ANVLUSD",
+    ],
     "forex": ["EURUSD", "USDJPY", "GBPUSD", "USDCHF"],
     # FinancialData.Net commodity directory uses exchange trading symbols,
     # not generic names or slash-delimited pairs.

@@ -133,8 +133,8 @@ class FinancialDataClientTests(unittest.TestCase):
             {"trading_symbol": "GC", "date": "2026-10-30", "open": 10,
              "high": 8, "low": 9, "close": 11, "volume": 100},
         ])
-        result = self.client.fetch_daily_prices_with_quality("GC", "commodity")
-        self.assertEqual(result["candles"], [])
+        with self.assertRaisesRegex(FinancialDataError, "no valid exact-symbol records"):
+            self.client.fetch_daily_prices_with_quality("GC", "commodity")
 
 
     def test_daily_quality_skips_bad_rows(self):

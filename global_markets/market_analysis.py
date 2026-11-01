@@ -113,6 +113,9 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
     previous_rsi = _rsi(closes[:-1]) if len(closes) > 15 else None
     previous_macd = macd_series[-2] if len(macd_series) >= 2 else None
     previous_macd_signal = signal_series[-2] if len(signal_series) >= 2 else None
+    macd_histogram = macd - macd_signal if macd_signal is not None else None
+    previous_histogram = (previous_macd - previous_macd_signal
+                          if previous_macd is not None and previous_macd_signal is not None else None)
     returns = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes))]
     volatility = pstdev(returns[-20:]) * sqrt(6) * 100 if len(returns) >= 20 and interval == "4h" else (
         pstdev(returns[-20:]) * sqrt(365) * 100 if len(returns) >= 20 else None
@@ -142,6 +145,9 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
             "previous_macd_12_26": round(previous_macd, 8) if previous_macd is not None else None,
             "previous_macd_signal_9": round(previous_macd_signal, 8) if previous_macd_signal is not None else None,
             "macd_signal_9": round(macd_signal, 8) if macd_signal is not None else None,
+            "macd_histogram": round(macd_histogram, 8) if macd_histogram is not None else None,
+            "previous_macd_histogram": round(previous_histogram, 8) if previous_histogram is not None else None,
+            "macd_histogram_change": round(macd_histogram - previous_histogram, 8) if macd_histogram is not None and previous_histogram is not None else None,
             "sma_20": round(sma20, 8), "sma_50": round(sma50, 8) if sma50 is not None else None,
             "realized_volatility_pct_annualized_approx": round(volatility, 2) if volatility is not None else None,
             "return_7d_pct": round(return_7d, 2) if return_7d is not None else None,
@@ -221,6 +227,19 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             stance = "mixed_or_neutral"
         structure = classify_timeframe_structure(daily, tactical)
         daily_indicators = daily["indicators"]
+        tactical_indicators = tactical["indicators"]
+        daily_rsi_macd = (daily_indicators.get("rsi_14") is not None and daily_indicators["rsi_14"] >= 50
+                          and daily_indicators.get("macd_histogram") is not None and daily_indicators["macd_histogram"] > 0)
+        tactical_rsi_macd = (tactical_indicators.get("rsi_14") is not None and tactical_indicators["rsi_14"] >= 50
+                             and tactical_indicators.get("macd_histogram") is not None and tactical_indicators["macd_histogram"] > 0)
+        if daily_rsi_macd and tactical_rsi_macd:
+            confirmation = "confirmed_both"
+        elif daily_rsi_macd:
+            confirmation = "daily_only"
+        elif tactical_rsi_macd:
+            confirmation = "4h_only"
+        else:
+            confirmation = "not_confirmed"
         btc_7d = btc_indicators.get("return_7d_pct")
         btc_30d = btc_indicators.get("return_30d_pct")
         asset_7d = daily_indicators.get("return_7d_pct")
@@ -234,6 +253,7 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             "structure": structure["category"],
             "structure_label": structure["label"],
             "structure_explanation": structure["explanation"],
+            "rsi_macd_confirmation": confirmation,
             "return_7d_pct": asset_7d,
             "return_30d_pct": asset_30d,
             "relative_strength_vs_btc_7d_pct": round(asset_7d - btc_7d, 2) if asset_7d is not None and btc_7d is not None else None,

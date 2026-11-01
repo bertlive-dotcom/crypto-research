@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import requests
 import pandas as pd
@@ -192,7 +193,7 @@ with market_tab:
         crypto_rows = get_crypto(cmc_key)
         latest_crypto_market_data = {row["Asset"]: row for row in crypto_rows}
         latest_crypto_prices = {row["Asset"]: row["Price USD"] for row in crypto_rows if row.get("Price USD")}
-        st.dataframe(pd.DataFrame(crypto_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
@@ -206,7 +207,7 @@ with market_tab:
         except Exception as error:
             st.warning(symbol + ": " + str(error))
     if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
 
 with desk_tab:
@@ -383,7 +384,7 @@ with desk_tab:
 
     st.markdown("#### Open paper positions")
     if portfolio["open_positions"]:
-        st.dataframe(pd.DataFrame(portfolio["open_positions"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
         with st.form("position_update_form"):
             assets = [position["asset"] for position in portfolio["open_positions"]]
             selected = st.selectbox("Position", assets)
@@ -409,7 +410,7 @@ with desk_tab:
 
     st.markdown("#### Closed paper trades")
     if portfolio["closed_trades"]:
-        st.dataframe(pd.DataFrame(portfolio["closed_trades"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(portfolio["closed_trades"]), width="stretch", hide_index=True)
     else:
         st.caption("No closed trades yet.")
 
@@ -419,7 +420,19 @@ with desk_tab:
         try:
             recent_events = paper_store.load_events(days=30)
             if recent_events:
-                st.dataframe(pd.DataFrame(recent_events), use_container_width=True, hide_index=True)
+                # Supabase JSONB payloads have different shapes and value types per
+                # event. Keep each payload as readable JSON so Arrow does not infer
+                # an inconsistent nested schema when rendering the journal.
+                display_events = [
+                    {
+                        **event,
+                        "payload": json.dumps(event.get("payload"), ensure_ascii=False, sort_keys=True)
+                        if isinstance(event.get("payload"), (dict, list))
+                        else event.get("payload"),
+                    }
+                    for event in recent_events
+                ]
+                st.dataframe(pd.DataFrame(display_events), width="stretch", hide_index=True)
             else:
                 st.caption("No ledger events in the last 30 days yet.")
         except SupabaseStoreError as error:
@@ -507,7 +520,7 @@ with global_tab:
             } for item in global_report.get("freshness", [])]
             if freshness_rows:
                 with st.expander("Frescor de dades per actiu i interval", expanded=False):
-                    st.dataframe(pd.DataFrame(freshness_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(freshness_rows), width="stretch", hide_index=True)
                     st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD; revisa el motiu quan no hi ha dades actuals.")
 
             tactical = [row for row in eligible if row["interval"] == "4h"]
@@ -573,7 +586,7 @@ with global_tab:
                     "Actiu": item["asset"],
                     "Tipus": "Força relativa (no és entrada)" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica (no és entrada)",
                     "Alerta": item["label"], "Detall": item["detail"]
-                } for item in new_alerts]), use_container_width=True, hide_index=True)
+                } for item in new_alerts]), width="stretch", hide_index=True)
             else:
                 st.caption("Cap alerta tècnica nova en aquesta lectura.")
             if stored_alerts:
@@ -583,7 +596,7 @@ with global_tab:
                         "Actiu": item.get("asset"),
                         "Tipus": "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
                         "Alerta": item.get("label"), "Detall": item.get("detail"),
-                    } for item in stored_alerts]), use_container_width=True, hide_index=True)
+                    } for item in stored_alerts]), width="stretch", hide_index=True)
 
             if previous_structures is not None:
                 transitions = [{
@@ -594,7 +607,7 @@ with global_tab:
                     if symbol in previous_structures and previous_structures[symbol] != category]
                 if transitions:
                     st.markdown("#### Canvis de classificació des de l'última lectura")
-                    st.dataframe(pd.DataFrame(transitions), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(transitions), width="stretch", hide_index=True)
                     confirmed = [item for item in transitions if item["Ara"] == "Tendència confirmada"]
                     if confirmed:
                         st.success("Confirmació tècnica multi-temporal: " + ", ".join(item["Actiu"] for item in confirmed))
@@ -676,7 +689,7 @@ with global_tab:
                         "Motius": " ".join(entry.get("reasons", [])),
                     })
                 with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=False):
-                    st.dataframe(pd.DataFrame(entry_details), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(entry_details), width="stretch", hide_index=True)
                     st.caption("La qualitat /100 resta penalitzacions per volatilitat (>=80%/120%), drawdown (<=-30%/-40%) i deteriorament a 20 dies. Només es considera configuració confirmada si RSI i MACD són positius simultàniament en diari i 4h. No és una probabilitat d'èxit ni una ordre.")
 
                 st.markdown("#### Evolució comparativa (base 100)")
@@ -699,7 +712,7 @@ with global_tab:
                         }
                 if chart_series:
                     chart_frame = pd.DataFrame(chart_series).sort_index()
-                    st.line_chart(chart_frame, use_container_width=True)
+                    st.line_chart(chart_frame, width="stretch")
                 else:
                     st.info("No hi ha historial diari suficient per als actius seleccionats.")
 
@@ -721,11 +734,11 @@ with global_tab:
                         "Vs BTC 30d (pp)": item["Força vs BTC 30d (pp)"],
                     } for item in detail_rows]
                     st.markdown("**RSI**")
-                    st.dataframe(pd.DataFrame(rsi_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rsi_rows), width="stretch", hide_index=True)
                     st.markdown("**Histograma MACD i confirmació**")
-                    st.dataframe(pd.DataFrame(macd_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(macd_rows), width="stretch", hide_index=True)
                     st.markdown("**Força relativa**")
-                    st.dataframe(pd.DataFrame(relative_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(relative_rows), width="stretch", hide_index=True)
                     st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")
                     st.markdown("**Risc i rendiment històric (diari)**")
                     risk_rows = []
@@ -740,7 +753,7 @@ with global_tab:
                             "Vol. 60d anualitzada %": risk.get("realized_volatility_60d_pct_annualized"),
                             "Drawdown màx. finestra %": risk.get("max_drawdown_120d_pct"),
                         })
-                    st.dataframe(pd.DataFrame(risk_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(risk_rows), width="stretch", hide_index=True)
                     risk_relative_rows = [{
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Vs BTC 20d (pp)": row.get("relative_strength_vs_btc_20d_pp"),
@@ -748,7 +761,7 @@ with global_tab:
                         "Vs BTC 120d (pp)": row.get("relative_strength_vs_btc_120d_pp"),
                     } for row in aligned]
                     st.markdown("**Força relativa vs BTC — horitzons ampliats**")
-                    st.dataframe(pd.DataFrame(risk_relative_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(risk_relative_rows), width="stretch", hide_index=True)
                     st.caption("Volatilitat anualitzada aproximada a partir de rendiments diaris. Drawdown: caiguda màxima des d'un màxim anterior dins de les últimes 120 espelmes disponibles. Els horitzons sense historial suficient queden buits.")
                     st.markdown("**Rànquing de força relativa ajustada pel risc**")
                     adjusted_rows = [{
@@ -765,7 +778,7 @@ with global_tab:
                         "Drawdown màx. %": item["max_drawdown_120d_pct"],
                     } for item in global_report.get("risk_adjusted_relative_strength", [])]
                     if adjusted_rows:
-                        st.dataframe(pd.DataFrame(adjusted_rows).round(2), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(adjusted_rows).round(2), width="stretch", hide_index=True)
                     else:
                         st.info("Cap actiu té ara mateix tots els horitzons i mètriques necessaris per entrar al rànquing complet.")
                     coverage_rows = [{
@@ -786,7 +799,7 @@ with global_tab:
                     } for item in global_report.get("risk_adjusted_relative_strength_coverage", [])]
                     if coverage_rows:
                         st.markdown("**Completesa i actualització de dades del rànquing**")
-                        st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
                     st.caption("Momentum: 40% 20d, 35% 60d i 25% 120d. Qualitat del risc: 60% menor volatilitat 20d i 40% drawdown menys profund. Puntuació final: 70% momentum i 30% qualitat del risc. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
@@ -811,7 +824,7 @@ with global_tab:
                             "Antiguitat (min)": round(row["age_seconds"] / 60, 1),
                         })
                     tactical_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(tactical_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(tactical_rows), width="stretch", hide_index=True)
 
                 if daily:
                     st.markdown("#### Confirmació de tendència - diari")
@@ -832,7 +845,7 @@ with global_tab:
                             "Antiguitat (h)": round(row["age_seconds"] / 3600, 1),
                         })
                     daily_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
 
                 if aligned:
                     st.markdown("#### Alineació multi-temporal")
@@ -845,7 +858,7 @@ with global_tab:
                         "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "Lectura": row.get("structure_explanation", ""),
                     } for row in aligned]
-                    st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(alignment_rows), width="stretch", hide_index=True)
                 st.caption("Les puntuacions tècniques són filtres descriptius, no probabilitats, rendiments esperats ni senyals d'operació.")
 
             if rejected:
@@ -864,7 +877,7 @@ with global_tab:
                     "Motiu": ", ".join(reason_labels.get(reason, reason.replace("_", " ")) for reason in row.get("reasons", [])),
                 } for row in rejected]
                 with st.expander("Sèries descartades per qualitat de dades", expanded=False):
-                    st.dataframe(pd.DataFrame(rejected_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rejected_rows), width="stretch", hide_index=True)
 
             if unavailable_items:
                 reason_labels = {
@@ -890,7 +903,7 @@ with global_tab:
                         "Motiu": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                     } for (symbol, pair, reason), intervals in sorted(grouped_preflight.items())]
                     with st.expander("Actius omesos després de comprovar el catàleg Binance Spot", expanded=True):
-                        st.dataframe(pd.DataFrame(preflight_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
                         st.caption("Aquests parells s'han descartat abans de demanar espelmes. Cada fila agrupa els intervals afectats per actiu.")
 
                 if request_failures:
@@ -902,7 +915,7 @@ with global_tab:
                         "Detall": item.get("detail", ""),
                     } for item in request_failures]
                     with st.expander("Errors en peticions de dades", expanded=True):
-                        st.dataframe(pd.DataFrame(failure_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
 
                 availability_counts = global_report.get("availability_counts", {})
                 if availability_counts:
@@ -911,7 +924,7 @@ with global_tab:
                             {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                              "Intervals afectats": count}
                             for reason, count in sorted(availability_counts.items())
-                        ]), use_container_width=True, hide_index=True)
+                        ]), width="stretch", hide_index=True)
 
             st.caption("La puntuació tècnica és un filtre descriptiu basat en tendència, MACD, mitjanes mòbils i RSI. No representa una probabilitat, rendiment esperat ni recomanació d'inversió. Encara no s'hi inclouen dades fonamentals ni catalitzadors.")
         except Exception as error:
@@ -952,21 +965,21 @@ with global_tab:
                             "Data age (days)": round(item["age_seconds"] / 86400, 2),
                         })
                     rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
                 if bad:
                     st.markdown("#### Rejected histories")
                     st.dataframe(pd.DataFrame([{
                         "Asset class": item.get("asset_class"), "Symbol": item.get("symbol"),
                         "Reasons": ", ".join(item.get("reasons", [])),
-                    } for item in bad]), use_container_width=True, hide_index=True)
+                    } for item in bad]), width="stretch", hide_index=True)
                 if daily_report["quality"]:
                     st.markdown("#### Rejected source records (excluded from indicators)")
                     st.dataframe(pd.DataFrame(daily_report["quality"]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
                 if daily_report["unavailable"]:
                     st.markdown("#### Provider unavailable / no exact symbol data")
                     st.dataframe(pd.DataFrame(daily_report["unavailable"]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
                 st.caption("FinancialData.Net historical daily data. This feed does not imply real-time prices or verified subscription entitlement for every symbol. Technical screening only; no paper positions are changed.")
             except Exception as error:
                 st.error("Global daily asset scan failed: " + str(error))
@@ -1004,15 +1017,15 @@ with global_tab:
                             "Volume": "Not provided",
                         })
                     fx_rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(fx_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(fx_rows), width="stretch", hide_index=True)
                 if rejected:
                     st.markdown("#### Rejected FX histories")
                     st.dataframe(pd.DataFrame([{
                         "Pair": item.get("symbol"), "Reasons": ", ".join(item.get("reasons", [])),
-                    } for item in rejected]), use_container_width=True, hide_index=True)
+                    } for item in rejected]), width="stretch", hide_index=True)
                 if fx_report["unavailable"]:
                     st.markdown("#### FX provider unavailable")
-                    st.dataframe(pd.DataFrame(fx_report["unavailable"]), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(fx_report["unavailable"]), width="stretch", hide_index=True)
                 st.caption("The FX technical score uses price candles only. Alpha Vantage does not supply centralized FX volume here; no volume/liquidity score is inferred. Historical data is not a real-time quote and does not modify paper positions.")
             except Exception as error:
                 st.error("Global FX scan failed: " + str(error))
@@ -1039,17 +1052,17 @@ with scanner_tab:
                     scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
                 if scanner_state.get("open_positions"):
                     st.markdown("#### Scanner open paper positions")
-                    st.dataframe(pd.DataFrame(scanner_state["open_positions"]), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)
                 if scanner_state.get("closed_trades"):
                     st.markdown("#### Operacions paper tancades (històric)")
                     st.caption("Registre d'operacions anteriors. No implica que aquests actius continuïn cotitzant a Binance Spot ni que siguin candidats actuals.")
-                    st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), width="stretch", hide_index=True)
             else:
                 st.info("The scanner has not completed its first cycle yet.")
             st.markdown("#### Candidats de l'últim escaneig")
             st.caption("Aquesta llista prové de l'últim cicle complet i només inclou parells que Binance Spot marcava com a actius en aquell escaneig. No barreja operacions històriques tancades amb candidats actuals.")
             if scanner_candidates:
-                st.dataframe(pd.DataFrame(scanner_candidates), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
             else:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:

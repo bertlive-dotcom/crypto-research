@@ -512,8 +512,8 @@ with global_tab:
                 "Actiu": str(item.get("symbol") or "—").replace("USDT", "").replace("USD", ""),
                 "Interval": item.get("interval") or "—",
                 "Última espelma tancada UTC": item.get("latest_candle_close") or "—",
-                "Antiguitat (h)": round(item["age_seconds"] / 3600, 1) if item.get("age_seconds") is not None else "—",
-                "Espelmes": item.get("bars") if item.get("bars") is not None else "—",
+                "Antiguitat (h)": round(item["age_seconds"] / 3600, 1) if item.get("age_seconds") is not None else None,
+                "Espelmes": item.get("bars") if item.get("bars") is not None else None,
                 "Estat": freshness_status_labels.get(item.get("status"), item.get("status", "—")),
                 "Motiu": ", ".join(freshness_reason_labels.get(reason, str(reason).replace("_", " ").capitalize())
                                    for reason in item.get("reasons", [])) or "—",

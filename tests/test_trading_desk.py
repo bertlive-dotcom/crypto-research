@@ -14,7 +14,7 @@ class TradingDeskTests(unittest.TestCase):
     def test_solana_missing_onchain_data_fails_closed(self):
         self.assertFalse(evaluate_signal(Signal(asset="TEST",market="solana",price_usd=0.01))["approved"])
     def test_major_asset_requires_volume(self):
-        s=Signal(asset="BTC",market="major",price_usd=65000,volume_24h_usd=10000000)
+        s=Signal(asset="BTC",market="major",price_usd=65000,volume_24h_usd=10000000,gain_1h_pct=0)
         self.assertTrue(evaluate_signal(s)["approved"])
         s.volume_24h_usd=100
         self.assertFalse(evaluate_signal(s)["approved"])

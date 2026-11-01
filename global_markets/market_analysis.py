@@ -297,7 +297,7 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
     if overbought or extended:
         category, label = "late_entry_risk", "Risc d'entrada tardana"
         if overbought:
-            reasons.append("RSI >= 70: risc de perseguir un moviment estès.")
+            reasons.append("RSI elevat (>=70): risc de perseguir un moviment estès.")
         if extended:
             reasons.append("Preu diari almenys un 8% per sobre de SMA20.")
     elif confirmed_both and risk_penalty < 20 and deterioration_penalty < 16:

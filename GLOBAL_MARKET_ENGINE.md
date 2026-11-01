@@ -54,7 +54,7 @@ Recommended integration sequence:
 - Validate data licensing and redistribution terms before exposing market data.
 
 ## Tests
-Run: python -m unittest tests.test_global_market_scoring -v
+Run: python -m unittest discover -s tests -p 'test_global_market_scoring.py' -v
 
 ## Next increment
 

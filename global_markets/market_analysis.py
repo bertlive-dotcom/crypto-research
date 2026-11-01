@@ -54,38 +54,53 @@ def _rsi(values: list[float], period: int = 14) -> float | None:
 
 def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
                     max_age_seconds: int | None = None) -> dict:
-    """Validate one symbol/interval series and compute indicators if eligible."""
+    """Exclude still-forming candles, reject future data, then calculate indicators."""
     candles = sorted(list(rows), key=lambda row: row.get("timestamp", ""))
     if not candles:
         return {"eligible": False, "status": "missing", "reasons": ["no_candles"]}
     symbol = candles[-1].get("symbol")
     interval = candles[-1].get("interval")
+    current = _dt(now or datetime.now(timezone.utc))
     reasons = []
     if interval not in MAX_AGE_SECONDS:
         reasons.append("unsupported_interval")
     if any(row.get("symbol") != symbol or row.get("interval") != interval for row in candles):
         reasons.append("mixed_symbol_or_interval")
     try:
-        closes = [float(row["close"]) for row in candles]
+        closed_candles = []
+        for row in candles:
+            opened_at = _dt(row["timestamp"])
+            closed_at = _dt(row["close_timestamp"])
+            if opened_at > current and (opened_at - current).total_seconds() > 300:
+                reasons.append("future_candle")
+                continue
+            # Binance includes the currently forming candle. It must not enter
+            # technical calculations until its close time has passed.
+            if closed_at > current:
+                continue
+            closed_candles.append(row)
+        if not closed_candles:
+            reasons.append("no_closed_candles")
+            return {"eligible": False, "status": "rejected", "symbol": symbol,
+                    "interval": interval, "bars": 0, "reasons": reasons}
+        closes = [float(row["close"]) for row in closed_candles]
         if any(value <= 0 for value in closes):
             reasons.append("invalid_close_price")
-        timestamps = [_dt(row["close_timestamp"]) for row in candles]
-        current = _dt(now or datetime.now(timezone.utc))
+        timestamps = [_dt(row["close_timestamp"]) for row in closed_candles]
         latest_age = (current - timestamps[-1]).total_seconds()
-        if latest_age < -300:
-            reasons.append("future_candle")
         allowed_age = max_age_seconds if max_age_seconds is not None else MAX_AGE_SECONDS.get(interval, 0)
         if latest_age > allowed_age:
             reasons.append("stale_market_data")
     except (KeyError, TypeError, ValueError, OverflowError):
         return {"eligible": False, "status": "invalid", "symbol": symbol,
                 "interval": interval, "reasons": ["malformed_candle_data"]}
-    if len(candles) < MIN_BARS:
+    if len(closed_candles) < MIN_BARS:
         reasons.append("insufficient_history")
     if reasons:
         return {"eligible": False, "status": "rejected", "symbol": symbol,
-                "interval": interval, "bars": len(candles), "age_seconds": round(latest_age, 1),
-                "reasons": reasons}
+                "interval": interval, "bars": len(closed_candles),
+                "age_seconds": round(latest_age, 1),
+                "reasons": sorted(set(reasons))}
 
     ema12, ema26 = _ema(closes, 12), _ema(closes, 26)
     macd_series = [a - b for a, b in zip(ema12, ema26) if a is not None and b is not None]
@@ -106,26 +121,18 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
         25 if rsi is not None and 50 <= rsi <= 70 else 12.5 if rsi is not None and 40 <= rsi < 50 else 0,
     ]
     return {
-        "eligible": True,
-        "status": "fresh",
-        "symbol": symbol,
-        "interval": interval,
-        "source": candles[-1].get("source"),
-        "bars": len(candles),
-        "latest_close": closes[-1],
-        "latest_candle_close": timestamps[-1].isoformat(),
+        "eligible": True, "status": "fresh", "symbol": symbol, "interval": interval,
+        "source": closed_candles[-1].get("source"), "bars": len(closed_candles),
+        "latest_close": closes[-1], "latest_candle_close": timestamps[-1].isoformat(),
         "age_seconds": round(latest_age, 1),
         "indicators": {
-            "rsi_14": rsi,
-            "macd_12_26": round(macd, 8),
+            "rsi_14": rsi, "macd_12_26": round(macd, 8),
             "macd_signal_9": round(macd_signal, 8) if macd_signal is not None else None,
-            "sma_20": round(sma20, 8),
-            "sma_50": round(sma50, 8) if sma50 is not None else None,
+            "sma_20": round(sma20, 8), "sma_50": round(sma50, 8) if sma50 is not None else None,
             "realized_volatility_pct_annualized_approx": round(volatility, 2) if volatility is not None else None,
         },
         "technical_screen_score": sum(score_parts),
-        "score_type": "technical_only_not_investment_recommendation",
-        "reasons": [],
+        "score_type": "technical_only_not_investment_recommendation", "reasons": [],
     }
 
 
@@ -134,18 +141,12 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     grouped: dict[tuple[str, str], list[dict]] = {}
     for row in feed_result.get("data", []):
         grouped.setdefault((row.get("symbol"), row.get("interval")), []).append(row)
-    analyses = [
-        analyze_candles(group, now=now)
-        for _, group in sorted(grouped.items())
-    ]
+    analyses = [analyze_candles(group, now=now) for _, group in sorted(grouped.items())]
     eligible = [item for item in analyses if item["eligible"]]
     rejected = [item for item in analyses if not item["eligible"]]
     return {
-        "source": feed_result.get("source"),
-        "observed_at": feed_result.get("observed_at"),
-        "read_only": True,
-        "analyses": analyses,
-        "eligible_series": len(eligible),
-        "rejected_series": len(rejected),
+        "source": feed_result.get("source"), "observed_at": feed_result.get("observed_at"),
+        "read_only": True, "analyses": analyses,
+        "eligible_series": len(eligible), "rejected_series": len(rejected),
         "provider_unavailable": feed_result.get("unavailable", []),
     }

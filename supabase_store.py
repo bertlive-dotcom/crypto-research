@@ -1,4 +1,4 @@
-"""Supabase-backed persistence for the simulation-only paper trading ledger."""
+"""Supabase-backed persistence for paper trading and technical alert history."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -26,10 +26,12 @@ class SupabasePaperStore:
         }
 
     def _request(self, method: str, path: str, **kwargs):
+        extra_headers = kwargs.pop("headers", None) or {}
+        headers = {**self.headers, **extra_headers}
         try:
             response = requests.request(
                 method, self.url + "/rest/v1/" + path,
-                headers=self.headers, timeout=self.timeout, **kwargs
+                headers=headers, timeout=self.timeout, **kwargs
             )
             response.raise_for_status()
             return response.json() if response.content else None

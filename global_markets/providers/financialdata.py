@@ -132,6 +132,70 @@ class FinancialDataClient:
                 matches[requested_map[symbol.upper()]] = item
         return matches
 
+    def fetch_daily_prices(
+        self, symbol: str, asset_class: str, *, international: bool = False,
+        limit: int = 120,
+    ) -> list[dict]:
+        """Fetch and normalize daily OHLCV bars for supported asset classes.
+
+        This does not infer subscription entitlement. Provider errors are
+        surfaced to the caller, which should report the instrument unavailable.
+        """
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError("symbol is required")
+        if not isinstance(limit, int) or limit < 1 or limit > 300:
+            raise ValueError("limit must be between 1 and 300")
+        endpoints = {
+            "equity": "international-stock-prices" if international else "stock-prices",
+            "etf": "etf-prices",
+            "commodity": "commodity-prices",
+            "index": "index-prices",
+            "future": "futures-prices",
+            "crypto": "crypto-prices",
+        }
+        endpoint = endpoints.get(asset_class)
+        if endpoint is None:
+            raise ValueError("daily price history is not configured for this asset class")
+        payload = self.get(endpoint, {"identifier": symbol.strip(), "offset": 0})
+        if not isinstance(payload, list):
+            raise FinancialDataError("daily price endpoint returned a non-list payload")
+        normalized = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("trading_symbol", "")).upper() != symbol.upper():
+                continue
+            try:
+                day = datetime.strptime(str(item["date"]), "%Y-%m-%d").date()
+                values = {field: float(item[field]) for field in ("open", "high", "low", "close")}
+                volume = float(item.get("volume") or 0)
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise FinancialDataError("daily price record is malformed") from exc
+            if any(not math.isfinite(value) or value <= 0 for value in values.values()):
+                raise FinancialDataError("daily OHLC values must be finite and positive")
+            if not math.isfinite(volume) or volume < 0:
+                raise FinancialDataError("daily volume must be finite and non-negative")
+            if values["high"] < max(values["open"], values["close"], values["low"]):
+                raise FinancialDataError("daily high is inconsistent with OHLC values")
+            if values["low"] > min(values["open"], values["close"], values["high"]):
+                raise FinancialDataError("daily low is inconsistent with OHLC values")
+            normalized.append({
+                "asset_id": f"financialdata.net:{asset_class}:{symbol}",
+                "symbol": symbol,
+                "asset_class": asset_class,
+                "interval": "1d",
+                "date": day.isoformat(),
+                "timestamp": datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
+                "close_timestamp": datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc).isoformat(),
+                **values,
+                "volume": volume,
+                "source": "financialdata.net",
+            })
+        normalized.sort(key=lambda row: row["timestamp"])
+        if not normalized:
+            raise FinancialDataError("daily price endpoint returned no exact-symbol records")
+        return normalized
+
     @staticmethod
     def normalize_quote(
         record: Mapping[str, Any], *, asset_class: str,

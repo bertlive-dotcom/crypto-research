@@ -88,6 +88,16 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["bars"], 60)
         self.assertEqual(result["latest_close"], 129.5)
 
+    def test_percentile_scores_assign_equal_scores_to_all_tied_assets(self):
+        from global_markets.market_analysis import _percentile_scores
+        values = {"AAA": 10.0, "BBB": 10.0, "CCC": 5.0, "DDD": 1.0}
+        scores = _percentile_scores(values)
+        self.assertEqual(set(scores), set(values))
+        self.assertEqual(scores["AAA"], scores["BBB"])
+        self.assertEqual(scores["AAA"], 83.33)
+        self.assertEqual(scores["CCC"], 33.33)
+        self.assertEqual(scores["DDD"], 0.0)
+
     def test_risk_adjusted_ranking_requires_complete_history_and_uses_120d(self):
         from global_markets.market_analysis import build_risk_adjusted_relative_strength
         rows = []

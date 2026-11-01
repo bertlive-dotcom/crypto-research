@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "global_markets/**"
+      - "app.py"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"
       - "tests/test_alphavantage_adapter.py"
@@ -35,6 +36,8 @@ jobs:
           python-version: "3.12"
       - name: Install test dependency
         run: python -m pip install "requests>=2.31,<3.0"
+      - name: Compile dashboard and global market modules
+        run: python -m py_compile app.py global_markets/*.py global_markets/providers/*.py
       - name: Run global market unit tests
         run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
       - name: Run FinancialData.Net adapter tests

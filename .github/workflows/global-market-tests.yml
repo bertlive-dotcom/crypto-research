@@ -6,14 +6,17 @@ on:
       - "global_markets/**"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"
+      - "tests/test_alphavantage_adapter.py"
       - ".github/workflows/global-market-tests.yml"
   push:
     branches:
+      - "main"
       - "feature/global-market-engine-v1"
     paths:
       - "global_markets/**"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"
+      - "tests/test_alphavantage_adapter.py"
       - ".github/workflows/global-market-tests.yml"
 
 jobs:
@@ -30,3 +33,5 @@ jobs:
         run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
       - name: Run FinancialData.Net adapter tests
         run: python -m unittest discover -s tests -p "test_financialdata_adapter.py" -v
+      - name: Run Alpha Vantage adapter tests
+        run: python -m unittest discover -s tests -p "test_alphavantage_adapter.py" -v

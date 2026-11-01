@@ -123,6 +123,19 @@ class FinancialDataClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.client.fetch_daily_prices("MSFT", "equity", limit=301)
 
+    def test_http_401_reports_endpoint_access_or_entitlement(self):
+        self.session.get.return_value = self.response(status=401)
+        with self.assertRaisesRegex(FinancialDataError, "access denied.*endpoint plan entitlement"):
+            self.client.get("etf-prices")
+
+    def test_bad_commodity_ohlc_error_includes_provider_values(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "GC", "date": "2026-10-30", "open": 10,
+             "high": 8, "low": 9, "close": 11, "volume": 100},
+        ])
+        with self.assertRaisesRegex(FinancialDataError, "GC on 2026-10-30.*open=10.0, high=8.0"):
+            self.client.fetch_daily_prices("GC", "commodity")
+
 
 if __name__ == "__main__":
     unittest.main()

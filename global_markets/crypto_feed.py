@@ -41,10 +41,28 @@ class CryptoWatchlistFeed:
         requested = list(symbols) if symbols is not None else list(DEFAULT_UNIVERSE_SEEDS["crypto"])
         data, unavailable = [], []
         observed_at = datetime.now(timezone.utc).isoformat()
+        try:
+            active_pairs = self.client.get_active_spot_symbols()
+        except BinanceMarketDataError as exc:
+            return {
+                "source": "binance", "observed_at": observed_at, "read_only": True,
+                "requested_symbols": requested, "intervals": list(intervals), "data": [],
+                "unavailable": [{"symbol": symbol, "reason": "spot_listing_check_failed: " + str(exc)}
+                                for symbol in requested],
+                "summary": {"requested": len(requested), "returned_pairs": 0,
+                            "observations": 0, "unavailable_requests": len(requested) * len(intervals)},
+            }
         for canonical in requested:
             pair = BINANCE_SPOT_PAIRS.get(canonical.upper())
             if not pair:
                 unavailable.append({"symbol": canonical, "reason": "no_binance_pair_mapping"})
+                continue
+            if pair not in active_pairs:
+                for interval in intervals:
+                    unavailable.append({
+                        "symbol": canonical, "provider_symbol": pair,
+                        "interval": interval, "reason": "pair_not_currently_trading_on_binance_spot",
+                    })
                 continue
             for interval in intervals:
                 try:

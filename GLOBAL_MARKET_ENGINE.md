@@ -15,9 +15,9 @@ Seeds are discovery candidates, not proof that every instrument is supported or 
 - `global_markets.providers.binance.BinanceMarketDataClient` reads public spot OHLCV klines from Binance's market-data-only host.
 - `global_markets.crypto_feed.CryptoWatchlistFeed` fetches the 13-symbol seed list at 4h and daily intervals.
 - No API key, account credentials, private endpoints or order endpoints are used.
-- Pair mappings are explicit. Unsupported/unlisted pairs are reported as unavailable, not silently substituted.
+- Pair mappings are explicit. Before fetching candles, the feed checks Binance `exchangeInfo` and only requests pairs currently marked `TRADING` with Spot trading enabled. Delisted or inactive pairs are reported as unavailable; a failed listing check fails closed rather than reusing potentially stale history. Unsupported/unlisted pairs are reported as unavailable, not silently substituted.
 - Candles contain open/high/low/close, base volume, quote volume, trade count, interval, open timestamp and close timestamp.
-- A live GitHub Actions smoke test validates the feed and market data quality. At the latest recorded run, BTC and ETH passed both 4h and daily checks; XMR and BEAM history was stale and LEO/ANVL pairs were unavailable on this Binance endpoint. Availability can change.
+- A live GitHub Actions smoke test validates the feed and market data quality. A runtime exchange-listing check now prevents delisted/inactive pairs from returning old historical candles as if they were current. XMR/BEAM and LEO/ANVL must still be checked against the current Binance Spot listing; no substitute pair is assumed.
 
 ## Freshness and technical analysis
 `global_markets.market_analysis`:

@@ -14,7 +14,7 @@ class MarketAnalysisTests(unittest.TestCase):
         step = timedelta(hours=4) if interval == "4h" else timedelta(days=1)
         for i in range(count):
             close = 100 + i * 0.5
-            timestamp = end - step * (count - i)
+            timestamp = end - step * (count - 1 - i)
             rows.append({
                 "symbol": "BTCUSDT", "interval": interval, "source": "binance",
                 "timestamp": (timestamp - step).isoformat(),

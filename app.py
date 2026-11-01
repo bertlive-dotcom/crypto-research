@@ -13,6 +13,7 @@ from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
 from global_markets.market_analysis import analyze_feed, analyze_candles
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
+from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -130,6 +131,28 @@ def get_global_daily_asset_analysis(api_key):
                 })
     return {
         "source": "FinancialData.Net", "observed_at": datetime.now(timezone.utc).isoformat(),
+        "analyses": analyses, "unavailable": unavailable,
+    }
+
+
+@st.cache_data(ttl=900)
+def get_global_fx_analysis(api_key):
+    client = AlphaVantageClient(api_key)
+    pairs = [("EUR", "USD"), ("USD", "JPY"), ("GBP", "USD"), ("USD", "CHF")]
+    analyses, unavailable = [], []
+    for base, quote in pairs:
+        symbol = base + quote
+        try:
+            rows = client.get_fx_daily(base, quote)
+            result = analyze_candles(rows, max_age_seconds=5 * 86400)
+            result["asset_class"] = "forex"
+            result["symbol"] = symbol
+            result["volume_available"] = False
+            analyses.append(result)
+        except (AlphaVantageError, ValueError) as error:
+            unavailable.append({"asset_class": "forex", "symbol": symbol, "reason": str(error)})
+    return {
+        "source": "Alpha Vantage FX_DAILY", "observed_at": datetime.now(timezone.utc).isoformat(),
         "analyses": analyses, "unavailable": unavailable,
     }
 
@@ -476,6 +499,52 @@ with global_tab:
                 st.caption("FinancialData.Net historical daily data. This feed does not imply real-time prices or verified subscription entitlement for every symbol. Technical screening only; no paper positions are changed.")
             except Exception as error:
                 st.error("Global daily asset scan failed: " + str(error))
+
+    st.divider()
+    st.subheader("Forex - daily history")
+    av_key = secret("ALPHA_VANTAGE_API_KEY")
+    if not av_key:
+        st.info("Optional: add ALPHA_VANTAGE_API_KEY in hosting Secrets to activate four daily FX pairs. A full scan uses four API requests.")
+    else:
+        st.caption("Alpha Vantage FX_DAILY · historical daily candles · cached for 15 minutes · five-calendar-day freshness window. FX volume is not supplied and is excluded.")
+        if st.button("Fetch daily FX data", key="run_global_fx_scan"):
+            get_global_fx_analysis.clear()
+            st.session_state["global_fx_scan_requested"] = True
+        if st.session_state.get("global_fx_scan_requested"):
+            try:
+                with st.spinner("Requesting daily FX history..."):
+                    fx_report = get_global_fx_analysis(av_key)
+                valid = [item for item in fx_report["analyses"] if item["eligible"]]
+                rejected = [item for item in fx_report["analyses"] if not item["eligible"]]
+                f1, f2, f3 = st.columns(3)
+                f1.metric("Valid FX pairs", len(valid))
+                f2.metric("Rejected histories", len(rejected))
+                f3.metric("Unavailable requests", len(fx_report["unavailable"]))
+                if valid:
+                    fx_rows = []
+                    for item in valid:
+                        ind = item["indicators"]
+                        fx_rows.append({
+                            "Pair": item["symbol"], "Last close": item["latest_close"],
+                            "RSI 14": ind["rsi_14"], "MACD": ind["macd_12_26"],
+                            "SMA 20": ind["sma_20"], "SMA 50": ind["sma_50"],
+                            "Technical score": item["technical_screen_score"],
+                            "Data age (days)": round(item["age_seconds"] / 86400, 2),
+                            "Volume": "Not provided",
+                        })
+                    fx_rows.sort(key=lambda item: item["Technical score"], reverse=True)
+                    st.dataframe(pd.DataFrame(fx_rows), use_container_width=True, hide_index=True)
+                if rejected:
+                    st.markdown("#### Rejected FX histories")
+                    st.dataframe(pd.DataFrame([{
+                        "Pair": item.get("symbol"), "Reasons": ", ".join(item.get("reasons", [])),
+                    } for item in rejected]), use_container_width=True, hide_index=True)
+                if fx_report["unavailable"]:
+                    st.markdown("#### FX provider unavailable")
+                    st.dataframe(pd.DataFrame(fx_report["unavailable"]), use_container_width=True, hide_index=True)
+                st.caption("The FX technical score uses price candles only. Alpha Vantage does not supply centralized FX volume here; no volume/liquidity score is inferred. Historical data is not a real-time quote and does not modify paper positions.")
+            except Exception as error:
+                st.error("Global FX scan failed: " + str(error))
 
 
 with scanner_tab:

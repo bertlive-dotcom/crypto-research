@@ -136,6 +136,36 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
     }
 
 
+
+def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> dict:
+    """Describe daily/4h structure without turning scores into trade signals."""
+    if not daily or not tactical or not daily.get("eligible") or not tactical.get("eligible"):
+        return {"category": "insufficient_timeframes", "label": "Insufficient timeframes",
+                "explanation": "Both fresh, closed daily and 4h histories are required."}
+    daily_score = daily["technical_screen_score"]
+    tactical_score = tactical["technical_screen_score"]
+    if daily_score >= 62.5 and tactical_score >= 62.5:
+        return {"category": "confirmed_trend", "label": "Confirmed trend",
+                "explanation": "Daily and 4h technical screens point in the same positive direction."}
+    if daily_score <= 37.5 and tactical_score >= 62.5:
+        t_ind = tactical["indicators"]
+        improving = (t_ind.get("macd_12_26") is not None
+                     and t_ind.get("macd_signal_9") is not None
+                     and t_ind["macd_12_26"] > t_ind["macd_signal_9"])
+        detail = ("MACD momentum is improving, but daily confirmation is absent."
+                  if improving else "Momentum confirmation is incomplete; daily confirmation is absent.")
+        return {"category": "possible_reversal", "label": "Possible reversal",
+                "explanation": "The 4h screen is stronger than the weak daily trend; " + detail}
+    if daily_score >= 62.5 and tactical_score <= 50:
+        return {"category": "timeframe_divergence", "label": "Timeframe divergence",
+                "explanation": "Daily strength is not confirmed by the 4h screen; do not treat the daily score alone as confirmation."}
+    if daily_score <= 37.5 and tactical_score <= 37.5:
+        return {"category": "weakness", "label": "Weakness",
+                "explanation": "Both daily and 4h technical screens are weak."}
+    return {"category": "mixed_structure", "label": "Mixed structure",
+            "explanation": "The timeframes do not meet the thresholds for a confirmed trend, reversal attempt or broad weakness."}
+
+
 def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     """Analyze each returned symbol/interval group and preserve feed failures."""
     grouped: dict[tuple[str, str], list[dict]] = {}
@@ -165,12 +195,16 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             stance = "bearish_alignment"
         else:
             stance = "mixed_or_neutral"
+        structure = classify_timeframe_structure(daily, tactical)
         cross_timeframe.append({
             "symbol": symbol,
             "daily_score": daily["technical_screen_score"],
             "4h_score": tactical["technical_screen_score"],
             "alignment_score": combined,
             "stance": stance,
+            "structure": structure["category"],
+            "structure_label": structure["label"],
+            "structure_explanation": structure["explanation"],
             "daily_price": daily["latest_close"],
             "4h_price": tactical["latest_close"],
         })

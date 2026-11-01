@@ -55,11 +55,13 @@ class BinanceMarketDataClient:
                 if not isinstance(candle, list) or len(candle) < 11:
                     raise ValueError("invalid candle shape")
                 timestamp = datetime.fromtimestamp(int(candle[0]) / 1000, tz=timezone.utc)
+                close_timestamp = datetime.fromtimestamp(int(candle[6]) / 1000, tz=timezone.utc)
                 rows.append({
                     "symbol": pair,
                     "asset_class": "crypto",
                     "date": timestamp.date().isoformat(),
                     "timestamp": timestamp.isoformat(),
+                    "close_timestamp": close_timestamp.isoformat(),
                     "open": float(candle[1]),
                     "high": float(candle[2]),
                     "low": float(candle[3]),

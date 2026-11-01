@@ -86,6 +86,43 @@ class FinancialDataClientTests(unittest.TestCase):
                 asset_class="crypto",
             )
 
+    def test_fetch_daily_prices_normalizes_exact_symbol_and_sorts_oldest_first(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "MSFT", "date": "2026-10-30", "open": 10,
+             "high": 12, "low": 9, "close": 11, "volume": 100},
+            {"trading_symbol": "OTHER", "date": "2026-10-31", "open": 1,
+             "high": 2, "low": 1, "close": 2, "volume": 20},
+            {"trading_symbol": "MSFT", "date": "2026-10-29", "open": 9,
+             "high": 11, "low": 8, "close": 10, "volume": 90},
+        ])
+        rows = self.client.fetch_daily_prices("MSFT", "equity")
+        self.assertEqual([row["date"] for row in rows], ["2026-10-29", "2026-10-30"])
+        self.assertEqual(rows[-1]["interval"], "1d")
+        self.assertEqual(rows[-1]["source"], "financialdata.net")
+
+    def test_fetch_daily_prices_rejects_bad_ohlc(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "GC", "date": "2026-10-30", "open": 10,
+             "high": 8, "low": 9, "close": 11, "volume": 100},
+        ])
+        with self.assertRaises(FinancialDataError):
+            self.client.fetch_daily_prices("GC", "commodity")
+
+    def test_fetch_daily_prices_uses_international_equity_endpoint(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "SU.PA", "date": "2026-10-30", "open": 10,
+             "high": 12, "low": 9, "close": 11, "volume": 100},
+        ])
+        self.client.fetch_daily_prices("SU.PA", "equity", international=True)
+        args, _ = self.session.get.call_args
+        self.assertIn("international-stock-prices", args[0])
+
+    def test_fetch_daily_prices_rejects_unsupported_class_and_limit(self):
+        with self.assertRaises(ValueError):
+            self.client.fetch_daily_prices("EURUSD", "forex")
+        with self.assertRaises(ValueError):
+            self.client.fetch_daily_prices("MSFT", "equity", limit=301)
+
 
 if __name__ == "__main__":
     unittest.main()

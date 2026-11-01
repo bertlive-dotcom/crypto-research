@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 BASE_URL = "https://data-api.binance.vision/api/v3/klines"
+EXCHANGE_INFO_URL = "https://data-api.binance.vision/api/v3/exchangeInfo"
 
 
 class BinanceMarketDataError(RuntimeError):
@@ -23,6 +24,26 @@ class BinanceMarketDataClient:
             raise ValueError("timeout must be positive")
         self.session = session or requests.Session()
         self.timeout = timeout
+
+    def get_active_spot_symbols(self) -> set[str]:
+        """Return symbols currently tradable on Binance Spot."""
+        try:
+            response = self.session.get(EXCHANGE_INFO_URL, timeout=self.timeout)
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException as exc:
+            raise BinanceMarketDataError("Binance exchange-info request failed") from exc
+        except ValueError as exc:
+            raise BinanceMarketDataError("Binance returned invalid exchange-info JSON") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
+            raise BinanceMarketDataError("Binance returned an unexpected exchange-info response")
+        return {
+            str(item.get("symbol", "")).upper()
+            for item in payload["symbols"]
+            if isinstance(item, dict)
+            and item.get("status") == "TRADING"
+            and item.get("isSpotTradingAllowed", True) is True
+        }
 
     def get_klines(self, symbol: str, interval: str = "1d", limit: int = 500) -> list[dict[str, Any]]:
         pair = symbol.strip().upper()

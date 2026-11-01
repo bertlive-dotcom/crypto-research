@@ -16,6 +16,10 @@ class AlphaVantageError(RuntimeError):
     """Sanitized provider, entitlement, or rate-limit error."""
 
 
+class AlphaVantageRateLimitError(AlphaVantageError):
+    """Provider explicitly reported a request-rate limit."""
+
+
 class AlphaVantageClient:
     def __init__(self, api_key: str, *, session: requests.Session | None = None, timeout: float = 15.0):
         if not api_key or not api_key.strip():
@@ -41,8 +45,10 @@ class AlphaVantageClient:
             raise AlphaVantageError("Alpha Vantage returned invalid JSON") from exc
         if not isinstance(payload, dict):
             raise AlphaVantageError("Alpha Vantage returned an unexpected response")
-        if "Note" in payload or "Information" in payload:
-            raise AlphaVantageError("Alpha Vantage rate limit or entitlement notice")
+        if "Note" in payload:
+            raise AlphaVantageRateLimitError("Alpha Vantage request rate limit reached")
+        if "Information" in payload:
+            raise AlphaVantageError("Alpha Vantage plan entitlement or request-frequency notice")
         if "Error Message" in payload:
             raise AlphaVantageError("Alpha Vantage rejected the requested function or symbol")
         return payload

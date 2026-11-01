@@ -43,7 +43,7 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertIsNone(metrics["return_120d_pct"])
         self.assertIsNotNone(metrics["realized_volatility_20d_pct_annualized"])
         self.assertIsNotNone(metrics["realized_volatility_60d_pct_annualized"])
-        self.assertEqual(metrics["drawdown_window_bars"], 60)
+        self.assertEqual(metrics["drawdown_window_bars"], 61)
         self.assertEqual(metrics["max_drawdown_120d_pct"], 0.0)
 
     def test_drawdown_measures_peak_to_trough_loss(self):

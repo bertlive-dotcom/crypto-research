@@ -42,7 +42,7 @@ class CryptoWatchlistFeed:
         data, unavailable = [], []
         observed_at = datetime.now(timezone.utc).isoformat()
         try:
-            active_pairs = self.client.get_active_spot_symbols()
+            symbol_status = self.client.get_spot_symbol_status()
         except BinanceMarketDataError as exc:
             return {
                 "source": "binance", "observed_at": observed_at, "read_only": True,
@@ -50,7 +50,8 @@ class CryptoWatchlistFeed:
                 "unavailable": [{"symbol": symbol, "reason": "spot_listing_check_failed: " + str(exc)}
                                 for symbol in requested],
                 "summary": {"requested": len(requested), "returned_pairs": 0,
-                            "observations": 0, "unavailable_requests": len(requested) * len(intervals)},
+                            "observations": 0, "unavailable_requests": len(requested) * len(intervals),
+                            "availability_counts": {"listing_check_failed": len(requested) * len(intervals)}},
             }
         for canonical in requested:
             pair = BINANCE_SPOT_PAIRS.get(canonical.upper())

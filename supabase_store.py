@@ -68,7 +68,7 @@ class SupabasePaperStore:
         return self._request(
             "GET", "market_alert_events",
             params={
-                "select": "dedupe_key,event_type,asset,label,detail,daily_close,4h_close,created_at",
+                "select": "dedupe_key,event_type,asset,label,detail,daily_close,four_hour_close,created_at",
                 "created_at": "gte." + since,
                 "order": "created_at.desc",
                 "limit": str(limit),

@@ -10,6 +10,8 @@ from trading_desk import (
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
+from global_markets.crypto_feed import CryptoWatchlistFeed
+from global_markets.market_analysis import analyze_feed
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -93,8 +95,17 @@ if st.button("Refresh market data"):
     get_crypto.clear()
     get_quote.clear()
 
+@st.cache_data(ttl=300)
+def get_global_crypto_analysis():
+    feed = CryptoWatchlistFeed()
+    raw = feed.fetch(intervals=("1d", "4h"), limit=120)
+    return analyze_feed(raw)
+
+
 latest_crypto_prices = {}
-market_tab, desk_tab, scanner_tab = st.tabs(["Market dashboard", "AI Crypto Trading Desk", "Market Scanner"])
+market_tab, desk_tab, global_tab, scanner_tab = st.tabs([
+    "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner"
+])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
     st.subheader("Crypto - CoinMarketCap")
@@ -290,6 +301,88 @@ with desk_tab:
             paper_store.save_state(st.session_state.paper_portfolio, {"event_type": "portfolio_reset", "asset": "", "starting_capital_usd": STARTING_CAPITAL_USD})
         st.session_state.desk_last_result = None
         st.rerun()
+
+
+
+with global_tab:
+    st.subheader("Global opportunity scanner - crypto watchlist")
+    st.caption("Binance public spot data · read-only · 4h and daily analysis · independent from the existing Market Scanner.")
+    st.warning("Research and technical screening only. This view does not open, close or modify paper positions.")
+    if st.button("Fetch and analyse global crypto watchlist", key="run_global_crypto_scan"):
+        get_global_crypto_analysis.clear()
+        st.session_state["global_crypto_scan_requested"] = True
+
+    if st.session_state.get("global_crypto_scan_requested"):
+        try:
+            with st.spinner("Fetching public candles and calculating indicators..."):
+                global_report = get_global_crypto_analysis()
+            analyses = global_report["analyses"]
+            eligible = [row for row in analyses if row["eligible"]]
+            rejected = [row for row in analyses if not row["eligible"]]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Valid series", global_report["eligible_series"])
+            c2.metric("Rejected series", global_report["rejected_series"])
+            c3.metric("Symbols with valid data", len({row["symbol"] for row in eligible}))
+            c4.metric("Unavailable requests", len(global_report["provider_unavailable"]))
+            st.caption("Data source: {} | Feed timestamp: {}".format(
+                global_report.get("source"), global_report.get("observed_at")))
+
+            tactical = [row for row in eligible if row["interval"] == "4h"]
+            daily = [row for row in eligible if row["interval"] == "1d"]
+            if tactical:
+                st.markdown("#### Tactical ranking - 4 hours")
+                tactical_rows = []
+                for row in tactical:
+                    ind = row["indicators"]
+                    tactical_rows.append({
+                        "Symbol": row["symbol"],
+                        "Price": row["latest_close"],
+                        "RSI 14": ind["rsi_14"],
+                        "MACD": ind["macd_12_26"],
+                        "MACD signal": ind["macd_signal_9"],
+                        "SMA 20": ind["sma_20"],
+                        "SMA 50": ind["sma_50"],
+                        "Volatility %": ind["realized_volatility_pct_annualized_approx"],
+                        "Technical score": row["technical_screen_score"],
+                        "Age (min)": round(row["age_seconds"] / 60, 1),
+                    })
+                tactical_rows.sort(key=lambda item: item["Technical score"], reverse=True)
+                st.dataframe(pd.DataFrame(tactical_rows), use_container_width=True, hide_index=True)
+
+            if daily:
+                st.markdown("#### Trend confirmation - daily")
+                daily_rows = []
+                for row in daily:
+                    ind = row["indicators"]
+                    daily_rows.append({
+                        "Symbol": row["symbol"], "Price": row["latest_close"],
+                        "RSI 14": ind["rsi_14"], "MACD": ind["macd_12_26"],
+                        "MACD signal": ind["macd_signal_9"], "SMA 20": ind["sma_20"],
+                        "SMA 50": ind["sma_50"],
+                        "Technical score": row["technical_screen_score"],
+                        "Age (h)": round(row["age_seconds"] / 3600, 1),
+                    })
+                daily_rows.sort(key=lambda item: item["Technical score"], reverse=True)
+                st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+
+            if rejected:
+                st.markdown("#### Rejected data series")
+                st.dataframe(pd.DataFrame([{
+                    "Symbol": row.get("symbol"), "Interval": row.get("interval"),
+                    "Bars": row.get("bars"), "Age (seconds)": row.get("age_seconds"),
+                    "Reasons": ", ".join(row.get("reasons", [])),
+                } for row in rejected]), use_container_width=True, hide_index=True)
+
+            if global_report["provider_unavailable"]:
+                st.markdown("#### Provider unavailable")
+                st.dataframe(pd.DataFrame(global_report["provider_unavailable"]),
+                    use_container_width=True, hide_index=True)
+
+            st.caption("Technical score is a screening indicator based on trend, MACD, moving averages and RSI. It is not a probability, expected return or investment recommendation. Fundamental and catalyst coverage is not yet included.")
+        except Exception as error:
+            st.error("Global crypto scan failed: " + str(error))
+    else:
+        st.info("Select the scan button to fetch the 13-asset crypto watchlist and calculate fresh indicators. No market request is made until you start the scan.")
 
 
 with scanner_tab:

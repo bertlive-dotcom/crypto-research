@@ -15,6 +15,14 @@ class BinanceMarketDataClientTests(unittest.TestCase):
         response.raise_for_status.return_value = None
         return response
 
+    def test_exchange_info_returns_only_active_spot_symbols(self):
+        self.session.get.return_value = self.response({"symbols": [
+            {"symbol": "BTCUSDT", "status": "TRADING", "isSpotTradingAllowed": True},
+            {"symbol": "XMRUSDT", "status": "BREAK", "isSpotTradingAllowed": True},
+            {"symbol": "ANVLUSDT", "status": "TRADING", "isSpotTradingAllowed": False},
+        ]})
+        self.assertEqual(self.client.get_active_spot_symbols(), {"BTCUSDT"})
+
     def test_normalizes_daily_candle(self):
         self.session.get.return_value = self.response([[
             1793318400000, "100", "110", "90", "105", "12.5",

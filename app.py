@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import requests
 import pandas as pd
@@ -419,7 +420,19 @@ with desk_tab:
         try:
             recent_events = paper_store.load_events(days=30)
             if recent_events:
-                st.dataframe(pd.DataFrame(recent_events), use_container_width=True, hide_index=True)
+                # Supabase JSONB payloads have different shapes and value types per
+                # event. Keep each payload as readable JSON so Arrow does not infer
+                # an inconsistent nested schema when rendering the journal.
+                display_events = [
+                    {
+                        **event,
+                        "payload": json.dumps(event.get("payload"), ensure_ascii=False, sort_keys=True)
+                        if isinstance(event.get("payload"), (dict, list))
+                        else event.get("payload"),
+                    }
+                    for event in recent_events
+                ]
+                st.dataframe(pd.DataFrame(display_events), use_container_width=True, hide_index=True)
             else:
                 st.caption("No ledger events in the last 30 days yet.")
         except SupabaseStoreError as error:

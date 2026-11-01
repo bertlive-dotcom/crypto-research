@@ -13,9 +13,7 @@ from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
 from global_markets.market_analysis import analyze_feed, analyze_candles
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
-    AlphaVantageClient, AlphaVantageError,
-    AlphaVantageClient, AlphaVantageError, AlphaVantageRateLimitError,
-)
+from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")

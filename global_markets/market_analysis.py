@@ -227,7 +227,8 @@ def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> d
 
 def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
                               structure: dict | None = None,
-                              relative_strength_20d_pp: float | None = None) -> dict:
+                              relative_strength_20d_pp: float | None = None,
+                              data_quality_pct: float | None = None) -> dict:
     """Score entry context with explicit confirmation, volatility and deterioration penalties."""
     if not daily or not tactical or not daily.get("eligible") or not tactical.get("eligible"):
         return {"category": "insufficient_data", "label": "Dades insuficients",
@@ -288,13 +289,20 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
         deterioration_penalty += 8
         reasons.append("Deteriorament: pèrdua de força relativa respecte a BTC en 20 dies.")
 
-    score = max(0, min(100, raw_score - risk_penalty - deterioration_penalty))
+    data_quality_penalty = 0
+    if data_quality_pct is None:
+        data_quality_pct = 100.0
+    if data_quality_pct < 100:
+        data_quality_penalty = 10 if data_quality_pct >= 80 else 20
+        reasons.append("Historial incomplet ({:.0f}% de completesa): penalització de qualitat.".format(data_quality_pct))
+    score = max(0, min(100, raw_score - risk_penalty - deterioration_penalty - data_quality_penalty))
     overbought = ((d_rsi is not None and d_rsi >= 70)
                   or (t_rsi is not None and t_rsi >= 70))
     extended = extension is not None and extension >= 8
     structure_category = (structure or {}).get("category")
     confirmed_both = (
-        structure_category == "confirmed_trend"
+        data_quality_pct >= 100
+        and structure_category == "confirmed_trend"
         and d_rsi is not None and d_rsi >= 50
         and t_rsi is not None and t_rsi >= 50
         and d_hist is not None and d_hist > 0
@@ -309,6 +317,9 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
     elif confirmed_both and risk_penalty < 20 and deterioration_penalty < 16:
         category, label = "confirmed_entry_setup", "Configuració confirmada (no ordre)"
         reasons.append("RSI i MACD positius simultàniament en diari i 4h.")
+    elif structure_category == "early_turn_watch":
+        category, label = "early_turn_watch", "Possible gir inicial (vigilar)"
+        reasons.append("El momentum 4h millora, però encara no hi ha confirmació conjunta.")
     elif structure_category in {"possible_reversal", "incipient_recovery"}:
         category, label = "recovery_watch", "Recuperació en observació"
         reasons.append("El 4h millora, però encara falta confirmació diària completa.")
@@ -320,6 +331,8 @@ def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
         "category": category, "label": label, "quality_score": score,
         "raw_quality_score": raw_score, "risk_penalty": risk_penalty,
         "deterioration_penalty": deterioration_penalty,
+        "data_quality_pct": data_quality_pct,
+        "data_quality_penalty": data_quality_penalty,
         "volatility_20d_pct_annualized": volatility,
         "max_drawdown_120d_pct": drawdown, "return_20d_pct": return_20d,
         "relative_strength_20d_pp": relative_strength_20d_pp,

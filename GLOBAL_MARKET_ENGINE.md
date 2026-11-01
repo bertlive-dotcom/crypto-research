@@ -42,7 +42,7 @@ When both fresh, closed daily and 4h series exist, the crypto watchlist classifi
 - Timeframe divergence: daily score >= 62.5 while 4h score <= 50.
 - Weakness: both scores <= 37.5.
 - Mixed structure: other combinations.
-Daily returns over 7 and 30 sessions are calculated from closed candles. Relative strength versus BTC is the asset return minus BTC return over the same period, expressed in percentage points. These are descriptive screening metrics, not forecasts, calibrated probabilities or trade signals. Missing BTC or insufficient history leaves relative-strength values blank.
+Daily returns over 7 and 30 sessions are calculated from closed candles. Relative strength versus BTC is the asset return minus BTC return over the same period, expressed in percentage points. The dashboard also exposes the MACD histogram (MACD minus signal) and its change, plus a separate RSI+MACD confirmation status for daily, 4h or both intervals. Relative-strength alerts are explicitly classified separately from technical-confirmation alerts; neither class is an entry instruction. These are descriptive screening metrics, not forecasts, calibrated probabilities or trade signals. Missing BTC or insufficient history leaves relative-strength values blank.
 
 ## Multi-asset scoring contract
 `global_markets.scoring.rank_candidate` accepts normalized candidate data and component scores from 0–100. Default weights: technical 35%, fundamental 30%, catalyst 15%, liquidity 10%, risk control 10%. A higher risk-control score means better-controlled risk. Missing components are excluded and remaining weights normalized; score is withheld unless at least 60% of configured weight is represented. Output includes coverage and rejection reasons; it is not a trade instruction.
@@ -81,7 +81,7 @@ Validate live endpoint access for the equity, ETF and commodity daily-history fe
 The RSI detail and BTC-relative-strength metrics are displayed in separate narrow tables. Rejected series and unavailable provider requests use human-readable Catalan labels in the primary view; original provider error codes remain available in a collapsed technical-details section for diagnosis.
 
 ## Comparative chart and structure transitions
-Daily analysis exposes the last 31 closed daily candles rebased to 100 at the first observation, only when sufficient history exists. The dashboard plots selected assets on the same normalized scale for relative performance comparison. Consecutive structure categories are compared within the active Streamlit session; category changes are shown as transitions, and a move into confirmed trend is highlighted. This transition history is session-scoped and resets when the session restarts; it is not a persisted alert service or an instruction to trade.
+Daily analysis exposes the last 31 closed daily candles rebased to 100 at the first observation, only when sufficient history exists. The dashboard plots selected assets on the same normalized scale for relative performance comparison; BTC, ETH, PEPE and HYPE are the default chart selection when their histories are available. Consecutive structure categories are compared within the active Streamlit session; category changes are shown as transitions, and a move into confirmed trend is highlighted. This transition history is session-scoped and resets when the session restarts; it is not a persisted alert service or an instruction to trade.
 
 ## Technical alerts and durable history
 The crypto scanner generates informational events for:

@@ -65,6 +65,20 @@ class FinancialDataClientTests(unittest.TestCase):
         self.assertEqual(quote["source_timestamp"], "2026-11-01 12:00:00")
         self.assertTrue(quote["observed_at"].endswith("+00:00"))
 
+    def test_rejects_non_finite_quote_prices(self):
+        for price in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(price=price):
+                with self.assertRaises(FinancialDataError):
+                    FinancialDataClient.normalize_quote(
+                        {"trading_symbol": "BTCUSD", "price": price,
+                         "time": "2026-11-01 12:00:00"},
+                        asset_class="crypto",
+                    )
+
+    def test_rejects_non_finite_timeout(self):
+        with self.assertRaises(ValueError):
+            FinancialDataClient("test-key", timeout=float("nan"))
+
     def test_rejects_bad_quote(self):
         with self.assertRaises(FinancialDataError):
             FinancialDataClient.normalize_quote(

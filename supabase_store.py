@@ -61,3 +61,27 @@ class SupabasePaperStore:
                 "limit": str(limit),
             },
         ) or []
+
+    def load_market_alerts(self, days: int = 90, limit: int = 500) -> list[dict]:
+        """Load durable technical alerts from the separate market_alert_events table."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        return self._request(
+            "GET", "market_alert_events",
+            params={
+                "select": "dedupe_key,event_type,asset,label,detail,daily_close,4h_close,created_at",
+                "created_at": "gte." + since,
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        ) or []
+
+    def save_market_alerts(self, alerts: list[dict]) -> None:
+        """Insert new alerts; duplicate dedupe keys are ignored by the database."""
+        if not alerts:
+            return
+        self._request(
+            "POST", "market_alert_events",
+            params={"on_conflict": "dedupe_key"},
+            headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=minimal"},
+            json=alerts,
+        )

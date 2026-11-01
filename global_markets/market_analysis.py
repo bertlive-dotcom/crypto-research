@@ -144,9 +144,41 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     analyses = [analyze_candles(group, now=now) for _, group in sorted(grouped.items())]
     eligible = [item for item in analyses if item["eligible"]]
     rejected = [item for item in analyses if not item["eligible"]]
+
+    # Cross-timeframe alignment is calculated only when both closed, fresh
+    # intervals exist for the same provider symbol. Daily trend has more weight.
+    by_symbol: dict[str, dict[str, dict]] = {}
+    for item in eligible:
+        by_symbol.setdefault(item["symbol"], {})[item["interval"]] = item
+    cross_timeframe = []
+    for symbol, frames in sorted(by_symbol.items()):
+        daily, tactical = frames.get("1d"), frames.get("4h")
+        if not daily or not tactical:
+            continue
+        combined = round(
+            daily["technical_screen_score"] * 0.60
+            + tactical["technical_screen_score"] * 0.40, 1
+        )
+        if combined >= 70:
+            stance = "bullish_alignment"
+        elif combined <= 30:
+            stance = "bearish_alignment"
+        else:
+            stance = "mixed_or_neutral"
+        cross_timeframe.append({
+            "symbol": symbol,
+            "daily_score": daily["technical_screen_score"],
+            "4h_score": tactical["technical_screen_score"],
+            "alignment_score": combined,
+            "stance": stance,
+            "daily_price": daily["latest_close"],
+            "4h_price": tactical["latest_close"],
+        })
+    cross_timeframe.sort(key=lambda row: row["alignment_score"], reverse=True)
     return {
         "source": feed_result.get("source"), "observed_at": feed_result.get("observed_at"),
         "read_only": True, "analyses": analyses,
         "eligible_series": len(eligible), "rejected_series": len(rejected),
+        "cross_timeframe": cross_timeframe,
         "provider_unavailable": feed_result.get("unavailable", []),
     }

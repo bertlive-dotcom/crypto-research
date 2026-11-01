@@ -127,6 +127,12 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
         "source": closed_candles[-1].get("source"), "bars": len(closed_candles),
         "latest_close": closes[-1], "latest_candle_close": timestamps[-1].isoformat(),
         "age_seconds": round(latest_age, 1),
+        # Last 31 closed daily candles, rebased to 100 for cross-asset comparison.
+        "normalized_history": [
+            {"date": timestamps[index].date().isoformat(),
+             "value": round((closes[index] / closes[-31]) * 100, 4)}
+            for index in range(max(0, len(closes) - 31), len(closes))
+        ] if interval == "1d" and len(closes) >= 31 else [],
         "indicators": {
             "rsi_14": rsi, "macd_12_26": round(macd, 8),
             "macd_signal_9": round(macd_signal, 8) if macd_signal is not None else None,

@@ -23,7 +23,7 @@ def build_technical_alerts(report: dict, previous_structures: dict | None = None
             alerts.append({
                 "dedupe_key": f"{symbol}:{kind}:{stamp}",
                 "event_type": kind, "asset": asset, "label": label,
-                "detail": detail, "daily_close": d_close, "4h_close": h_close,
+                "detail": detail, "daily_close": d_close, "four_hour_close": h_close,
             })
 
         old = previous_structures.get(symbol)

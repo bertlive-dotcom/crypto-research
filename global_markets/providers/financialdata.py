@@ -94,24 +94,31 @@ class FinancialDataClient:
 
     def list_symbols(self, asset_class: str) -> list[dict]:
         endpoints = {
-            "equity": "stock-symbols",
-            "etf": "etf-symbols",
-            "commodity": "commodity-symbols",
-            "future": "futures-symbols",
-            "crypto": "crypto-symbols",
-            "forex": "forex-symbols",
+            "equity": ("stock-symbols", "international-stock-symbols"),
+            "etf": ("etf-symbols",),
+            "commodity": ("commodity-symbols",),
+            "future": ("futures-symbols",),
+            "crypto": ("crypto-symbols",),
+            "forex": ("forex-symbols",),
         }
         if asset_class not in endpoints:
             raise ValueError("symbol directory not supported for this asset class")
-        endpoint = endpoints[asset_class]
         results: list[dict] = []
-        for page in range(self.max_pages):
-            payload = self.get(endpoint, {"offset": page * 500})
-            if not isinstance(payload, list):
-                raise FinancialDataError("symbol endpoint returned a non-list payload")
-            results.extend(item for item in payload if isinstance(item, dict))
-            if len(payload) < 500:
-                break
+        seen: set[str] = set()
+        for endpoint in endpoints[asset_class]:
+            for page in range(self.max_pages):
+                payload = self.get(endpoint, {"offset": page * 500})
+                if not isinstance(payload, list):
+                    raise FinancialDataError("symbol endpoint returned a non-list payload")
+                for item in payload:
+                    if isinstance(item, dict):
+                        symbol = item.get("trading_symbol")
+                        key = str(symbol).upper() if symbol is not None else repr(item)
+                        if key not in seen:
+                            seen.add(key)
+                            results.append(item)
+                if len(payload) < 500:
+                    break
         return results
 
     def find_symbols(self, asset_class: str, requested: list[str]) -> dict[str, dict | None]:

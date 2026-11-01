@@ -447,7 +447,8 @@ with global_tab:
                 st.caption("Only symbols with both fresh, closed intervals are included. Scores combine the existing technical screening scores; they are not expected returns or trade signals.")
                 structure_labels = {
                     "confirmed_trend": "Tendència confirmada",
-                    "possible_reversal": "Possible gir",
+                    "possible_reversal": "Possible gir (pendent del diari)",
+                    "incipient_recovery": "Recuperació incipient",
                     "timeframe_divergence": "Divergència temporal",
                     "weakness": "Feblesa",
                     "mixed_structure": "Estructura mixta",
@@ -459,10 +460,14 @@ with global_tab:
                     "Puntuació 4h": row["4h_score"],
                     "Alineació": row["alignment_score"],
                     "Classificació": structure_labels.get(row.get("structure"), row.get("structure")),
+                    "Rendiment 7d %": row.get("return_7d_pct"),
+                    "Rendiment 30d %": row.get("return_30d_pct"),
+                    "Força vs BTC 7d (pp)": row.get("relative_strength_vs_btc_7d_pct"),
+                    "Força vs BTC 30d (pp)": row.get("relative_strength_vs_btc_30d_pct"),
                     "Lectura": row.get("structure_explanation", ""),
                 } for row in aligned]
                 st.dataframe(pd.DataFrame(alignment_rows), use_container_width=True, hide_index=True)
-                st.caption("Tendència confirmada: força en tots dos intervals. Possible gir: 4h millora però el diari continua feble. Divergència temporal: diari fort sense confirmació 4h. Feblesa: tots dos intervals febles. Són classificacions descriptives, no ordres ni recomanacions d'operar.")
+                st.caption("Possible gir només s'assigna quan el 4h confirma RSI >= 50 i MACD alcista; si no, es mostra recuperació incipient. Tendència confirmada exigeix RSI >= 50 i MACD alcista en tots dos intervals. Força relativa vs BTC = rendiment de l'actiu menys rendiment de BTC, en punts percentuals. Són mètriques descriptives, no senyals ni recomanacions d'operar.")
 
             if rejected:
                 st.markdown("#### Rejected data series")

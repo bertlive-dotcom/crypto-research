@@ -63,8 +63,8 @@ class AlphaVantageClient:
                 except (TypeError, ValueError) as exc:
                     raise AlphaVantageError("Alpha Vantage OHLC field is missing or invalid") from exc
             try:
-                from datetime import date, datetime, time, timezone
-                parsed_date = date.fromisoformat(date)
+                from datetime import date as date_type, datetime, time, timezone
+                parsed_date = date_type.fromisoformat(date)
             except (TypeError, ValueError) as exc:
                 raise AlphaVantageError("Alpha Vantage returned an invalid observation date") from exc
             if any(row[field] <= 0 for field in ("open", "high", "low", "close")):

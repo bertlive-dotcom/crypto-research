@@ -101,7 +101,7 @@ if st.button("Refresh market data"):
 @st.cache_data(ttl=300)
 def get_global_crypto_analysis():
     feed = CryptoWatchlistFeed()
-    raw = feed.fetch(intervals=("1d", "4h"), limit=120)
+    raw = feed.fetch(intervals=("1d", "4h"), limit=200)
     return analyze_feed(raw)
 
 @st.cache_data(ttl=900)
@@ -598,6 +598,22 @@ with global_tab:
                     st.markdown("**Força relativa vs BTC — horitzons ampliats**")
                     st.dataframe(pd.DataFrame(risk_relative_rows), use_container_width=True, hide_index=True)
                     st.caption("Volatilitat anualitzada aproximada a partir de rendiments diaris. Drawdown: caiguda màxima des d'un màxim anterior dins de les últimes 120 espelmes disponibles. Els horitzons sense historial suficient queden buits.")
+                    st.markdown("**Rànquing de força relativa ajustada pel risc**")
+                    adjusted_rows = [{
+                        "Actiu": item["symbol"].replace("USDT", ""),
+                        "Puntuació / 100": item["score"],
+                        "Força momentum": item["momentum_percentile"],
+                        "Perfil de risc": item["risk_percentile"],
+                        "Vs BTC 20d (pp)": item["relative_strength_20d_pp"],
+                        "Vs BTC 60d (pp)": item["relative_strength_60d_pp"],
+                        "Vol. 20d anualitzada %": item["volatility_20d_pct_annualized"],
+                        "Drawdown màx. %": item["max_drawdown_120d_pct"],
+                    } for item in global_report.get("risk_adjusted_relative_strength", [])]
+                    if adjusted_rows:
+                        st.dataframe(pd.DataFrame(adjusted_rows).round(2), use_container_width=True, hide_index=True)
+                        st.caption("Puntuació comparativa: momentum relatiu 70% i perfil de risc 30%. Menys volatilitat i drawdown menys profund milloren el component de risc. No és una probabilitat ni un senyal de compra.")
+                    else:
+                        st.info("No hi ha prou dades coincidents de força relativa i risc per construir el rànquing.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):

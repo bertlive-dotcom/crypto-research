@@ -603,17 +603,28 @@ with global_tab:
                         "Actiu": item["symbol"].replace("USDT", ""),
                         "Puntuació / 100": item["score"],
                         "Força momentum": item["momentum_percentile"],
-                        "Perfil de risc": item["risk_percentile"],
+                        "Qualitat del risc": item["risk_quality_percentile"],
                         "Vs BTC 20d (pp)": item["relative_strength_20d_pp"],
                         "Vs BTC 60d (pp)": item["relative_strength_60d_pp"],
+                        "Vs BTC 120d (pp)": item["relative_strength_120d_pp"],
                         "Vol. 20d anualitzada %": item["volatility_20d_pct_annualized"],
                         "Drawdown màx. %": item["max_drawdown_120d_pct"],
                     } for item in global_report.get("risk_adjusted_relative_strength", [])]
                     if adjusted_rows:
                         st.dataframe(pd.DataFrame(adjusted_rows).round(2), use_container_width=True, hide_index=True)
-                        st.caption("Puntuació comparativa: momentum relatiu 70% i perfil de risc 30%. Menys volatilitat i drawdown menys profund milloren el component de risc. No és una probabilitat ni un senyal de compra.")
                     else:
-                        st.info("No hi ha prou dades coincidents de força relativa i risc per construir el rànquing.")
+                        st.info("Cap actiu té ara mateix tots els horitzons i mètriques necessaris per entrar al rànquing complet.")
+                    coverage_rows = [{
+                        "Actiu": item["symbol"].replace("USDT", ""),
+                        "Qualitat de dades %": item["data_quality_pct"],
+                        "Components disponibles": str(item["available_components"]) + "/" + str(item["total_components"]),
+                        "Estat": "Completes" if item["ranking_status"] == "complete" else "Historial insuficient",
+                        "Dades que falten": ", ".join(item["missing_components"]) or "—",
+                    } for item in global_report.get("risk_adjusted_relative_strength_coverage", [])]
+                    if coverage_rows:
+                        st.markdown("**Cobertura de dades del rànquing**")
+                        st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
+                    st.caption("Momentum: 40% 20d, 35% 60d i 25% 120d. Qualitat del risc: 60% menor volatilitat 20d i 40% drawdown menys profund. Puntuació final: 70% momentum i 30% qualitat del risc. Només competeixen actius amb els cinc components disponibles. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):

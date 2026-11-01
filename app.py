@@ -13,7 +13,9 @@ from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
 from global_markets.market_analysis import analyze_feed, analyze_candles
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
-from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from global_markets.providers.alphavantage import (
+    AlphaVantageClient, AlphaVantageError, AlphaVantageRateLimitError,
+)
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")
@@ -140,7 +142,7 @@ def get_global_fx_analysis(api_key):
     client = AlphaVantageClient(api_key)
     pairs = [("EUR", "USD"), ("USD", "JPY"), ("GBP", "USD"), ("USD", "CHF")]
     analyses, unavailable = [], []
-    for base, quote in pairs:
+    for index, (base, quote) in enumerate(pairs):
         symbol = base + quote
         try:
             rows = client.get_fx_daily(base, quote)
@@ -149,6 +151,15 @@ def get_global_fx_analysis(api_key):
             result["symbol"] = symbol
             result["volume_available"] = False
             analyses.append(result)
+        except AlphaVantageRateLimitError as error:
+            unavailable.append({"asset_class": "forex", "symbol": symbol, "reason": str(error)})
+            for remaining_base, remaining_quote in pairs[index + 1:]:
+                unavailable.append({
+                    "asset_class": "forex",
+                    "symbol": remaining_base + remaining_quote,
+                    "reason": "Skipped to preserve provider quota after rate-limit response",
+                })
+            break
         except (AlphaVantageError, ValueError) as error:
             unavailable.append({"asset_class": "forex", "symbol": symbol, "reason": str(error)})
     return {

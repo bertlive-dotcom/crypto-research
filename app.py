@@ -513,6 +513,10 @@ with global_tab:
                         "Asset class": item.get("asset_class"), "Symbol": item.get("symbol"),
                         "Reasons": ", ".join(item.get("reasons", [])),
                     } for item in bad]), use_container_width=True, hide_index=True)
+                if daily_report["quality"]:
+                    st.markdown("#### Rejected source records (excluded from indicators)")
+                    st.dataframe(pd.DataFrame(daily_report["quality"]),
+                        use_container_width=True, hide_index=True)
                 if daily_report["unavailable"]:
                     st.markdown("#### Provider unavailable / no exact symbol data")
                     st.dataframe(pd.DataFrame(daily_report["unavailable"]),

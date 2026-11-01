@@ -6,8 +6,6 @@ import os
 import sys
 from pathlib import Path
 
-# Running this file directly sets sys.path[0] to scripts/, not the repository root.
-# Add the project root so the local global_markets package is importable in Actions.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -50,11 +48,12 @@ def main() -> int:
                 "missing": missing,
             }
         except (FinancialDataError, ValueError) as exc:
-            # Deliberately omit exception details; provider errors may contain request metadata.
+            # FinancialDataError messages are locally defined, sanitized status descriptions;
+            # do not include response bodies, request URLs, query parameters or credentials.
             report["asset_classes"][asset_class] = {
                 "status": "unavailable_or_plan_restricted",
                 "requested": seeds,
-                "note": type(exc).__name__,
+                "diagnostic": str(exc),
             }
 
     print(json.dumps(report, indent=2, ensure_ascii=False))

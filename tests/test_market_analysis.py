@@ -88,6 +88,33 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["bars"], 60)
         self.assertEqual(result["latest_close"], 129.5)
 
+    def test_risk_adjusted_relative_strength_rewards_momentum_and_lower_risk(self):
+        from global_markets.market_analysis import build_risk_adjusted_relative_strength
+        rows = [
+            {"symbol": "AAAUSDT", "relative_strength_vs_btc_20d_pp": 20,
+             "relative_strength_vs_btc_60d_pp": 30,
+             "risk_metrics": {"realized_volatility_20d_pct_annualized": 30, "max_drawdown_120d_pct": -10}},
+            {"symbol": "BBBUSDT", "relative_strength_vs_btc_20d_pp": -10,
+             "relative_strength_vs_btc_60d_pp": -5,
+             "risk_metrics": {"realized_volatility_20d_pct_annualized": 90, "max_drawdown_120d_pct": -40}},
+            {"symbol": "BTCUSDT", "relative_strength_vs_btc_20d_pp": 0,
+             "relative_strength_vs_btc_60d_pp": 0,
+             "risk_metrics": {"realized_volatility_20d_pct_annualized": 20, "max_drawdown_120d_pct": -5}},
+        ]
+        ranked = build_risk_adjusted_relative_strength(rows)
+        self.assertEqual([row["symbol"] for row in ranked], ["AAAUSDT", "BBBUSDT"])
+        self.assertGreater(ranked[0]["score"], ranked[1]["score"])
+        self.assertEqual(ranked[0]["components_available"], 4)
+
+    def test_feed_analysis_includes_risk_adjusted_relative_strength(self):
+        daily = self.rows(count=130, interval="1d")
+        tactical = self.rows(count=60, interval="4h")
+        result = analyze_feed({
+            "source": "binance", "data": daily + tactical, "unavailable": [],
+        }, now=self.now)
+        self.assertIn("risk_adjusted_relative_strength", result)
+        self.assertTrue(result["risk_adjusted_relative_strength"])
+
     def test_feed_analysis_keeps_provider_unavailable_pairs(self):
         result = analyze_feed({
             "source": "binance", "data": self.rows(),

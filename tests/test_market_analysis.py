@@ -44,11 +44,26 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertFalse(result["eligible"])
         self.assertIn("insufficient_history", result["reasons"])
 
-    def test_rejects_future_candle(self):
+    def test_rejects_future_open_time(self):
         future = self.rows(close_time=self.now + timedelta(hours=2))
+        future[-1]["timestamp"] = (self.now + timedelta(hours=1)).isoformat()
         result = analyze_candles(future, now=self.now)
         self.assertFalse(result["eligible"])
         self.assertIn("future_candle", result["reasons"])
+
+    def test_ignores_current_unclosed_daily_candle(self):
+        rows = self.rows()
+        rows.append({
+            "symbol": "BTCUSDT", "interval": "1d", "source": "binance",
+            "timestamp": (self.now + timedelta(seconds=1)).isoformat(),
+            "close_timestamp": (self.now + timedelta(days=1)).isoformat(),
+            "open": 100.0, "high": 10000.0, "low": 90.0,
+            "close": 9999.0, "volume": 1000.0,
+        })
+        result = analyze_candles(rows, now=self.now)
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["bars"], 60)
+        self.assertEqual(result["latest_close"], 129.5)
 
     def test_feed_analysis_keeps_provider_unavailable_pairs(self):
         result = analyze_feed({

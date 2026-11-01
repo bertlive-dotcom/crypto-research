@@ -218,6 +218,67 @@ def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> d
             "explanation": "Els indicadors no coincideixen prou per classificar una tendència o recuperació."}
 
 
+
+def _percentile_scores(values: dict[str, float], *, higher_is_better: bool = True) -> dict[str, float]:
+    """Cross-sectional percentile scores from 0 to 100, averaging tied ranks."""
+    if not values:
+        return {}
+    ordered = sorted(values.items(), key=lambda item: item[1], reverse=higher_is_better)
+    if len(ordered) == 1:
+        return {ordered[0][0]: 50.0}
+    scores = {}
+    index = 0
+    while index < len(ordered):
+        end = index
+        while end + 1 < len(ordered) and ordered[end + 1][1] == ordered[index][1]:
+            end += 1
+        average_rank = (index + end) / 2
+        scores[ordered[index][0]] = round(100 * (1 - average_rank / (len(ordered) - 1)), 2)
+        index = end + 1
+    return scores
+
+
+def build_risk_adjusted_relative_strength(rows: list[dict]) -> list[dict]:
+    """Rank non-BTC assets by relative momentum and downside/volatility profile."""
+    assets = {row["symbol"]: row for row in rows if row.get("symbol") != "BTCUSDT"}
+    values = {
+        "rs20": {s: r["relative_strength_vs_btc_20d_pp"] for s, r in assets.items()
+                 if r.get("relative_strength_vs_btc_20d_pp") is not None},
+        "rs60": {s: r["relative_strength_vs_btc_60d_pp"] for s, r in assets.items()
+                 if r.get("relative_strength_vs_btc_60d_pp") is not None},
+        "vol20": {s: r.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized")
+                  for s, r in assets.items()
+                  if r.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized") is not None},
+        "drawdown": {s: r.get("risk_metrics", {}).get("max_drawdown_120d_pct")
+                     for s, r in assets.items()
+                     if r.get("risk_metrics", {}).get("max_drawdown_120d_pct") is not None},
+    }
+    scores = {
+        "rs20": _percentile_scores(values["rs20"]),
+        "rs60": _percentile_scores(values["rs60"]),
+        "vol20": _percentile_scores(values["vol20"], higher_is_better=False),
+        "drawdown": _percentile_scores(values["drawdown"]),
+    }
+    output = []
+    for symbol, row in assets.items():
+        momentum_parts = [(scores[k][symbol], w) for k, w in (("rs20", .60), ("rs60", .40)) if symbol in scores[k]]
+        risk_parts = [(scores[k][symbol], w) for k, w in (("vol20", .60), ("drawdown", .40)) if symbol in scores[k]]
+        if not momentum_parts or not risk_parts:
+            continue
+        momentum = sum(v*w for v,w in momentum_parts) / sum(w for _,w in momentum_parts)
+        risk = sum(v*w for v,w in risk_parts) / sum(w for _,w in risk_parts)
+        output.append({
+            "symbol": symbol, "score": round(momentum*.70 + risk*.30, 2),
+            "momentum_percentile": round(momentum, 2), "risk_percentile": round(risk, 2),
+            "relative_strength_20d_pp": row.get("relative_strength_vs_btc_20d_pp"),
+            "relative_strength_60d_pp": row.get("relative_strength_vs_btc_60d_pp"),
+            "volatility_20d_pct_annualized": row.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized"),
+            "max_drawdown_120d_pct": row.get("risk_metrics", {}).get("max_drawdown_120d_pct"),
+            "components_available": len(momentum_parts) + len(risk_parts),
+        })
+    return sorted(output, key=lambda item: item["score"], reverse=True)
+
+
 def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     """Analyze each returned symbol/interval group and preserve feed failures."""
     grouped: dict[tuple[str, str], list[dict]] = {}
@@ -303,6 +364,7 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         "read_only": True, "analyses": analyses,
         "eligible_series": len(eligible), "rejected_series": len(rejected),
         "cross_timeframe": cross_timeframe,
+        "risk_adjusted_relative_strength": build_risk_adjusted_relative_strength(cross_timeframe),
         "provider_unavailable": feed_result.get("unavailable", []),
         "availability_counts": feed_result.get("summary", {}).get("availability_counts", {}),
     }

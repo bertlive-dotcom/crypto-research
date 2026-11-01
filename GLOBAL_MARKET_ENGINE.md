@@ -79,3 +79,6 @@ Validate live endpoint access for the equity, ETF and commodity daily-history fe
 
 ## Mobile crypto diagnostics
 The RSI detail and BTC-relative-strength metrics are displayed in separate narrow tables. Rejected series and unavailable provider requests use human-readable Catalan labels in the primary view; original provider error codes remain available in a collapsed technical-details section for diagnosis.
+
+## Comparative chart and structure transitions
+Daily analysis exposes the last 31 closed daily candles rebased to 100 at the first observation, only when sufficient history exists. The dashboard plots selected assets on the same normalized scale for relative performance comparison. Consecutive structure categories are compared within the active Streamlit session; category changes are shown as transitions, and a move into confirmed trend is highlighted. This transition history is session-scoped and resets when the session restarts; it is not a persisted alert service or an instruction to trade.

@@ -42,7 +42,7 @@ if not cmc_key or not twelve_key:
 # Crypto market data and paper-position marks refresh every minute. Keep equity
 # quotes on a slower cache so the Twelve Data credit budget is not consumed rapidly.
 st_autorefresh(interval=60_000, limit=None, key="market-data-auto-refresh")
-st.caption("Crypto market data and paper-position marks refresh every 60 seconds. Stock and ETF quotes refresh every 15 minutes to limit Twelve Data credit use.")
+st.caption("Crypto market data and paper-position marks refresh every 60 seconds. Stock and ETF quotes refresh hourly in one batched Twelve Data request; credits are still counted per symbol.")
 
 supabase_url = secret("SUPABASE_URL")
 supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")
@@ -81,54 +81,77 @@ def get_crypto(key):
         })
     return rows
 
-@st.cache_data(ttl=900)
-def get_quote(symbol, key):
+@st.cache_data(ttl=3600)
+def get_quotes(symbols, key):
+    symbols = tuple(dict.fromkeys(symbols))
+    if not symbols:
+        return {}
+
+    def errors(message):
+        return {symbol: {"_error": message} for symbol in symbols}
+
+    def provider_error(code):
+        code = str(code or "")
+        if code == "429":
+            return "S'ha assolit el límit de Twelve Data. Espera que es restableixi la quota o revisa el consum del compte."
+        if code == "401":
+            return "La clau API de Twelve Data no és vàlida."
+        if code == "403":
+            return "El pla de Twelve Data no permet aquesta consulta."
+        return f"Twelve Data no ha pogut retornar dades (codi {code or 'desconegut'})."
+
+    batch_requests = {
+        f"request_{index}": "/quote?symbol=" + requests.utils.quote(symbol, safe="")
+        for index, symbol in enumerate(symbols, start=1)
+    }
     try:
-        response = requests.get(
-            "https://api.twelvedata.com/quote",
-            params={"symbol": symbol},
+        response = requests.post(
+            "https://api.twelvedata.com/batch",
+            json=batch_requests,
             headers={"Authorization": f"apikey {key}"},
-            timeout=15,
+            timeout=20,
         )
     except requests.RequestException:
-        return {"_error": "No s'ha pogut connectar amb Twelve Data."}
+        return errors("No s'ha pogut connectar amb Twelve Data.")
 
-    if response.status_code == 429:
-        return {
-            "_error": "S'ha assolit el límit de Twelve Data. Espera que es restableixi "
-            "la quota o revisa el consum del compte."
-        }
     if not response.ok:
-        return {"_error": f"Twelve Data ha retornat HTTP {response.status_code}."}
-
+        return errors(provider_error(response.status_code))
     try:
-        data = response.json()
-        if not isinstance(data, dict):
-            raise ValueError("Unexpected response format.")
+        batch_data = response.json()
+    except ValueError:
+        return errors("Twelve Data ha retornat dades no vàlides.")
+    if not isinstance(batch_data, dict):
+        return errors("Twelve Data ha retornat dades no vàlides.")
 
-        if data.get("status") == "error" or "code" in data:
-            error_code = str(data.get("code", ""))
-            if error_code == "429":
-                return {
-                    "_error": "S'ha assolit el límit de Twelve Data. Espera que es "
-                    "restableixi la quota o revisa el consum del compte."
-                }
-            if error_code == "401":
-                return {"_error": "La clau API de Twelve Data no és vàlida."}
-            if error_code == "403":
-                return {"_error": "El pla de Twelve Data no permet aquesta consulta."}
-            return {
-                "_error": f"Twelve Data no ha pogut retornar dades (codi {error_code or 'desconegut'})."
+    results = {}
+    for index, symbol in enumerate(symbols, start=1):
+        item = batch_data.get(f"request_{index}")
+        if not isinstance(item, dict):
+            results[symbol] = {"_error": "Twelve Data no ha retornat dades per a aquest símbol."}
+            continue
+        if item.get("status") == "error" or "code" in item:
+            results[symbol] = {"_error": provider_error(item.get("code"))}
+            continue
+
+        quote = item.get("data", item)
+        if not isinstance(quote, dict):
+            results[symbol] = {"_error": "Twelve Data ha retornat dades no vàlides."}
+            continue
+        if quote.get("status") == "error" or "code" in quote:
+            results[symbol] = {"_error": provider_error(quote.get("code"))}
+            continue
+        price = quote.get("close") or quote.get("price")
+        try:
+            results[symbol] = {
+                "Asset": symbol,
+                "Price USD": float(price) if price else None,
+                "24h %": float(quote["percent_change"]) if quote.get("percent_change") else None,
+                "Updated": quote.get("datetime"),
+                "Source": "Twelve Data",
             }
-
-        price = data.get("close") or data.get("price")
-        return {
-            "Asset": symbol, "Price USD": float(price) if price else None,
-            "24h %": float(data["percent_change"]) if data.get("percent_change") else None,
-            "Updated": data.get("datetime"), "Source": "Twelve Data",
-        }
-    except (TypeError, ValueError, KeyError):
-        return {"_error": "Twelve Data ha retornat dades no vàlides."}
+        except (TypeError, ValueError, KeyError):
+            results[symbol] = {"_error": "Twelve Data ha retornat dades no vàlides."}
+    return results
 
 if st.button("Refresh crypto market data"):
     get_crypto.clear()
@@ -237,16 +260,22 @@ with market_tab:
         max_selections=6,
         help="Limitat a 6 símbols per mantenir baix el consum de crèdits de Twelve Data.",
     )
+    try:
+        quote_results = get_quotes(tuple(symbols), twelve_key)
+    except Exception:
+        quote_results = {
+            symbol: {"_error": "No s'ha pogut actualitzar la cotització de Twelve Data."}
+            for symbol in symbols
+        }
     rows = []
     for symbol in symbols:
-        try:
-            quote_result = get_quote(symbol, twelve_key)
-            if "_error" in quote_result:
-                st.warning(symbol + ": " + quote_result["_error"])
-            else:
-                rows.append(quote_result)
-        except Exception:
-            st.warning(symbol + ": No s'ha pogut actualitzar la cotització de Twelve Data.")
+        quote_result = quote_results.get(
+            symbol, {"_error": "Twelve Data no ha retornat dades per a aquest símbol."}
+        )
+        if "_error" in quote_result:
+            st.warning(symbol + ": " + quote_result["_error"])
+        else:
+            rows.append(quote_result)
     if rows:
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")

@@ -58,3 +58,7 @@ SUPABASE_SERVICE_ROLE_KEY = "YOUR-SERVICE-ROLE-KEY"
 ```
 
 The Streamlit server uses the service-role key for the database RPC and read-only history queries. It is not sent to browser JavaScript. Row-level security is enabled and direct access is revoked for anon/authenticated roles. Do not share this key or put it in GitHub. The paper ledger is a single-user MVP; do not expose the app password publicly. Back up the Supabase project before relying on the journal.
+
+
+## Global multi-asset discovery foundation
+See [GLOBAL_MARKET_ENGINE.md](GLOBAL_MARKET_ENGINE.md) for the selected global/mixed investment profile, supported asset-class configuration, provider-neutral scoring contract, safety boundaries and next integration steps. This foundation does not yet fetch global market data or connect FinancialData.Net.

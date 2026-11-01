@@ -1,0 +1,25 @@
+name: FinancialData.Net symbol coverage audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  symbol-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install adapter dependency
+        run: python -m pip install requests
+      - name: Run read-only symbol coverage audit
+        env:
+          FINANCIALDATA_API_KEY: ${{ secrets.FINANCIALDATA_API_KEY }}
+        run: python scripts/audit_provider_coverage.py

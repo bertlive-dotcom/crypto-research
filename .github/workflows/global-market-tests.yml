@@ -1,0 +1,32 @@
+name: Global market engine tests
+
+on:
+  pull_request:
+    paths:
+      - "global_markets/**"
+      - "tests/test_global_market_*.py"
+      - "tests/test_financialdata_adapter.py"
+      - ".github/workflows/global-market-tests.yml"
+  push:
+    branches:
+      - "feature/global-market-engine-v1"
+    paths:
+      - "global_markets/**"
+      - "tests/test_global_market_*.py"
+      - "tests/test_financialdata_adapter.py"
+      - ".github/workflows/global-market-tests.yml"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependency
+        run: python -m pip install "requests>=2.31,<3.0"
+      - name: Run global market unit tests
+        run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
+      - name: Run FinancialData.Net adapter tests
+        run: python -m unittest discover -s tests -p "test_financialdata_adapter.py" -v

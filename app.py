@@ -580,6 +580,7 @@ with global_tab:
                 "mixed_symbol_or_interval": "Símbols o intervals barrejats",
                 "future_candle": "Espelma amb data futura",
                 "invalid_close_price": "Preu de tancament invàlid",
+                "unknown": "Motiu no especificat pel proveïdor",
             }
             freshness_rows = [{
                 "Actiu": str(item.get("symbol") or "—").replace("USDT", "").replace("USD", ""),
@@ -590,6 +591,7 @@ with global_tab:
                 "Estat": freshness_status_labels.get(item.get("status"), item.get("status", "—")),
                 "Motiu": ", ".join(freshness_reason_labels.get(reason, str(reason).replace("_", " ").capitalize())
                                    for reason in item.get("reasons", [])) or "—",
+                "Detall proveïdor": item.get("detail") or "—",
             } for item in global_report.get("freshness", [])]
             if freshness_rows:
                 with st.expander("Frescor de dades per actiu i interval", expanded=False):
@@ -752,7 +754,9 @@ with global_tab:
                         "Classificació": entry["label"],
                         "Qualitat /100": entry.get("quality_score"),
                         "Completesa dades %": entry.get("data_quality_pct"),
-                        "Confirmació tècnica": "Sí" if entry.get("confirmed_both") else "No",
+                        "Confirmació tècnica": entry.get("confirmation_status", "Sense dades"),
+                        "Confirmació diària": "Sí" if entry.get("daily_confirmed") else "No",
+                        "Confirmació 4h": "Sí" if entry.get("4h_confirmed") else "No",
                         "RSI diari": entry.get("daily_rsi"),
                         "RSI 4h": entry.get("4h_rsi"),
                         "Distància SMA20 diària %": entry.get("daily_extension_vs_sma20_pct"),
@@ -873,7 +877,7 @@ with global_tab:
                     if coverage_rows:
                         st.markdown("**Completesa i actualització de dades del rànquing**")
                         st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
-                    st.caption("Momentum: 40% 20d, 35% 60d i 25% 120d. Qualitat del risc: 60% menor volatilitat 20d i 40% drawdown menys profund. Puntuació final: 70% momentum i 30% qualitat del risc. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
+                    st.caption("Les dues subpuntuacions són independents: Momentum mesura força relativa vs BTC (40% 20d, 35% 60d, 25% 120d); Qualitat del risc mesura menor volatilitat (60%) i drawdown menys profund (40%). La puntuació composta combina aquestes dues dimensions (70% momentum, 30% risc); no les confonguis. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):

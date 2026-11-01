@@ -553,11 +553,14 @@ with global_tab:
                         tactical_by_symbol.get(row["symbol"]),
                         {"category": row.get("structure")},
                         relative_strength_20d_pp=row.get("relative_strength_vs_btc_20d_pp"),
+                        data_quality_pct=entry_data_quality.get(row["symbol"], 100),
                     )
                     entry_details.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Classificació": entry["label"],
                         "Qualitat /100": entry.get("quality_score"),
+                        "Completesa dades %": entry.get("data_quality_pct"),
+                        "Confirmació tècnica": "Sí" if entry.get("confirmed_both") else "No",
                         "RSI diari": entry.get("daily_rsi"),
                         "RSI 4h": entry.get("4h_rsi"),
                         "Distància SMA20 diària %": entry.get("daily_extension_vs_sma20_pct"),
@@ -644,9 +647,11 @@ with global_tab:
                     st.markdown("**Rànquing de força relativa ajustada pel risc**")
                     adjusted_rows = [{
                         "Actiu": item["symbol"].replace("USDT", ""),
-                        "Puntuació / 100": item["score"],
-                        "Força momentum": item["momentum_percentile"],
-                        "Qualitat del risc": item["risk_quality_percentile"],
+                        "Puntuació composta / 100": item["score"],
+                        "Momentum / 100": item["momentum_percentile"],
+                        "Qualitat del risc / 100": item["risk_quality_percentile"],
+                        "Aportació momentum (70%)": round(item["momentum_percentile"] * 0.70, 2),
+                        "Aportació risc (30%)": round(item["risk_quality_percentile"] * 0.30, 2),
                         "Vs BTC 20d (pp)": item["relative_strength_20d_pp"],
                         "Vs BTC 60d (pp)": item["relative_strength_60d_pp"],
                         "Vs BTC 120d (pp)": item["relative_strength_120d_pp"],
@@ -662,6 +667,13 @@ with global_tab:
                         "Completesa de dades %": item["data_quality_pct"],
                         "Components disponibles": str(item["available_components"]) + "/" + str(item["total_components"]),
                         "Estat": "Completes" if item["ranking_status"] == "complete" else "Historial insuficient",
+                        "Mètriques absents": ", ".join({
+                            "rs20": "força relativa 20d",
+                            "rs60": "força relativa 60d",
+                            "rs120": "força relativa 120d",
+                            "vol20": "volatilitat 20d",
+                            "drawdown": "drawdown 120d",
+                        }.get(key, key) for key in item["missing_components"]) or "—",
                         "Última vela diària UTC": item.get("latest_daily_candle_close") or "—",
                         "Antiguitat dades (h)": item.get("daily_data_age_hours"),
                         "Components que falten": ", ".join(item["missing_components"]) or "—",

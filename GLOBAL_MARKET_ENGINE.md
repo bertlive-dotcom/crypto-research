@@ -43,7 +43,9 @@ The scoring primitive validates identity, supported asset class, positive price 
 - Alpha Vantage adapter supports daily FX; the free-tier crypto endpoint returned a limit notice in the observed verification run. Do not rely on it for crypto until verified with an authorized key/plan.
 - FinancialData.Net coverage is constrained by documented plan entitlements. Symbol-directory matches do not prove price-history access.
 - Index and futures coverage still require separate verified data sources.
-- Fundamental and catalyst data are not yet wired into the global crypto dashboard; complete multi-asset rankings must wait for these inputs.
+- A daily-history feed now requests equity, ETF and commodity OHLCV from the documented FinancialData.Net endpoints. It is optional and requires `FINANCIALDATA_API_KEY` in hosting Secrets. It is on-demand, cached for 15 minutes, limited to 120 observations per instrument, and reports missing/invalid symbols individually.
+- The feed uses the free daily-history endpoints where documented, but directory coverage and endpoint entitlement can still vary by symbol and account. It does not imply real-time quotes. A five-calendar-day freshness window avoids automatically rejecting normal weekend gaps; the displayed age remains visible.
+- The dashboard includes technical screening for valid daily histories. Fundamentals and catalysts are not yet wired into this multi-asset dashboard; complete opportunity rankings must wait for those inputs.
 
 ## Safety and operational boundaries
 - Research and public market-data requests only.
@@ -63,4 +65,4 @@ python -m unittest discover -s tests -p 'test_market_analysis.py' -v
 ```
 
 ## Next increment
-Build verified equity, ETF, FX and commodity daily-price feeds, then add asset-class-specific fundamental and catalyst features. Keep indices and futures marked as unsupported until source and contract metadata are validated.
+Validate live endpoint access for the equity, ETF and commodity daily-history feed across the selected symbols and account plan. Then add an FX daily feed with an authorized key, followed by asset-class-specific fundamental and catalyst features. Keep indices and futures marked as unsupported until source and contract metadata are validated.

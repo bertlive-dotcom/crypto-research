@@ -319,5 +319,29 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertNotEqual(result["category"], "confirmed_entry_setup")
 
 
+    def test_entry_confirmation_explains_which_timeframe_is_missing(self):
+        from global_markets.market_analysis import classify_entry_opportunity
+        daily = {"eligible": True, "latest_close": 105, "indicators": {
+            "sma_20": 100, "rsi_14": 58, "macd_histogram": 1}}
+        tactical = {"eligible": True, "latest_close": 102, "indicators": {
+            "sma_20": 100, "rsi_14": 48, "macd_histogram": -0.1}}
+        result = classify_entry_opportunity(daily, tactical, {"category": "mixed_structure"})
+        self.assertTrue(result["daily_confirmed"])
+        self.assertFalse(result["4h_confirmed"])
+        self.assertIn("falta confirmació 4h", result["confirmation_status"])
+
+    def test_feed_freshness_preserves_provider_error_detail(self):
+        result = analyze_feed({
+            "source": "binance", "data": [],
+            "unavailable": [{"symbol": "LEOUSD", "provider_symbol": "LEOUSDT",
+                             "interval": "1d", "reason": "provider_request_failed",
+                             "detail": "test provider diagnostic"}],
+        }, now=self.now)
+        row = result["freshness"][0]
+        self.assertEqual(row["status"], "unavailable")
+        self.assertEqual(row["detail"], "test provider diagnostic")
+        self.assertEqual(row["canonical_symbol"], "LEOUSD")
+
+
 if __name__ == "__main__":
     unittest.main()

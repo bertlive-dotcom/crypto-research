@@ -76,3 +76,6 @@ python -m unittest discover -s tests -p 'test_market_analysis.py' -v
 
 ## Next increment
 Validate live endpoint access for the equity, ETF and commodity daily-history feed across the selected symbols and account plan. Validate live FX endpoint access with an authorized key, then add asset-class-specific fundamental and catalyst features. Keep indices and futures marked as unsupported until source and contract metadata are validated.
+
+## Mobile crypto diagnostics
+The RSI detail and BTC-relative-strength metrics are displayed in separate narrow tables. Rejected series and unavailable provider requests use human-readable Catalan labels in the primary view; original provider error codes remain available in a collapsed technical-details section for diagnosis.

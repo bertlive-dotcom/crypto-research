@@ -39,10 +39,10 @@ if not cmc_key or not twelve_key:
     st.error("Missing API keys in hosting Secrets.")
     st.stop()
 
-# Refresh the whole dashboard once per minute. Market requests are cached slightly
-# less than 60 seconds so each rerun can obtain a fresh quote without a timing race.
+# Crypto market data and paper-position marks refresh every minute. Keep equity
+# quotes on a slower cache so the Twelve Data credit budget is not consumed rapidly.
 st_autorefresh(interval=60_000, limit=None, key="market-data-auto-refresh")
-st.caption("Market data and open paper-position marks refresh automatically every 60 seconds. Stop-loss and take-profit checks run on each fresh quote.")
+st.caption("Crypto market data and paper-position marks refresh every 60 seconds. Stock and ETF quotes refresh every 15 minutes to limit Twelve Data credit use.")
 
 supabase_url = secret("SUPABASE_URL")
 supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")
@@ -81,14 +81,46 @@ def get_crypto(key):
         })
     return rows
 
-@st.cache_data(ttl=55)
+@st.cache_data(ttl=900)
 def get_quote(symbol, key):
-    response = requests.get("https://api.twelvedata.com/quote",
-        params={"symbol": symbol, "apikey": key}, timeout=15)
-    response.raise_for_status()
-    data = response.json()
+    try:
+        response = requests.get(
+            "https://api.twelvedata.com/quote",
+            params={"symbol": symbol},
+            headers={"Authorization": f"apikey {key}"},
+            timeout=15,
+        )
+    except requests.RequestException:
+        raise RuntimeError("No s'ha pogut connectar amb Twelve Data.") from None
+
+    if response.status_code == 429:
+        raise RuntimeError(
+            "S'ha assolit el límit de Twelve Data. Espera que es restableixi la quota "
+            "o revisa el consum del compte."
+        )
+    if not response.ok:
+        raise RuntimeError(f"Twelve Data ha retornat HTTP {response.status_code}.")
+
+    try:
+        data = response.json()
+    except ValueError:
+        raise RuntimeError("Twelve Data ha retornat una resposta no vàlida.") from None
+
     if data.get("status") == "error" or "code" in data:
-        raise RuntimeError(data.get("message", "Twelve Data error"))
+        error_code = str(data.get("code", ""))
+        if error_code == "429":
+            raise RuntimeError(
+                "S'ha assolit el límit de Twelve Data. Espera que es restableixi la quota "
+                "o revisa el consum del compte."
+            )
+        if error_code == "401":
+            raise RuntimeError("La clau API de Twelve Data no és vàlida.")
+        if error_code == "403":
+            raise RuntimeError("El pla de Twelve Data no permet aquesta consulta.")
+        raise RuntimeError(
+            f"Twelve Data no ha pogut retornar dades (codi {error_code or 'desconegut'})."
+        )
+
     price = data.get("close") or data.get("price")
     return {
         "Asset": symbol, "Price USD": float(price) if price else None,
@@ -96,9 +128,8 @@ def get_quote(symbol, key):
         "Updated": data.get("datetime"), "Source": "Twelve Data",
     }
 
-if st.button("Refresh market data"):
+if st.button("Refresh crypto market data"):
     get_crypto.clear()
-    get_quote.clear()
 
 @st.cache_data(ttl=300)
 def get_global_crypto_analysis():
@@ -197,15 +228,21 @@ with market_tab:
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
-    symbols = st.multiselect("Symbols",
+    symbols = st.multiselect(
+        "Symbols",
         ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "SPY", "QQQ"],
-        ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"])
+        ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"],
+        max_selections=6,
+        help="Limitat a 6 símbols per mantenir baix el consum de crèdits de Twelve Data.",
+    )
     rows = []
     for symbol in symbols:
         try:
             rows.append(get_quote(symbol, twelve_key))
-        except Exception as error:
+        except RuntimeError as error:
             st.warning(symbol + ": " + str(error))
+        except Exception:
+            st.warning(symbol + ": No s'ha pogut actualitzar la cotització de Twelve Data.")
     if rows:
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")

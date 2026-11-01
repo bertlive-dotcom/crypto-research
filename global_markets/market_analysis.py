@@ -219,6 +219,66 @@ def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> d
 
 
 
+def classify_entry_opportunity(daily: dict | None, tactical: dict | None,
+                              structure: dict | None = None) -> dict:
+    """Describe entry context; this is a deterministic screen, never a trade signal."""
+    if not daily or not tactical or not daily.get("eligible") or not tactical.get("eligible"):
+        return {"category": "insufficient_data", "label": "Dades insuficients",
+                "quality_score": None, "reasons": ["Calen veles diàries i 4h recents i tancades."]}
+
+    d, t = daily.get("indicators", {}), tactical.get("indicators", {})
+    d_rsi, t_rsi = d.get("rsi_14"), t.get("rsi_14")
+    d_hist, t_hist = d.get("macd_histogram"), t.get("macd_histogram")
+    d_price, d_sma = daily.get("latest_close"), d.get("sma_20")
+    extension = ((d_price / d_sma) - 1) * 100 if d_price and d_sma else None
+    reasons = []
+    score = 0
+    if d_price is not None and d_sma is not None and d_price > d_sma:
+        score += 15
+        reasons.append("Preu diari per sobre de SMA20.")
+    if t.get("sma_20") is not None and tactical.get("latest_close", 0) > t["sma_20"]:
+        score += 15
+        reasons.append("Preu 4h per sobre de SMA20.")
+    if d_hist is not None and d_hist > 0:
+        score += 20
+        reasons.append("MACD diari positiu.")
+    if t_hist is not None and t_hist > 0:
+        score += 20
+        reasons.append("MACD 4h positiu.")
+    if d_rsi is not None and 50 <= d_rsi < 70:
+        score += 15
+        reasons.append("RSI diari en zona constructiva, sense sobrecompra.")
+    if t_rsi is not None and 50 <= t_rsi < 70:
+        score += 15
+        reasons.append("RSI 4h en zona constructiva, sense sobrecompra.")
+
+    overbought = ((d_rsi is not None and d_rsi >= 70)
+                  or (t_rsi is not None and t_rsi >= 78))
+    extended = extension is not None and extension >= 8
+    structure_category = (structure or {}).get("category")
+    if overbought or extended:
+        category, label = "late_entry_risk", "Risc d'entrada tardana"
+        if overbought:
+            reasons.append("RSI elevat: risc de perseguir el moviment.")
+        if extended:
+            reasons.append("Preu diari almenys un 8% per sobre de SMA20.")
+    elif structure_category == "confirmed_trend":
+        category, label = "confirmed_uptrend", "Tendència alcista confirmada"
+        reasons.append("RSI i MACD alineats en diari i 4h.")
+    elif structure_category in {"possible_reversal", "incipient_recovery"}:
+        category, label = "early_recovery", "Recuperació inicial"
+        reasons.append("El 4h millora, però el diari encara no confirma completament.")
+    else:
+        category, label = "no_clear_opportunity", "Sense oportunitat clara"
+        reasons.append("No hi ha prou confluència entre estructura diària i 4h.")
+
+    return {"category": category, "label": label, "quality_score": score,
+            "daily_rsi": d_rsi, "4h_rsi": t_rsi,
+            "daily_extension_vs_sma20_pct": round(extension, 2) if extension is not None else None,
+            "reasons": reasons}
+
+
+
 def _percentile_scores(values: dict[str, float], *, higher_is_better: bool = True) -> dict[str, float]:
     """Cross-sectional percentile scores from 0 to 100, averaging tied ranks."""
     if not values:

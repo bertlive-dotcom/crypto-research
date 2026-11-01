@@ -6,7 +6,7 @@ screening metric only and must not be presented as a complete opportunity rank.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from math import sqrt
+from math import isfinite, sqrt
 from statistics import pstdev
 from typing import Iterable
 
@@ -310,7 +310,7 @@ def build_risk_adjusted_relative_strength(rows: list[dict]) -> tuple[list[dict],
     }
     coverage, complete = [], {}
     for symbol, row in assets.items():
-        missing = [key for key, getter in required.items() if getter(row) is None]
+        missing = [key for key, getter in required.items() if not isinstance(getter(row), (int, float)) or isinstance(getter(row), bool) or not isfinite(getter(row))]
         coverage.append({
             "symbol": symbol, "available_components": 5 - len(missing), "total_components": 5,
             "data_quality_pct": round(100 * (5 - len(missing)) / 5, 1),

@@ -616,15 +616,17 @@ with global_tab:
                         st.info("Cap actiu té ara mateix tots els horitzons i mètriques necessaris per entrar al rànquing complet.")
                     coverage_rows = [{
                         "Actiu": item["symbol"].replace("USDT", ""),
-                        "Qualitat de dades %": item["data_quality_pct"],
+                        "Completesa de dades %": item["data_quality_pct"],
                         "Components disponibles": str(item["available_components"]) + "/" + str(item["total_components"]),
                         "Estat": "Completes" if item["ranking_status"] == "complete" else "Historial insuficient",
-                        "Dades que falten": ", ".join(item["missing_components"]) or "—",
+                        "Última vela diària UTC": item.get("latest_daily_candle_close") or "—",
+                        "Antiguitat dades (h)": item.get("daily_data_age_hours"),
+                        "Components que falten": ", ".join(item["missing_components"]) or "—",
                     } for item in global_report.get("risk_adjusted_relative_strength_coverage", [])]
                     if coverage_rows:
-                        st.markdown("**Cobertura de dades del rànquing**")
+                        st.markdown("**Completesa i actualització de dades del rànquing**")
                         st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
-                    st.caption("Momentum: 40% 20d, 35% 60d i 25% 120d. Qualitat del risc: 60% menor volatilitat 20d i 40% drawdown menys profund. Puntuació final: 70% momentum i 30% qualitat del risc. Només competeixen actius amb els cinc components disponibles. No és una probabilitat ni un senyal de compra.")
+                    st.caption("Momentum: 40% 20d, 35% 60d i 25% 120d. Qualitat del risc: 60% menor volatilitat 20d i 40% drawdown menys profund. Puntuació final: 70% momentum i 30% qualitat del risc. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):

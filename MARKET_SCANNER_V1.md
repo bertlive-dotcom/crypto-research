@@ -18,8 +18,12 @@ The scanner portfolio is intentionally separate from the dashboard's existing pa
 ## Setup
 
 1. Run `supabase/market_scanner_v1.sql` once in the Supabase SQL Editor.
-2. Deploy this repository as a separate always-on worker using `Dockerfile.scanner`.
-3. Set these environment variables in the worker host:
+2. Recommended: create a Render Blueprint from this repository. The root `render.yaml` creates one Frankfurt background worker using `Dockerfile.scanner`. For another host, deploy the repository as a separate always-on worker from that Dockerfile.
+3. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as host secrets. Never commit these values. Render prompts for them when creating the Blueprint.
+4. Keep exactly one worker replica. The database lease prevents overlapping cycles, but one replica is the intended deployment.
+5. Check the worker logs for a startup message with a 300-second interval and completed cycles about every five minutes. The Market Scanner tab should show fresh candidates and portfolio state.
+6. At the end of the 30-day paper trial, export the scanner history and suspend the worker to stop compute billing.
+7. Set the remaining scanner configuration in the worker host as needed:
 
 ```text
 SUPABASE_URL=https://YOUR-PROJECT.supabase.co
@@ -35,9 +39,6 @@ SCANNER_TAKE_PROFIT_PCT=6
 SCANNER_MAX_OPEN_POSITIONS=3
 SCANNER_MAX_DAILY_LOSS_USDT=2.4
 ```
-
-4. Configure exactly one worker replica. The database lease prevents overlapping cycles, but one replica is the intended deployment.
-5. Keep the service-role key in host secrets only. Never add it to GitHub or the Streamlit browser.
 
 ## Risk and operating assumptions
 

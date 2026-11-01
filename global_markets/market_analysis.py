@@ -114,6 +114,8 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
     volatility = pstdev(returns[-20:]) * sqrt(6) * 100 if len(returns) >= 20 and interval == "4h" else (
         pstdev(returns[-20:]) * sqrt(365) * 100 if len(returns) >= 20 else None
     )
+    return_7d = ((closes[-1] / closes[-8]) - 1) * 100 if interval == "1d" and len(closes) >= 8 else None
+    return_30d = ((closes[-1] / closes[-31]) - 1) * 100 if interval == "1d" and len(closes) >= 31 else None
     score_parts = [
         25 if closes[-1] > sma20 else 0,
         25 if sma50 is not None and sma20 > sma50 else 12.5 if sma50 is None else 0,
@@ -130,6 +132,8 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
             "macd_signal_9": round(macd_signal, 8) if macd_signal is not None else None,
             "sma_20": round(sma20, 8), "sma_50": round(sma50, 8) if sma50 is not None else None,
             "realized_volatility_pct_annualized_approx": round(volatility, 2) if volatility is not None else None,
+            "return_7d_pct": round(return_7d, 2) if return_7d is not None else None,
+            "return_30d_pct": round(return_30d, 2) if return_30d is not None else None,
         },
         "technical_screen_score": sum(score_parts),
         "score_type": "technical_only_not_investment_recommendation", "reasons": [],
@@ -138,32 +142,38 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
 
 
 def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> dict:
-    """Describe daily/4h structure without turning scores into trade signals."""
+    """Classify multi-timeframe structure using score, RSI and MACD confirmation."""
     if not daily or not tactical or not daily.get("eligible") or not tactical.get("eligible"):
-        return {"category": "insufficient_timeframes", "label": "Insufficient timeframes",
-                "explanation": "Both fresh, closed daily and 4h histories are required."}
-    daily_score = daily["technical_screen_score"]
-    tactical_score = tactical["technical_screen_score"]
-    if daily_score >= 62.5 and tactical_score >= 62.5:
-        return {"category": "confirmed_trend", "label": "Confirmed trend",
-                "explanation": "Daily and 4h technical screens point in the same positive direction."}
-    if daily_score <= 37.5 and tactical_score >= 62.5:
-        t_ind = tactical["indicators"]
-        improving = (t_ind.get("macd_12_26") is not None
-                     and t_ind.get("macd_signal_9") is not None
-                     and t_ind["macd_12_26"] > t_ind["macd_signal_9"])
-        detail = ("MACD momentum is improving, but daily confirmation is absent."
-                  if improving else "Momentum confirmation is incomplete; daily confirmation is absent.")
-        return {"category": "possible_reversal", "label": "Possible reversal",
-                "explanation": "The 4h screen is stronger than the weak daily trend; " + detail}
-    if daily_score >= 62.5 and tactical_score <= 50:
-        return {"category": "timeframe_divergence", "label": "Timeframe divergence",
-                "explanation": "Daily strength is not confirmed by the 4h screen; do not treat the daily score alone as confirmation."}
-    if daily_score <= 37.5 and tactical_score <= 37.5:
-        return {"category": "weakness", "label": "Weakness",
-                "explanation": "Both daily and 4h technical screens are weak."}
-    return {"category": "mixed_structure", "label": "Mixed structure",
-            "explanation": "The timeframes do not meet the thresholds for a confirmed trend, reversal attempt or broad weakness."}
+        return {"category": "insufficient_timeframes", "label": "Intervals insuficients",
+                "explanation": "Calen dades diàries i 4h recents i tancades."}
+    d_score, t_score = daily["technical_screen_score"], tactical["technical_screen_score"]
+    d_ind, t_ind = daily["indicators"], tactical["indicators"]
+    t_macd_bullish = (t_ind.get("macd_12_26") is not None
+                      and t_ind.get("macd_signal_9") is not None
+                      and t_ind["macd_12_26"] > t_ind["macd_signal_9"])
+    d_macd_bullish = (d_ind.get("macd_12_26") is not None
+                      and d_ind.get("macd_signal_9") is not None
+                      and d_ind["macd_12_26"] > d_ind["macd_signal_9"])
+    t_rsi_confirmed = t_ind.get("rsi_14") is not None and t_ind["rsi_14"] >= 50
+    d_rsi_confirmed = d_ind.get("rsi_14") is not None and d_ind["rsi_14"] >= 50
+    if (d_score >= 62.5 and t_score >= 62.5 and d_rsi_confirmed
+            and t_rsi_confirmed and d_macd_bullish and t_macd_bullish):
+        return {"category": "confirmed_trend", "label": "Tendència confirmada",
+                "explanation": "Tots dos intervals tenen puntuació forta, RSI >= 50 i MACD alcista."}
+    if d_score <= 37.5 and t_score >= 62.5:
+        if t_rsi_confirmed and t_macd_bullish:
+            return {"category": "possible_reversal", "label": "Possible gir (pendent del diari)",
+                    "explanation": "El 4h confirma RSI i MACD alcistes, però la tendència diària continua feble."}
+        return {"category": "incipient_recovery", "label": "Recuperació incipient",
+                "explanation": "El 4h millora, però encara no hi ha confirmació conjunta d'RSI i MACD."}
+    if d_score >= 62.5 and t_score <= 50:
+        return {"category": "timeframe_divergence", "label": "Divergència temporal",
+                "explanation": "La força diària no està confirmada en 4h."}
+    if d_score <= 37.5 and t_score <= 37.5:
+        return {"category": "weakness", "label": "Feblesa",
+                "explanation": "Tots dos intervals mostren debilitat tècnica."}
+    return {"category": "mixed_structure", "label": "Estructura mixta",
+            "explanation": "Els indicadors no coincideixen prou per classificar una tendència o recuperació."}
 
 
 def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
@@ -181,6 +191,8 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     for item in eligible:
         by_symbol.setdefault(item["symbol"], {})[item["interval"]] = item
     cross_timeframe = []
+    btc_daily = by_symbol.get("BTCUSDT", {}).get("1d")
+    btc_indicators = btc_daily.get("indicators", {}) if btc_daily else {}
     for symbol, frames in sorted(by_symbol.items()):
         daily, tactical = frames.get("1d"), frames.get("4h")
         if not daily or not tactical:
@@ -196,6 +208,11 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         else:
             stance = "mixed_or_neutral"
         structure = classify_timeframe_structure(daily, tactical)
+        daily_indicators = daily["indicators"]
+        btc_7d = btc_indicators.get("return_7d_pct")
+        btc_30d = btc_indicators.get("return_30d_pct")
+        asset_7d = daily_indicators.get("return_7d_pct")
+        asset_30d = daily_indicators.get("return_30d_pct")
         cross_timeframe.append({
             "symbol": symbol,
             "daily_score": daily["technical_screen_score"],
@@ -205,6 +222,10 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
             "structure": structure["category"],
             "structure_label": structure["label"],
             "structure_explanation": structure["explanation"],
+            "return_7d_pct": asset_7d,
+            "return_30d_pct": asset_30d,
+            "relative_strength_vs_btc_7d_pct": round(asset_7d - btc_7d, 2) if asset_7d is not None and btc_7d is not None else None,
+            "relative_strength_vs_btc_30d_pct": round(asset_30d - btc_30d, 2) if asset_30d is not None and btc_30d is not None else None,
             "daily_price": daily["latest_close"],
             "4h_price": tactical["latest_close"],
         })

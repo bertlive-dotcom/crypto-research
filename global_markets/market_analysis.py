@@ -356,7 +356,9 @@ def _percentile_scores(values: dict[str, float], *, higher_is_better: bool = Tru
         while end + 1 < len(ordered) and ordered[end + 1][1] == ordered[index][1]:
             end += 1
         average_rank = (index + end) / 2
-        scores[ordered[index][0]] = round(100 * (1 - average_rank / (len(ordered) - 1)), 2)
+        score = round(100 * (1 - average_rank / (len(ordered) - 1)), 2)
+        for tied_index in range(index, end + 1):
+            scores[ordered[tied_index][0]] = score
         index = end + 1
     return scores
 

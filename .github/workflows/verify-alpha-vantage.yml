@@ -1,0 +1,70 @@
+name: Verify Alpha Vantage API key
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/verify-alpha-vantage.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify FX and crypto daily endpoints
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          key = os.environ.get("ALPHA_VANTAGE_API_KEY", "").strip()
+          if not key:
+              print("FAIL: repository secret ALPHA_VANTAGE_API_KEY is missing or empty.")
+              sys.exit(1)
+
+          checks = [
+              ("FX_DAILY", {"from_symbol": "EUR", "to_symbol": "USD", "outputsize": "compact"}, "Time Series FX (Daily)"),
+              ("DIGITAL_CURRENCY_DAILY", {"symbol": "BTC", "market": "USD"}, "Time Series (Digital Currency Daily)"),
+          ]
+
+          failed = False
+          for function, params, series_key in checks:
+              query = urllib.parse.urlencode({"function": function, **params, "apikey": key})
+              request = urllib.request.Request(
+                  "https://www.alphavantage.co/query?" + query,
+                  headers={"User-Agent": "global-market-engine-key-check/1.0"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  if series_key in payload and isinstance(payload[series_key], dict) and payload[series_key]:
+                      latest_date = sorted(payload[series_key].keys())[-1]
+                      print(f"PASS: {function} returned daily observations (latest date: {latest_date}).")
+                  elif "Note" in payload or "Information" in payload:
+                      print(f"LIMITED: {function} returned a provider rate-limit or entitlement notice.")
+                      failed = True
+                  elif "Error Message" in payload:
+                      print(f"FAIL: {function} was rejected by Alpha Vantage.")
+                      failed = True
+                  else:
+                      print(f"FAIL: {function} did not return the expected daily time series.")
+                      failed = True
+              except Exception:
+                  print(f"FAIL: {function} request failed. Details suppressed to protect credentials.")
+                  failed = True
+
+          if failed:
+              sys.exit(1)
+          print("SUCCESS: Alpha Vantage API key and both daily endpoints verified.")
+          PY

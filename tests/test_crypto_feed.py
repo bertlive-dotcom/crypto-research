@@ -7,7 +7,7 @@ from global_markets.crypto_feed import CryptoWatchlistFeed
 class CryptoWatchlistFeedTests(unittest.TestCase):
     def test_fetches_daily_and_four_hour_bars_for_default_seed(self):
         client = Mock()
-        client.get_active_spot_symbols.return_value = {"BTCUSDT"}
+        client.get_spot_symbol_status.return_value = {"BTCUSDT": {"status": "TRADING", "spot_allowed": True}}
         client.get_klines.side_effect = [
             [{"symbol": "BTCUSDT", "interval": "1d", "close": 100.0}],
             [{"symbol": "BTCUSDT", "interval": "4h", "close": 101.0}],
@@ -20,7 +20,7 @@ class CryptoWatchlistFeedTests(unittest.TestCase):
 
     def test_reports_unmapped_symbol_without_request(self):
         client = Mock()
-        client.get_active_spot_symbols.return_value = set()
+        client.get_spot_symbol_status.return_value = {}
         result = CryptoWatchlistFeed(client).fetch(symbols=["UNKNOWNUSD"])
         client.get_klines.assert_not_called()
         self.assertEqual(result["summary"]["unavailable_requests"], 1)
@@ -48,7 +48,7 @@ class CryptoWatchlistFeedTests(unittest.TestCase):
     def test_fails_closed_when_spot_listing_check_fails(self):
         from global_markets.providers.binance import BinanceMarketDataError
         client = Mock()
-        client.get_active_spot_symbols.side_effect = BinanceMarketDataError("temporary")
+        client.get_spot_symbol_status.side_effect = BinanceMarketDataError("temporary")
         result = CryptoWatchlistFeed(client).fetch(symbols=["BTCUSD"])
         client.get_klines.assert_not_called()
         self.assertEqual(result["data"], [])

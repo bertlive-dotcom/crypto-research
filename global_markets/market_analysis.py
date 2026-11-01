@@ -202,6 +202,12 @@ def classify_timeframe_structure(daily: dict | None, tactical: dict | None) -> d
             and t_rsi_confirmed and d_macd_bullish and t_macd_bullish):
         return {"category": "confirmed_trend", "label": "Tendència confirmada",
                 "explanation": "Tots dos intervals tenen puntuació forta, RSI >= 50 i MACD alcista."}
+    t_hist = t_ind.get("macd_histogram")
+    t_prev_hist = t_ind.get("previous_macd_histogram")
+    t_rsi_rising = (t_ind.get("rsi_14") is not None and t_ind.get("previous_rsi_14") is not None and t_ind["rsi_14"] > t_ind["previous_rsi_14"])
+    t_hist_improving = (t_hist is not None and t_prev_hist is not None and t_hist > t_prev_hist)
+    if d_score <= 50 and t_hist is not None and t_hist <= 0 and t_hist_improving and t_rsi_rising:
+        return {"category": "early_turn_watch", "label": "Possible gir inicial (4h)", "explanation": "El momentum 4h millora i l’RSI puja, però el MACD encara no confirma; cal seguiment del diari."}
     if d_score <= 37.5 and t_score >= 62.5:
         if t_rsi_confirmed and t_macd_bullish:
             return {"category": "possible_reversal", "label": "Possible gir (pendent del diari)",

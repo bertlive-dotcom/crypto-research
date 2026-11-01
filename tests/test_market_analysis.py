@@ -134,6 +134,18 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertIsNotNone(result["indicators"]["return_30d_pct"])
         self.assertGreater(result["indicators"]["return_30d_pct"], 0)
 
+    def test_daily_analysis_exposes_31_point_normalized_history(self):
+        result = analyze_candles(self.rows(count=60), now=self.now)
+        history = result["normalized_history"]
+        self.assertEqual(len(history), 31)
+        self.assertEqual(history[0]["value"], 100.0)
+        self.assertGreater(history[-1]["value"], 100.0)
+        self.assertEqual(len({point["date"] for point in history}), 31)
+
+    def test_intraday_analysis_does_not_expose_daily_comparison_history(self):
+        result = analyze_candles(self.rows(count=60, interval="4h"), now=self.now)
+        self.assertEqual(result["normalized_history"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

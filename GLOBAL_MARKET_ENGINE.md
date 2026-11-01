@@ -34,14 +34,15 @@ The Streamlit app includes a separate **Global opportunity scanner** tab:
 - Shows indicator values, technical screening scores, data-age checks, rejected series and unavailable provider pairs.
 - Does not open, close, or modify paper positions and does not affect the existing scanner.
 
-## Multi-timeframe crypto structure classification
-The crypto watchlist now adds a descriptive structure label when both fresh, closed daily and 4h series exist:
-- Confirmed trend: both timeframe technical screens are at least 62.5.
-- Possible reversal: daily screen is at most 37.5 while 4h is at least 62.5; MACD improvement is noted separately when present.
-- Timeframe divergence: daily is at least 62.5 while 4h is at most 50.
-- Weakness: both timeframe screens are at most 37.5.
+## Multi-timeframe crypto structure and relative strength
+When both fresh, closed daily and 4h series exist, the crypto watchlist classifies:
+- Confirmed trend: both technical scores >= 62.5 and both intervals have RSI >= 50 with MACD above its signal.
+- Possible reversal (daily pending): daily remains weak (<= 37.5), 4h score is strong (>= 62.5), and 4h RSI >= 50 with MACD above its signal.
+- Incipient recovery: daily remains weak and 4h score is strong, but RSI/MACD confirmation is incomplete.
+- Timeframe divergence: daily score >= 62.5 while 4h score <= 50.
+- Weakness: both scores <= 37.5.
 - Mixed structure: other combinations.
-These thresholds are transparent screening heuristics, not statistically calibrated probabilities or trade signals. The app displays a short explanation and does not create or modify paper positions.
+Daily returns over 7 and 30 sessions are calculated from closed candles. Relative strength versus BTC is the asset return minus BTC return over the same period, expressed in percentage points. These are descriptive screening metrics, not forecasts, calibrated probabilities or trade signals. Missing BTC or insufficient history leaves relative-strength values blank.
 
 ## Multi-asset scoring contract
 `global_markets.scoring.rank_candidate` accepts normalized candidate data and component scores from 0–100. Default weights: technical 35%, fundamental 30%, catalyst 15%, liquidity 10%, risk control 10%. A higher risk-control score means better-controlled risk. Missing components are excluded and remaining weights normalized; score is withheld unless at least 60% of configured weight is represented. Output includes coverage and rejection reasons; it is not a trade instruction.

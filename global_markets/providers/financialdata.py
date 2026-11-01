@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 import requests
@@ -121,7 +121,10 @@ class FinancialDataClient:
         return matches
 
     @staticmethod
-    def normalize_quote(record: Mapping[str, Any], *, asset_class: str, source: str = "financialdata.net") -> dict:
+    def normalize_quote(
+        record: Mapping[str, Any], *, asset_class: str,
+        source: str = "financialdata.net", source_timezone: timezone | None = None,
+    ) -> dict:
         """Normalize a quote while preserving the provider's original timestamp."""
         symbol = record.get("trading_symbol")
         price = record.get("price")
@@ -143,9 +146,18 @@ class FinancialDataClient:
                 continue
         if parsed is None:
             raise FinancialDataError("unsupported provider timestamp format")
-        # Quote endpoints document UTC for crypto/FX and EST for stock quotes.
-        # Keep naive source time explicitly; caller must supply endpoint timezone.
-        observed = parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        # Crypto/FX quote endpoints document UTC; stock quotes document EST.
+        # Other naive timestamps require an explicit timezone to avoid false UTC conversion.
+        if parsed.tzinfo is None:
+            if source_timezone is None:
+                if asset_class in {"crypto", "forex"}:
+                    source_timezone = timezone.utc
+                elif asset_class == "equity":
+                    source_timezone = timezone(timedelta(hours=-5))
+                else:
+                    raise FinancialDataError("source_timezone is required for this asset class")
+            parsed = parsed.replace(tzinfo=source_timezone)
+        observed = parsed.astimezone(timezone.utc)
         return {
             "asset_id": f"{source}:{asset_class}:{symbol}",
             "symbol": symbol,
@@ -153,6 +165,6 @@ class FinancialDataClient:
             "price": numeric_price,
             "observed_at": observed.isoformat(),
             "source_timestamp": str(timestamp),
-            "source_timezone": "UTC" if asset_class in {"crypto", "forex"} else "provider_local_unverified",
+            "source_timezone": str(source_timezone or parsed.tzinfo),
             "source": source,
         }

@@ -416,6 +416,48 @@ with global_tab:
             st.caption("Data source: {} | Feed timestamp: {}".format(
                 global_report.get("source"), global_report.get("observed_at")))
 
+            freshness_status_labels = {
+                "current": "Actual",
+                "stale": "Endarrerida",
+                "insufficient_history": "Historial insuficient",
+                "unavailable": "No disponible",
+                "rejected": "Dades rebutjades",
+            }
+            freshness_reason_labels = {
+                "stale_market_data": "Espelma tancada més antiga que el llindar admès",
+                "insufficient_history": "No hi ha prou espelmes tancades per calcular els indicadors",
+                "no_candles": "El proveïdor no ha retornat espelmes",
+                "no_closed_candles": "Encara no hi ha espelmes tancades",
+                "pair_not_listed_on_binance_spot": "Parell absent del catàleg Binance Spot",
+                "pair_not_trading_on_binance_spot": "Parell Binance Spot inactiu",
+                "spot_trading_not_allowed_for_pair": "Spot no permès per a aquest parell",
+                "no_binance_pair_mapping": "Sense equivalència configurada amb Binance",
+                "spot_listing_check_failed": "No s'ha pogut verificar el catàleg Spot",
+                "rate_limit": "Límit de consultes assolit",
+                "provider_request_failed": "Ha fallat la petició al proveïdor",
+                "invalid_provider_response": "Resposta invàlida del proveïdor",
+                "provider_error": "Error del proveïdor de dades",
+                "malformed_candle_data": "Dades d'espelma invàlides",
+                "unsupported_interval": "Interval no admès",
+                "mixed_symbol_or_interval": "Símbols o intervals barrejats",
+                "future_candle": "Espelma amb data futura",
+                "invalid_close_price": "Preu de tancament invàlid",
+            }
+            freshness_rows = [{
+                "Actiu": str(item.get("symbol") or "—").replace("USDT", "").replace("USD", ""),
+                "Interval": item.get("interval") or "—",
+                "Última espelma tancada UTC": item.get("latest_candle_close") or "—",
+                "Antiguitat (h)": round(item["age_seconds"] / 3600, 1) if item.get("age_seconds") is not None else "—",
+                "Espelmes": item.get("bars") if item.get("bars") is not None else "—",
+                "Estat": freshness_status_labels.get(item.get("status"), item.get("status", "—")),
+                "Motiu": ", ".join(freshness_reason_labels.get(reason, str(reason).replace("_", " ").capitalize())
+                                   for reason in item.get("reasons", [])) or "—",
+            } for item in global_report.get("freshness", [])]
+            if freshness_rows:
+                with st.expander("Frescor de dades per actiu i interval", expanded=False):
+                    st.dataframe(pd.DataFrame(freshness_rows), use_container_width=True, hide_index=True)
+                    st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD; revisa el motiu quan no hi ha dades actuals.")
+
             tactical = [row for row in eligible if row["interval"] == "4h"]
             daily = [row for row in eligible if row["interval"] == "1d"]
             aligned = global_report.get("cross_timeframe", [])

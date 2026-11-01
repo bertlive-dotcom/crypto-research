@@ -504,7 +504,8 @@ with global_tab:
                     t_ind = t_row.get("indicators", {})
                     entry = classify_entry_opportunity(
                         d_row, t_row,
-                        {"category": row.get("structure")}
+                        {"category": row.get("structure")},
+                        relative_strength_20d_pp=row.get("relative_strength_vs_btc_20d_pp"),
                     )
                     summary_rows.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
@@ -537,7 +538,8 @@ with global_tab:
                     entry = classify_entry_opportunity(
                         daily_by_symbol.get(row["symbol"]),
                         tactical_by_symbol.get(row["symbol"]),
-                        {"category": row.get("structure")}
+                        {"category": row.get("structure")},
+                        relative_strength_20d_pp=row.get("relative_strength_vs_btc_20d_pp"),
                     )
                     entry_details.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
@@ -546,11 +548,14 @@ with global_tab:
                         "RSI diari": entry.get("daily_rsi"),
                         "RSI 4h": entry.get("4h_rsi"),
                         "Distància SMA20 diària %": entry.get("daily_extension_vs_sma20_pct"),
+                        "Penalització risc": entry.get("risk_penalty"),
+                        "Penalització deteriorament": entry.get("deterioration_penalty"),
+                        "Confirmació 1d + 4h": "Sí" if entry.get("confirmed_both") else "No",
                         "Motius": " ".join(entry.get("reasons", [])),
                     })
                 with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=True):
                     st.dataframe(pd.DataFrame(entry_details), use_container_width=True, hide_index=True)
-                    st.caption("La qualitat /100 és una puntuació de confluència tècnica, no una probabilitat d'èxit ni una ordre. La classificació separa recuperació inicial, tendència confirmada, risc d'entrada tardana i absència d'oportunitat clara.")
+                    st.caption("La qualitat /100 resta penalitzacions per volatilitat (>=80%/120%), drawdown (<=-30%/-40%) i deteriorament a 20 dies. Només es considera configuració confirmada si RSI i MACD són positius simultàniament en diari i 4h. No és una probabilitat d'èxit ni una ordre.")
 
                 st.markdown("#### Evolució comparativa (base 100)")
                 st.caption("Preus diaris tancats, normalitzats a 100 al començament del període disponible. Serveix per comparar rendiment relatiu, no el preu absolut.")

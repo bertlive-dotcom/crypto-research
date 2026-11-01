@@ -30,6 +30,8 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["status"], "fresh")
         self.assertIsNotNone(result["indicators"]["rsi_14"])
         self.assertIsNotNone(result["indicators"]["macd_12_26"])
+        self.assertIsNotNone(result["indicators"]["macd_histogram"])
+        self.assertIsNotNone(result["indicators"]["macd_histogram_change"])
         self.assertIsNotNone(result["indicators"]["sma_20"])
         self.assertEqual(result["score_type"], "technical_only_not_investment_recommendation")
 
@@ -84,6 +86,7 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(alignment["symbol"], "BTCUSDT")
         self.assertEqual(alignment["alignment_score"], round(alignment["daily_score"] * 0.60 + alignment["4h_score"] * 0.40, 1))
         self.assertIn(alignment["stance"], {"bullish_alignment", "bearish_alignment", "mixed_or_neutral"})
+        self.assertIn(alignment["rsi_macd_confirmation"], {"confirmed_both", "daily_only", "4h_only", "not_confirmed"})
 
     def test_feed_analysis_does_not_infer_alignment_when_interval_missing(self):
         result = analyze_feed({

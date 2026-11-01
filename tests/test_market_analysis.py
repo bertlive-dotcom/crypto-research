@@ -129,7 +129,7 @@ class MarketAnalysisTests(unittest.TestCase):
             "symbol": "BBBUSDT",
             "relative_strength_vs_btc_20d_pp": 1.0,
             "relative_strength_vs_btc_60d_pp": 2.0,
-            "relative_strength_vs_btc_120d_pct": 3.0,
+            "relative_strength_vs_btc_120d_pp": 3.0,
             "risk_metrics": {
                 "realized_volatility_20d_pct_annualized": 20.0,
                 "max_drawdown_120d_pct": float("-inf"),

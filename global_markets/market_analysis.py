@@ -238,46 +238,56 @@ def _percentile_scores(values: dict[str, float], *, higher_is_better: bool = Tru
     return scores
 
 
-def build_risk_adjusted_relative_strength(rows: list[dict]) -> list[dict]:
-    """Rank non-BTC assets by relative momentum and downside/volatility profile."""
+def build_risk_adjusted_relative_strength(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Rank only complete histories; momentum 40/35/25 over 20/60/120d, risk 60/40."""
     assets = {row["symbol"]: row for row in rows if row.get("symbol") != "BTCUSDT"}
+    required = {
+        "rs20": lambda r: r.get("relative_strength_vs_btc_20d_pp"),
+        "rs60": lambda r: r.get("relative_strength_vs_btc_60d_pp"),
+        "rs120": lambda r: r.get("relative_strength_vs_btc_120d_pp"),
+        "vol20": lambda r: r.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized"),
+        "drawdown": lambda r: r.get("risk_metrics", {}).get("max_drawdown_120d_pct"),
+    }
+    coverage, complete = [], {}
+    for symbol, row in assets.items():
+        missing = [key for key, getter in required.items() if getter(row) is None]
+        coverage.append({
+            "symbol": symbol, "available_components": 5 - len(missing), "total_components": 5,
+            "data_quality_pct": round(100 * (5 - len(missing)) / 5, 1),
+            "missing_components": missing,
+            "ranking_status": "complete" if not missing else "insufficient_history",
+        })
+        if not missing:
+            complete[symbol] = row
     values = {
-        "rs20": {s: r["relative_strength_vs_btc_20d_pp"] for s, r in assets.items()
-                 if r.get("relative_strength_vs_btc_20d_pp") is not None},
-        "rs60": {s: r["relative_strength_vs_btc_60d_pp"] for s, r in assets.items()
-                 if r.get("relative_strength_vs_btc_60d_pp") is not None},
-        "vol20": {s: r.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized")
-                  for s, r in assets.items()
-                  if r.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized") is not None},
-        "drawdown": {s: r.get("risk_metrics", {}).get("max_drawdown_120d_pct")
-                     for s, r in assets.items()
-                     if r.get("risk_metrics", {}).get("max_drawdown_120d_pct") is not None},
+        "rs20": {s: r["relative_strength_vs_btc_20d_pp"] for s, r in complete.items()},
+        "rs60": {s: r["relative_strength_vs_btc_60d_pp"] for s, r in complete.items()},
+        "rs120": {s: r["relative_strength_vs_btc_120d_pp"] for s, r in complete.items()},
+        "vol20": {s: r["risk_metrics"]["realized_volatility_20d_pct_annualized"] for s, r in complete.items()},
+        "drawdown": {s: r["risk_metrics"]["max_drawdown_120d_pct"] for s, r in complete.items()},
     }
     scores = {
-        "rs20": _percentile_scores(values["rs20"]),
-        "rs60": _percentile_scores(values["rs60"]),
+        "rs20": _percentile_scores(values["rs20"]), "rs60": _percentile_scores(values["rs60"]),
+        "rs120": _percentile_scores(values["rs120"]),
         "vol20": _percentile_scores(values["vol20"], higher_is_better=False),
         "drawdown": _percentile_scores(values["drawdown"]),
     }
-    output = []
-    for symbol, row in assets.items():
-        momentum_parts = [(scores[k][symbol], w) for k, w in (("rs20", .60), ("rs60", .40)) if symbol in scores[k]]
-        risk_parts = [(scores[k][symbol], w) for k, w in (("vol20", .60), ("drawdown", .40)) if symbol in scores[k]]
-        if not momentum_parts or not risk_parts:
-            continue
-        momentum = sum(v*w for v,w in momentum_parts) / sum(w for _,w in momentum_parts)
-        risk = sum(v*w for v,w in risk_parts) / sum(w for _,w in risk_parts)
-        output.append({
-            "symbol": symbol, "score": round(momentum*.70 + risk*.30, 2),
-            "momentum_percentile": round(momentum, 2), "risk_percentile": round(risk, 2),
-            "relative_strength_20d_pp": row.get("relative_strength_vs_btc_20d_pp"),
-            "relative_strength_60d_pp": row.get("relative_strength_vs_btc_60d_pp"),
-            "volatility_20d_pct_annualized": row.get("risk_metrics", {}).get("realized_volatility_20d_pct_annualized"),
-            "max_drawdown_120d_pct": row.get("risk_metrics", {}).get("max_drawdown_120d_pct"),
-            "components_available": len(momentum_parts) + len(risk_parts),
+    ranked = []
+    for symbol, row in complete.items():
+        momentum = scores["rs20"][symbol] * .40 + scores["rs60"][symbol] * .35 + scores["rs120"][symbol] * .25
+        risk = scores["vol20"][symbol] * .60 + scores["drawdown"][symbol] * .40
+        ranked.append({
+            "symbol": symbol, "score": round(momentum * .70 + risk * .30, 2),
+            "momentum_percentile": round(momentum, 2), "risk_quality_percentile": round(risk, 2),
+            "relative_strength_20d_pp": row["relative_strength_vs_btc_20d_pp"],
+            "relative_strength_60d_pp": row["relative_strength_vs_btc_60d_pp"],
+            "relative_strength_120d_pp": row["relative_strength_vs_btc_120d_pp"],
+            "volatility_20d_pct_annualized": row["risk_metrics"]["realized_volatility_20d_pct_annualized"],
+            "max_drawdown_120d_pct": row["risk_metrics"]["max_drawdown_120d_pct"],
+            "data_quality_pct": 100.0,
         })
-    return sorted(output, key=lambda item: item["score"], reverse=True)
-
+    coverage.sort(key=lambda item: (item["data_quality_pct"], item["symbol"]), reverse=True)
+    return sorted(ranked, key=lambda item: item['score'], reverse=True), coverage
 
 def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     """Analyze each returned symbol/interval group and preserve feed failures."""
@@ -364,7 +374,8 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         "read_only": True, "analyses": analyses,
         "eligible_series": len(eligible), "rejected_series": len(rejected),
         "cross_timeframe": cross_timeframe,
-        "risk_adjusted_relative_strength": build_risk_adjusted_relative_strength(cross_timeframe),
+        "risk_adjusted_relative_strength": build_risk_adjusted_relative_strength(cross_timeframe)[0],
+        "risk_adjusted_relative_strength_coverage": build_risk_adjusted_relative_strength(cross_timeframe)[1],
         "provider_unavailable": feed_result.get("unavailable", []),
         "availability_counts": feed_result.get("summary", {}).get("availability_counts", {}),
     }

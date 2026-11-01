@@ -53,13 +53,32 @@ class CryptoWatchlistFeed:
                             "observations": 0, "unavailable_requests": len(requested) * len(intervals),
                             "availability_counts": {"listing_check_failed": len(requested) * len(intervals)}},
             }
+        reason_counts = {}
         for canonical in requested:
             pair = BINANCE_SPOT_PAIRS.get(canonical.upper())
             if not pair:
-                unavailable.append({"symbol": canonical, "reason": "no_binance_pair_mapping"})
-                continue
-            if pair not in active_pairs:
                 for interval in intervals:
+                    unavailable.append({"symbol": canonical, "interval": interval, "reason": "no_binance_pair_mapping"})
+                    reason_counts["no_binance_pair_mapping"] = reason_counts.get("no_binance_pair_mapping", 0) + 1
+                continue
+            listing = symbol_status.get(pair)
+            if listing is None:
+                reason = "pair_not_listed_on_binance_spot"
+            elif listing.get("status") != "TRADING":
+                reason = "pair_not_trading_on_binance_spot"
+            elif not listing.get("spot_allowed"):
+                reason = "spot_trading_not_allowed_for_pair"
+            else:
+                reason = None
+            if reason:
+                for interval in intervals:
+                    unavailable.append({
+                        "symbol": canonical, "provider_symbol": pair,
+                        "interval": interval, "reason": reason,
+                    })
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                continue
+            for interval in intervals:
                     unavailable.append({
                         "symbol": canonical, "provider_symbol": pair,
                         "interval": interval, "reason": "pair_not_currently_trading_on_binance_spot",

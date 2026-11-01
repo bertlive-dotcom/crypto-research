@@ -40,7 +40,8 @@ class SupabaseStoreTests(unittest.TestCase):
         store = SupabasePaperStore("https://example.supabase.co", "secret")
         alert = {"dedupe_key": "BTC:confirmed_trend:2026-11-01", "event_type": "confirmed_trend",
                  "asset": "BTC", "label": "Trend confirmed", "detail": "Daily and 4h aligned",
-                 "daily_close": "2026-11-01T00:00:00+00:00", "four_hour_close": "2026-11-01T12:00:00+00:00"}
+                 "daily_close": "2026-11-01T00:00:00+00:00", "four_hour_close": "2026-11-01T12:00:00+00:00",
+                 "alert_class": "technical_confirmation"}
 
         store.save_market_alerts([alert])
 
@@ -48,7 +49,7 @@ class SupabaseStoreTests(unittest.TestCase):
         self.assertEqual(args[0], "POST")
         self.assertIn("/rest/v1/market_alert_events", args[1])
         self.assertEqual(kwargs["params"], {"on_conflict": "dedupe_key"})
-        self.assertEqual(kwargs["json"], [alert])
+        self.assertEqual(kwargs["json"], [{key: value for key, value in alert.items() if key != "alert_class"}])
         self.assertEqual(kwargs["headers"]["Prefer"], "resolution=ignore-duplicates,return=minimal")
 
     @patch("supabase_store.requests.request")

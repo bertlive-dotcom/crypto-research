@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import Mock
 
-from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from global_markets.providers.alphavantage import (
+    AlphaVantageClient, AlphaVantageError, AlphaVantageRateLimitError,
+)
 
 
 class AlphaVantageClientTests(unittest.TestCase):
@@ -59,7 +61,12 @@ class AlphaVantageClientTests(unittest.TestCase):
 
     def test_detects_soft_rate_limit(self):
         self.session.get.return_value = self.response({"Note": "quota reached"})
-        with self.assertRaisesRegex(AlphaVantageError, "rate limit"):
+        with self.assertRaisesRegex(AlphaVantageRateLimitError, "rate limit"):
+            self.client.get_fx_daily("EUR", "USD")
+
+    def test_distinguishes_entitlement_or_frequency_notice(self):
+        self.session.get.return_value = self.response({"Information": "premium endpoint"})
+        with self.assertRaisesRegex(AlphaVantageError, "entitlement or request-frequency"):
             self.client.get_fx_daily("EUR", "USD")
 
     def test_rejects_missing_key(self):

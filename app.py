@@ -113,17 +113,30 @@ def get_global_daily_asset_analysis(api_key):
         "etf": [(symbol, False) for symbol in ["SPY", "QQQ", "VT", "IWDA", "EEM"]],
         "commodity": [(symbol, False) for symbol in ["GC", "SI", "CL", "BZ", "HG", "NG"]],
     }
-    analyses, unavailable = [], []
+    analyses, unavailable, quality = [], [], []
     for asset_class, instruments in seeds.items():
         for symbol, international in instruments:
             try:
-                rows = client.fetch_daily_prices(
+                feed = client.fetch_daily_prices_with_quality(
                     symbol, asset_class, international=international, limit=120
                 )
+                rows = feed["candles"]
                 result = analyze_candles(rows, max_age_seconds=5 * 86400)
                 result["asset_class"] = asset_class
                 result["symbol"] = symbol
+                result["source_records"] = feed["source_records"]
+                result["valid_records"] = len(rows)
+                result["rejected_records"] = len(feed["rejected_records"])
                 analyses.append(result)
+                if feed["rejected_records"]:
+                    quality.append({
+                        "asset_class": asset_class, "symbol": symbol,
+                        "rejected_records": len(feed["rejected_records"]),
+                        "examples": "; ".join(
+                            f'{item["date"]}: {item["reason"]}'
+                            for item in feed["rejected_records"][:3]
+                        ),
+                    })
             except (FinancialDataError, ValueError) as error:
                 unavailable.append({
                     "asset_class": asset_class, "symbol": symbol,
@@ -131,7 +144,7 @@ def get_global_daily_asset_analysis(api_key):
                 })
     return {
         "source": "FinancialData.Net", "observed_at": datetime.now(timezone.utc).isoformat(),
-        "analyses": analyses, "unavailable": unavailable,
+        "analyses": analyses, "unavailable": unavailable, "quality": quality,
     }
 
 

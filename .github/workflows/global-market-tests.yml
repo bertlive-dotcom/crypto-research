@@ -9,6 +9,7 @@ on:
       - "tests/test_alphavantage_adapter.py"
       - "tests/test_binance_adapter.py"
       - "tests/test_crypto_feed.py"
+      - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
   push:
     branches:
@@ -21,6 +22,7 @@ on:
       - "tests/test_alphavantage_adapter.py"
       - "tests/test_binance_adapter.py"
       - "tests/test_crypto_feed.py"
+      - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
 
 jobs:
@@ -43,3 +45,5 @@ jobs:
         run: python -m unittest discover -s tests -p "test_binance_adapter.py" -v
       - name: Run global crypto watchlist feed tests
         run: python -m unittest discover -s tests -p "test_crypto_feed.py" -v
+      - name: Run market data quality and indicator tests
+        run: python -m unittest discover -s tests -p "test_market_analysis.py" -v

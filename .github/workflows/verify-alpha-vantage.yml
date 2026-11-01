@@ -52,10 +52,13 @@ jobs:
                       latest_date = sorted(payload[series_key].keys())[-1]
                       print(f"PASS: {function} returned daily observations (latest date: {latest_date}).")
                   elif "Note" in payload or "Information" in payload:
-                      print(f"LIMITED: {function} returned a provider rate-limit or entitlement notice.")
+                      field = "Note" if "Note" in payload else "Information"
+                      detail = " ".join(str(payload[field]).split())
+                      print(f"LIMITED: {function} returned {field}: {detail[:300]}")
                       failed = True
                   elif "Error Message" in payload:
-                      print(f"FAIL: {function} was rejected by Alpha Vantage.")
+                      detail = " ".join(str(payload["Error Message"]).split())
+                      print(f"FAIL: {function} rejected: {detail[:200]}")
                       failed = True
                   else:
                       print(f"FAIL: {function} did not return the expected daily time series.")

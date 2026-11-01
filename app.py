@@ -427,8 +427,8 @@ with desk_tab:
                     {
                         **event,
                         "payload": json.dumps(event.get("payload"), ensure_ascii=False, sort_keys=True)
-                        if isinstance(event.get("payload"), (dict, list))
-                        else event.get("payload"),
+                        if event.get("payload") is not None
+                        else None,
                     }
                     for event in recent_events
                 ]

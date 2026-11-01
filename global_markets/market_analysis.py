@@ -99,6 +99,7 @@ def analyze_candles(rows: Iterable[dict], *, now: datetime | None = None,
     if reasons:
         return {"eligible": False, "status": "rejected", "symbol": symbol,
                 "interval": interval, "bars": len(closed_candles),
+                "latest_candle_close": timestamps[-1].isoformat(),
                 "age_seconds": round(latest_age, 1),
                 "reasons": sorted(set(reasons))}
 
@@ -425,6 +426,38 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
     eligible = [item for item in analyses if item["eligible"]]
     rejected = [item for item in analyses if not item["eligible"]]
 
+    freshness = []
+    for item in analyses:
+        reasons = item.get("reasons", [])
+        if item.get("eligible"):
+            freshness_status = "current"
+        elif "stale_market_data" in reasons:
+            freshness_status = "stale"
+        elif "insufficient_history" in reasons:
+            freshness_status = "insufficient_history"
+        else:
+            freshness_status = "rejected"
+        freshness.append({
+            "symbol": item.get("symbol"),
+            "interval": item.get("interval"),
+            "latest_candle_close": item.get("latest_candle_close"),
+            "age_seconds": item.get("age_seconds"),
+            "bars": item.get("bars"),
+            "status": freshness_status,
+            "reasons": reasons,
+        })
+    for item in feed_result.get("unavailable", []):
+        freshness.append({
+            "symbol": item.get("provider_symbol") or item.get("symbol"),
+            "interval": item.get("interval"),
+            "latest_candle_close": None,
+            "age_seconds": None,
+            "bars": None,
+            "status": "unavailable",
+            "reasons": [item.get("reason", "unknown")],
+        })
+    freshness.sort(key=lambda item: (item.get("symbol") or "", item.get("interval") or ""))
+
     # Cross-timeframe alignment is calculated only when both closed, fresh
     # intervals exist for the same provider symbol. Daily trend has more weight.
     by_symbol: dict[str, dict[str, dict]] = {}
@@ -502,6 +535,7 @@ def analyze_feed(feed_result: dict, *, now: datetime | None = None) -> dict:
         "source": feed_result.get("source"), "observed_at": feed_result.get("observed_at"),
         "read_only": True, "analyses": analyses,
         "eligible_series": len(eligible), "rejected_series": len(rejected),
+        "freshness": freshness,
         "cross_timeframe": cross_timeframe,
         "risk_adjusted_relative_strength": build_risk_adjusted_relative_strength(cross_timeframe)[0],
         "risk_adjusted_relative_strength_coverage": build_risk_adjusted_relative_strength(cross_timeframe)[1],

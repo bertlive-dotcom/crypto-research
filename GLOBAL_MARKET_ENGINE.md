@@ -8,12 +8,14 @@
 
 ## Initial asset universe
 
-Configuration seeds equities, ETFs, indices, crypto, FX and commodities. Futures
-are enabled as an asset class but have no seed symbols until provider coverage and
-contract metadata are verified. Seeds are examples, not a claim that every ticker
-is supported or currently tradable. Normalize each instrument with a stable
-provider-qualified asset_id, symbol, asset class, venue, quote currency and
-observation timestamp before ranking.
+Configuration seeds equities, ETFs, indices, crypto, FX and commodities. The
+crypto seed universe contains BTC, ETH, SOL, LINK, XLM, SUI, HYPE, XMR, LEO,
+BAT, PEPE, BEAM and ANVL. Futures remain enabled as an asset class but have no
+seed symbols until provider coverage and contract metadata are verified.
+
+Seeds are discovery candidates, not a claim that every instrument is supported
+or currently tradable. Provider-qualified identifiers, venue, quote currency
+and source timestamps must be retained before ranking.
 
 ## Ranking contract
 
@@ -26,38 +28,56 @@ represented. Output includes coverage and rejection reasons; it is not a trade
 instruction.
 
 The scoring primitive validates identity, supported asset class, positive price
-and observation timestamp. Callers may set a maximum data age appropriate to the
-source and instrument. It deliberately does not impose one freshness limit across
-markets with different trading hours and update frequencies.
+and observation timestamp. Callers may set a maximum data age appropriate to
+the source and instrument.
 
 ## Data-provider integration status
 
-This increment is provider-agnostic. It does not yet call FinancialData.Net,
-Twelve Data, CoinMarketCap or Binance for global discovery. Provider adapters
-must verify instrument coverage, endpoint entitlements, timestamp semantics,
-rate limits, pagination and licensing. The previously reviewed FinancialData.Net
-Python SDK should not be used in a long-running worker until its unbounded retry
-and missing request-timeout behavior are addressed or safely wrapped.
+### Binance public spot crypto feed
+- `global_markets.providers.binance.BinanceMarketDataClient` reads public
+  spot OHLCV klines from Binance's market-data-only host.
+- `global_markets.crypto_feed.CryptoWatchlistFeed` connects this adapter to the
+  global crypto seed universe and supports daily and 4-hour candles.
+- No API key, account credentials, private endpoints or order endpoints are used.
+- Pair mappings are explicit. Unsupported/unlisted pairs are reported in
+  `unavailable`; they are not silently replaced.
+- Results include OHLC, base volume, quote volume, trade count, interval and
+  source. The feed returns per-pair failures so one unavailable token does not
+  discard successful market data.
+- This is a read-only data feed. It is not yet a signal generator, ranking
+  integration, persistence job or UI view.
 
-Recommended integration sequence:
-1. Add provider symbol/coverage discovery and persist a canonical instrument catalogue.
-2. Add bounded-timeout, bounded-retry adapters with explicit source timestamps and provenance.
+### Other providers
+- Alpha Vantage adapter supports daily FX and has a confirmed EUR/USD response.
+  The free tier returned a limit notice for the crypto daily endpoint in the
+  observed verification run; do not rely on it for crypto.
+- FinancialData.Net coverage is constrained by documented plan entitlements.
+  Symbol-directory matches do not prove price-history access.
+- Index and futures coverage still require separate verified data sources.
+
+## Recommended integration sequence
+
+1. Complete provider symbol/coverage discovery and persist a canonical instrument catalogue.
+2. Connect normalized provider data to feature builders and freshness checks.
 3. Add technical, fundamental and catalyst feature builders by asset class; never fabricate unavailable metrics.
 4. Rank only candidates with sufficient score coverage and acceptable data freshness.
 5. Add paper-trading simulations per asset class after contract sizing, trading hours, fees, currency conversion and shorting rules are modeled.
 
 ## Safety and operational boundaries
 - Existing crypto scanner and paper ledger remain unchanged.
-- This module performs no network calls and cannot submit orders.
+- The new Binance feed performs read-only public market-data requests only.
 - Never commit provider credentials; use host-side environment secrets.
 - Scores are screening aids, not investment advice or expected returns.
 - Validate data licensing and redistribution terms before exposing market data.
 
 ## Tests
-Run: python -m unittest discover -s tests -p 'test_global_market_scoring.py' -v
+Run:
+- `python -m unittest discover -s tests -p 'test_global_market_*.py' -v`
+- `python -m unittest discover -s tests -p 'test_binance_adapter.py' -v`
+- `python -m unittest discover -s tests -p 'test_crypto_feed.py' -v`
 
 ## Next increment
 
-Next: provider coverage audit and adapter contract. Do not enable automated
-entries across equities, ETFs, futures or FX until market-specific trading and
-risk mechanics have been tested independently.
+Connect the feed to the global market UI and a bounded refresh/cache layer,
+then add technical feature calculations and opportunity ranking. Do not enable
+automated entries or live execution.

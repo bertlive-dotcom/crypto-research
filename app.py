@@ -74,6 +74,7 @@ def get_crypto(key):
         rows.append({
             "Asset": symbol, "Price USD": quote.get("price"),
             "24h %": quote.get("percent_change_24h"),
+            "1h %": quote.get("percent_change_1h"),
             "24h Volume USD": quote.get("volume_24h"),
             "Updated": quote.get("last_updated"), "Source": "CoinMarketCap",
         })
@@ -180,6 +181,7 @@ def get_global_fx_analysis(api_key):
 
 
 latest_crypto_prices = {}
+latest_crypto_market_data = {}
 market_tab, desk_tab, global_tab, scanner_tab = st.tabs([
     "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner"
 ])
@@ -188,6 +190,7 @@ with market_tab:
     st.subheader("Crypto - CoinMarketCap")
     try:
         crypto_rows = get_crypto(cmc_key)
+        latest_crypto_market_data = {row["Asset"]: row for row in crypto_rows}
         latest_crypto_prices = {row["Asset"]: row["Price USD"] for row in crypto_rows if row.get("Price USD")}
         st.dataframe(pd.DataFrame(crypto_rows), use_container_width=True, hide_index=True)
     except Exception as error:
@@ -261,22 +264,55 @@ with desk_tab:
         format_func=lambda value: "BTC / ETH / major altcoins" if value == "major" else "Solana tokens / memecoins")
     if market == "major":
         asset = st.selectbox("Asset", ["BTC", "ETH", "SOL", "LINK", "XLM", "SUI", "HYPE"])
-        price = latest_crypto_prices.get(asset)
-        if price and float(price) > 0:
+        market_snapshot = latest_crypto_market_data.get(asset, {})
+        price = market_snapshot.get("Price USD")
+        volume = market_snapshot.get("24h Volume USD")
+        gain1h = market_snapshot.get("1h %")
+        quote_updated = market_snapshot.get("Updated")
+        quote_is_fresh = False
+        quote_age_seconds = None
+        if quote_updated:
+            try:
+                quote_time = datetime.fromisoformat(str(quote_updated).replace("Z", "+00:00"))
+                if quote_time.tzinfo is None:
+                    quote_time = quote_time.replace(tzinfo=timezone.utc)
+                quote_age_seconds = (datetime.now(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds()
+                quote_is_fresh = 0 <= quote_age_seconds <= 300
+            except (TypeError, ValueError):
+                quote_is_fresh = False
+        if price is not None and float(price) > 0:
             st.metric("CoinMarketCap reference price (USD)", "{:,.8f}".format(float(price)))
         else:
-            st.error("No valid live CoinMarketCap price is available for this asset. Refresh market data before opening a paper position.")
-        volume = st.number_input("24h volume (USD)", min_value=0.0, value=10000000.0, step=100000.0)
-        gain45 = st.number_input("45-minute gain (%) if known; enter 0 if unavailable", min_value=-100.0, max_value=1000.0, value=0.0)
+            st.error("No valid live CoinMarketCap price is available for this asset.")
+        data_col1, data_col2 = st.columns(2)
+        data_col1.metric("24h volume (CoinMarketCap)", "{:,.0f} USD".format(float(volume)) if volume is not None else "Unavailable")
+        data_col2.metric("CoinMarketCap change (1h)", "{:+.2f}%".format(float(gain1h)) if gain1h is not None else "Unavailable")
+        st.caption("These filters use CoinMarketCap's 24h volume and 1h price-change fields. Quote timestamp: {}{}".format(
+            quote_updated or "unavailable",
+            " · age {:.0f} sec".format(quote_age_seconds) if quote_age_seconds is not None else ""))
+        if not quote_is_fresh:
+            st.error("CoinMarketCap quote is missing or older than 5 minutes. Refresh market data before simulating an entry.")
+        if volume is None or gain1h is None:
+            st.error("The quote is missing 24h volume or 1h price change; the paper signal cannot pass.")
+        gain45 = None
     else:
         asset = st.text_input("Token symbol or identifier", placeholder="e.g. TOKEN")
-        price = st.number_input("Reference price (USD)", min_value=0.00000001, value=1.0, format="%.8f")
-        liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=50000.0, step=1000.0)
-        top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=25.0)
-        dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=2.0)
-        bundled = st.selectbox("Bundled buys in first 60 seconds?", [False, True])
-        gain45 = st.number_input("Price gain in last 45 minutes (%)", min_value=-100.0, max_value=1000.0, value=12.0)
-        source_sold = st.selectbox("Source wallet already sold?", [False, True])
+        price = st.number_input("Reference price (USD)", min_value=0.00000001, value=None, format="%.8f", required=True)
+        liquidity = st.number_input("Liquidity (USD)", min_value=0.0, value=None, step=1000.0, required=True)
+        top10 = st.number_input("Top-10 holder concentration (%)", min_value=0.0, max_value=100.0, value=None, required=True)
+        dev = st.number_input("Developer wallet share (%)", min_value=0.0, max_value=100.0, value=None, required=True)
+        bundled = st.selectbox("Bundled buys in first 60 seconds?", [None, False, True],
+            format_func=lambda value: "Select one" if value is None else "Yes" if value else "No")
+        gain45 = st.number_input("Price change in last 45 minutes (%)", min_value=-100.0, max_value=1000.0, value=None, required=True)
+        source_sold = st.selectbox("Source wallet already sold?", [None, False, True],
+            format_func=lambda value: "Select one" if value is None else "Yes" if value else "No")
+        solana_metrics_source = st.text_input("Source for on-chain metrics", placeholder="Explorer or data provider")
+        solana_metrics_as_of = st.text_input("Metrics observed at (UTC)", placeholder="YYYY-MM-DD HH:MM")
+        st.caption("Solana metrics are not connected to an automatic provider. Leave a field blank rather than guessing; an entry stays disabled until each value and its source/time are supplied.")
+        volume = None
+        gain1h = None
+        quote_updated = None
+        quote_is_fresh = False
 
     entry_fill_preview = (float(price) * (1.0 + 0.003 if direction == "long" else 1.0 - 0.003)) if price and float(price) > 0 else None
     stop_col, stop_price_col = st.columns([2, 1])
@@ -293,16 +329,32 @@ with desk_tab:
         take_profit_preview = (entry_fill_preview * (1.0 + take_profit_pct / 100.0 if direction == "long" else 1.0 - take_profit_pct / 100.0)) if entry_fill_preview else None
         st.metric("Preu Take Profit", f"${take_profit_preview:,.8f}" if take_profit_preview else "—")
 
-    submitted = st.button("Run filters and simulate entry", disabled=not (price and float(price) > 0))
+    if market == "major":
+        entry_inputs_ready = (
+            price is not None and float(price) > 0
+            and volume is not None and gain1h is not None and quote_is_fresh
+        )
+    else:
+        entry_inputs_ready = (
+            bool(asset.strip()) and price is not None and float(price) > 0
+            and all(value is not None for value in (
+                liquidity, top10, dev, bundled, gain45, source_sold
+            ))
+            and bool(solana_metrics_source.strip()) and bool(solana_metrics_as_of.strip())
+        )
+    submitted = st.button("Run filters and simulate entry", disabled=not entry_inputs_ready)
     if submitted:
         if market == "major":
             signal = Signal(asset=asset, market=market, price_usd=float(price),
-                volume_24h_usd=volume, gain_45m_pct=gain45, source="CoinMarketCap live quote")
+                volume_24h_usd=volume, gain_1h_pct=gain1h,
+                source="CoinMarketCap live quote as of {}".format(quote_updated))
         else:
             signal = Signal(asset=asset, market=market, price_usd=price,
                 liquidity_usd=liquidity, top10_holder_pct=top10, dev_wallet_pct=dev,
                 bundled_buys_first_60s=bundled, gain_45m_pct=gain45,
-                source_wallet_sold=source_sold, source="manual / on-chain metrics")
+                source_wallet_sold=source_sold,
+                source="manual on-chain metrics from {} as of {}".format(
+                    solana_metrics_source.strip(), solana_metrics_as_of.strip()))
 
     if submitted:
         result = evaluate_signal(signal)

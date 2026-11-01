@@ -11,7 +11,7 @@ from trading_desk import (
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed
-from global_markets.market_analysis import analyze_feed, analyze_candles
+from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
@@ -502,9 +502,15 @@ with global_tab:
                     t_row = tactical_by_symbol.get(row["symbol"], {})
                     d_ind = d_row.get("indicators", {})
                     t_ind = t_row.get("indicators", {})
+                    entry = classify_entry_opportunity(
+                        d_row, t_row,
+                        {"category": row.get("structure")}
+                    )
                     summary_rows.append({
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Estat": structure_labels.get(row.get("structure"), row.get("structure")),
+                        "Context d'entrada": entry["label"],
+                        "Qualitat /100": entry.get("quality_score"),
                         "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "7d %": row.get("return_7d_pct"),
                         "30d %": row.get("return_30d_pct"),
@@ -526,6 +532,25 @@ with global_tab:
                     ), reverse=True
                 )
                 st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                entry_details = []
+                for row in aligned:
+                    entry = classify_entry_opportunity(
+                        daily_by_symbol.get(row["symbol"]),
+                        tactical_by_symbol.get(row["symbol"]),
+                        {"category": row.get("structure")}
+                    )
+                    entry_details.append({
+                        "Actiu": row["symbol"].replace("USDT", ""),
+                        "Classificació": entry["label"],
+                        "Qualitat /100": entry.get("quality_score"),
+                        "RSI diari": entry.get("daily_rsi"),
+                        "RSI 4h": entry.get("4h_rsi"),
+                        "Distància SMA20 diària %": entry.get("daily_extension_vs_sma20_pct"),
+                        "Motius": " ".join(entry.get("reasons", [])),
+                    })
+                with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=True):
+                    st.dataframe(pd.DataFrame(entry_details), use_container_width=True, hide_index=True)
+                    st.caption("La qualitat /100 és una puntuació de confluència tècnica, no una probabilitat d'èxit ni una ordre. La classificació separa recuperació inicial, tendència confirmada, risc d'entrada tardana i absència d'oportunitat clara.")
 
                 st.markdown("#### Evolució comparativa (base 100)")
                 st.caption("Preus diaris tancats, normalitzats a 100 al començament del període disponible. Serveix per comparar rendiment relatiu, no el preu absolut.")

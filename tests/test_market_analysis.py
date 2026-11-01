@@ -35,6 +35,27 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertIsNotNone(result["indicators"]["sma_20"])
         self.assertEqual(result["score_type"], "technical_only_not_investment_recommendation")
 
+    def test_daily_risk_metrics_require_sufficient_history(self):
+        result = analyze_candles(self.rows(count=60), now=self.now)
+        metrics = result["risk_metrics"]
+        self.assertIsNotNone(metrics["return_20d_pct"])
+        self.assertIsNotNone(metrics["return_60d_pct"])
+        self.assertIsNone(metrics["return_120d_pct"])
+        self.assertIsNotNone(metrics["realized_volatility_20d_pct_annualized"])
+        self.assertIsNotNone(metrics["realized_volatility_60d_pct_annualized"])
+        self.assertEqual(metrics["drawdown_window_bars"], 60)
+        self.assertEqual(metrics["max_drawdown_120d_pct"], 0.0)
+
+    def test_drawdown_measures_peak_to_trough_loss(self):
+        rows = self.rows(count=60)
+        for index, row in enumerate(rows):
+            close = 150.0 if index < 30 else 75.0 + (index - 30) * 0.5
+            row["close"] = close
+            row["high"] = close + 1
+            row["low"] = close - 1
+        result = analyze_candles(rows, now=self.now)
+        self.assertEqual(result["risk_metrics"]["max_drawdown_120d_pct"], -50.0)
+
     def test_rejects_stale_xmr_like_history(self):
         old = self.rows(close_time=self.now - timedelta(days=30))
         result = analyze_candles(old, now=self.now)

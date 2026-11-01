@@ -5,6 +5,7 @@ assume that a symbol is covered by the connected subscription.
 """
 from __future__ import annotations
 
+import math
 import random
 import time
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,11 @@ class FinancialDataClient:
     ):
         if not api_key or not api_key.strip():
             raise ValueError("api_key is required")
-        if timeout <= 0 or max_retries < 0 or backoff_seconds < 0 or max_pages < 1:
+        if (
+            not math.isfinite(timeout) or timeout <= 0
+            or not math.isfinite(backoff_seconds) or backoff_seconds < 0
+            or max_retries < 0 or max_pages < 1
+        ):
             raise ValueError("invalid timeout, retry, backoff or pagination limits")
         self.api_key = api_key.strip()
         self.session = session or requests.Session()
@@ -135,7 +140,7 @@ class FinancialDataClient:
             numeric_price = float(price)
         except (TypeError, ValueError, OverflowError) as exc:
             raise FinancialDataError("quote price is invalid") from exc
-        if numeric_price <= 0:
+        if not math.isfinite(numeric_price) or numeric_price <= 0:
             raise FinancialDataError("quote price must be positive")
         parsed = None
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):

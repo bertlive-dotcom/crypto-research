@@ -532,7 +532,17 @@ with global_tab:
                         item["30d %"] if item["30d %"] is not None else -999
                     ), reverse=True
                 )
-                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                # Mobile-first summary: compact cards avoid wide tables on phone screens.
+                for item in summary_rows:
+                    with st.container(border=True):
+                        st.markdown("**{}** · {}".format(item["Actiu"], item["Estat"]))
+                        st.caption("Entrada: {} · Confirmació: {}".format(
+                            item["Context d'entrada"], item["Confirmació RSI + MACD"]
+                        ))
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Qualitat", "—" if item["Qualitat /100"] is None else "{:.0f}/100".format(item["Qualitat /100"]))
+                        c2.metric("7 dies", "—" if item["7d %"] is None else "{:+.2f}%".format(item["7d %"]))
+                        c3.metric("30 dies", "—" if item["30d %"] is None else "{:+.2f}%".format(item["30d %"]))
                 entry_details = []
                 for row in aligned:
                     entry = classify_entry_opportunity(
@@ -553,7 +563,7 @@ with global_tab:
                         "Confirmació 1d + 4h": "Sí" if entry.get("confirmed_both") else "No",
                         "Motius": " ".join(entry.get("reasons", [])),
                     })
-                with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=True):
+                with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=False):
                     st.dataframe(pd.DataFrame(entry_details), use_container_width=True, hide_index=True)
                     st.caption("La qualitat /100 resta penalitzacions per volatilitat (>=80%/120%), drawdown (<=-30%/-40%) i deteriorament a 20 dies. Només es considera configuració confirmada si RSI i MACD són positius simultàniament en diari i 4h. No és una probabilitat d'èxit ni una ordre.")
 

@@ -575,6 +575,29 @@ with global_tab:
                     st.markdown("**Força relativa**")
                     st.dataframe(pd.DataFrame(relative_rows), use_container_width=True, hide_index=True)
                     st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")
+                    st.markdown("**Risc i rendiment històric (diari)**")
+                    risk_rows = []
+                    for item in daily:
+                        risk = item.get("risk_metrics", {})
+                        risk_rows.append({
+                            "Actiu": item["symbol"].replace("USDT", ""),
+                            "Rend. 20d %": risk.get("return_20d_pct"),
+                            "Rend. 60d %": risk.get("return_60d_pct"),
+                            "Rend. 120d %": risk.get("return_120d_pct"),
+                            "Vol. 20d anualitzada %": risk.get("realized_volatility_20d_pct_annualized"),
+                            "Vol. 60d anualitzada %": risk.get("realized_volatility_60d_pct_annualized"),
+                            "Drawdown màx. finestra %": risk.get("max_drawdown_120d_pct"),
+                        })
+                    st.dataframe(pd.DataFrame(risk_rows), use_container_width=True, hide_index=True)
+                    risk_relative_rows = [{
+                        "Actiu": row["symbol"].replace("USDT", ""),
+                        "Vs BTC 20d (pp)": row.get("relative_strength_vs_btc_20d_pp"),
+                        "Vs BTC 60d (pp)": row.get("relative_strength_vs_btc_60d_pp"),
+                        "Vs BTC 120d (pp)": row.get("relative_strength_vs_btc_120d_pp"),
+                    } for row in aligned]
+                    st.markdown("**Força relativa vs BTC — horitzons ampliats**")
+                    st.dataframe(pd.DataFrame(risk_relative_rows), use_container_width=True, hide_index=True)
+                    st.caption("Volatilitat anualitzada aproximada a partir de rendiments diaris. Drawdown: caiguda màxima des d'un màxim anterior dins de les últimes 120 espelmes disponibles. Els horitzons sense historial suficient queden buits.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
             with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):

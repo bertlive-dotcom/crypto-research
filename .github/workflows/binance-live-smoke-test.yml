@@ -19,58 +19,53 @@ jobs:
           python-version: "3.12"
       - name: Install feed dependency
         run: python -m pip install "requests>=2.31,<3.0"
-      - name: Fetch live public Binance candles
+      - name: Fetch and quality-check live Binance candles
         run: |
           python - <<'PY'
-          import time
           from global_markets.crypto_feed import CryptoWatchlistFeed
+          from global_markets.market_analysis import analyze_feed
 
           symbols = [
               "BTCUSD", "ETHUSD", "SOLUSD", "LINKUSD", "XLMUSD", "SUIUSD",
               "HYPEUSD", "XMRUSD", "LEOUSD", "BATUSD", "PEPEUSD", "BEAMUSD",
               "ANVLUSD",
           ]
-
           feed = CryptoWatchlistFeed()
-          result = feed.fetch(symbols=symbols, intervals=("1d", "4h"), limit=3)
+          raw = feed.fetch(symbols=symbols, intervals=("1d", "4h"), limit=200)
+          report = analyze_feed(raw)
 
           print("SOURCE: Binance public spot market data")
-          print(f"OBSERVED_AT: {result['observed_at']}")
-          print(f"SUMMARY: {result['summary']}")
+          print(f"OBSERVED_AT: {raw['observed_at']}")
+          print(f"FEED_SUMMARY: {raw['summary']}")
+          print(f"QUALITY_SUMMARY: eligible_series={report['eligible_series']}; rejected_series={report['rejected_series']}")
 
-          by_symbol = {}
-          for row in result["data"]:
-              by_symbol.setdefault(row["symbol"], []).append(row)
-
-          for canonical in symbols:
-              pair = {
-                  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "SOLUSD": "SOLUSDT",
-                  "LINKUSD": "LINKUSDT", "XLMUSD": "XLMUSDT", "SUIUSD": "SUIUSDT",
-                  "HYPEUSD": "HYPEUSDT", "XMRUSD": "XMRUSDT", "LEOUSD": "LEOUSDT",
-                  "BATUSD": "BATUSDT", "PEPEUSD": "PEPEUSDT", "BEAMUSD": "BEAMUSDT",
-                  "ANVLUSD": "ANVLUSDT",
-              }[canonical]
-              rows = by_symbol.get(pair, [])
-              if rows:
-                  intervals = sorted({r["interval"] for r in rows})
-                  latest = max(rows, key=lambda r: r["timestamp"])
+          for item in report["analyses"]:
+              if item["eligible"]:
+                  ind = item["indicators"]
                   print(
-                      f"AVAILABLE {canonical} ({pair}): intervals={intervals}; "
-                      f"latest_close={latest['close']}; latest_timestamp={latest['timestamp']}"
+                      f"FRESH {item['symbol']} {item['interval']}: "
+                      f"close={item['latest_close']}; RSI14={ind['rsi_14']}; "
+                      f"MACD={ind['macd_12_26']}; MACD_signal={ind['macd_signal_9']}; "
+                      f"SMA20={ind['sma_20']}; SMA50={ind['sma_50']}; "
+                      f"technical_screen_score={item['technical_screen_score']}; "
+                      f"age_seconds={item['age_seconds']}"
                   )
               else:
-                  reasons = [
-                      item["reason"] for item in result["unavailable"]
-                      if item["symbol"] == canonical
-                  ]
-                  print(f"UNAVAILABLE {canonical} ({pair}): {reasons}")
+                  print(
+                      f"REJECTED {item.get('symbol')} {item.get('interval')}: "
+                      f"bars={item.get('bars')}; reasons={item['reasons']}"
+                  )
 
-          # BTC and ETH are required smoke-test anchors. Other symbols can be
-          # unavailable due to listing/region restrictions and are reported.
-          if "BTCUSDT" not in by_symbol or "ETHUSDT" not in by_symbol:
-              raise SystemExit("FAIL: Binance live feed did not return both BTCUSDT and ETHUSDT.")
-          if not result["data"]:
-              raise SystemExit("FAIL: Binance live feed returned no observations.")
+          for item in report["provider_unavailable"]:
+              print(
+                  f"UNAVAILABLE {item.get('symbol')}: "
+                  f"interval={item.get('interval')}; reason={item.get('reason')}"
+              )
 
-          print("SUCCESS: live Binance spot candles received for BTC and ETH.")
+          # BTC and ETH must each have at least one fresh interval for a
+          # successful real-data quality smoke test.
+          fresh_symbols = {item["symbol"] for item in report["analyses"] if item["eligible"]}
+          if not {"BTCUSDT", "ETHUSDT"}.issubset(fresh_symbols):
+              raise SystemExit("FAIL: BTC and ETH did not both pass live freshness/history checks.")
+          print("SUCCESS: live Binance candles fetched and passed freshness/indicator checks for BTC and ETH.")
           PY

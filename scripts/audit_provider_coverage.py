@@ -14,6 +14,16 @@ from global_markets.config import DEFAULT_UNIVERSE_SEEDS
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 
 
+# FinancialData.Net documents these symbol directories as requiring paid tiers.
+# Keep the free-tier audit focused on endpoints the account is expected to access.
+MINIMUM_PLAN = {
+    "index": "standard",
+    "crypto": "standard",
+    "future": "standard",
+    "forex": "premium",
+}
+
+
 def main() -> int:
     api_key = os.environ.get("FINANCIALDATA_API_KEY", "").strip()
     if not api_key:
@@ -23,18 +33,24 @@ def main() -> int:
     client = FinancialDataClient(api_key, timeout=15, max_retries=2, max_pages=10)
     report = {
         "provider": "FinancialData.Net",
+        "assumed_plan": "free",
         "mode": "read-only symbol-directory audit; no orders or price downloads",
         "asset_classes": {},
     }
 
     for asset_class, seeds in DEFAULT_UNIVERSE_SEEDS.items():
-        if asset_class == "index":
+        required_plan = MINIMUM_PLAN.get(asset_class)
+        if required_plan:
             report["asset_classes"][asset_class] = {
-                "status": "not_checked",
-                "reason": "No index symbol-directory endpoint is configured in this adapter.",
+                "status": f"requires_{required_plan}_plan",
                 "requested": seeds,
+                "reason": (
+                    f"FinancialData.Net documents this symbol directory as "
+                    f"requiring the {required_plan.capitalize()} subscription."
+                ),
             }
             continue
+
         try:
             matches = client.find_symbols(asset_class, seeds)
             found = [symbol for symbol, record in matches.items() if record is not None]
@@ -51,7 +67,7 @@ def main() -> int:
             # FinancialDataError messages are locally defined, sanitized status descriptions;
             # do not include response bodies, request URLs, query parameters or credentials.
             report["asset_classes"][asset_class] = {
-                "status": "unavailable_or_plan_restricted",
+                "status": "request_error",
                 "requested": seeds,
                 "diagnostic": str(exc),
             }

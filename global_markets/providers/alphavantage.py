@@ -62,11 +62,25 @@ class AlphaVantageClient:
                     row[field] = float(raw)
                 except (TypeError, ValueError) as exc:
                     raise AlphaVantageError("Alpha Vantage OHLC field is missing or invalid") from exc
-            row.update({"source": "alpha_vantage", "interval": "1day"})
+            try:
+                from datetime import date, datetime, time, timezone
+                parsed_date = date.fromisoformat(date)
+            except (TypeError, ValueError) as exc:
+                raise AlphaVantageError("Alpha Vantage returned an invalid observation date") from exc
+            if any(row[field] <= 0 for field in ("open", "high", "low", "close")):
+                raise AlphaVantageError("Alpha Vantage returned non-positive OHLC values")
+            if row["high"] < max(row["open"], row["close"], row["low"]) or row["low"] > min(row["open"], row["close"], row["high"]):
+                raise AlphaVantageError("Alpha Vantage returned inconsistent OHLC values")
+            row.update({
+                "timestamp": datetime.combine(parsed_date, time.min, tzinfo=timezone.utc).isoformat(),
+                "close_timestamp": datetime.combine(parsed_date, time(23, 59, 59), tzinfo=timezone.utc).isoformat(),
+                "source": "alpha_vantage", "interval": "1d",
+                "volume": 0.0, "volume_available": False,
+            })
             rows.append(row)
         if not rows:
             raise AlphaVantageError("Alpha Vantage returned no daily observations")
-        return sorted(rows, key=lambda row: row["date"], reverse=True)
+        return sorted(rows, key=lambda row: row["timestamp"])
 
     def get_fx_daily(self, from_currency: str, to_currency: str) -> list[dict]:
         base, quote = from_currency.upper(), to_currency.upper()

@@ -40,36 +40,41 @@ class CryptoWatchlistFeed:
         """Fetch available watchlist pairs, preserving per-pair failures."""
         requested = list(symbols) if symbols is not None else list(DEFAULT_UNIVERSE_SEEDS["crypto"])
         data, unavailable = [], []
+        reason_counts: dict[str, int] = {}
         observed_at = datetime.now(timezone.utc).isoformat()
         try:
             symbol_status = self.client.get_spot_symbol_status()
         except BinanceMarketDataError as exc:
+            failed = len(requested) * len(intervals)
+            unavailable = [
+                {"symbol": symbol, "interval": interval,
+                 "reason": "spot_listing_check_failed", "detail": str(exc)}
+                for symbol in requested for interval in intervals
+            ]
             return {
                 "source": "binance", "observed_at": observed_at, "read_only": True,
                 "requested_symbols": requested, "intervals": list(intervals), "data": [],
-                "unavailable": [{"symbol": symbol, "reason": "spot_listing_check_failed: " + str(exc)}
-                                for symbol in requested],
+                "unavailable": unavailable,
                 "summary": {"requested": len(requested), "returned_pairs": 0,
-                            "observations": 0, "unavailable_requests": len(requested) * len(intervals),
-                            "availability_counts": {"listing_check_failed": len(requested) * len(intervals)}},
+                            "observations": 0, "unavailable_requests": failed,
+                            "availability_counts": {"spot_listing_check_failed": failed}},
             }
-        reason_counts = {}
+
         for canonical in requested:
             pair = BINANCE_SPOT_PAIRS.get(canonical.upper())
             if not pair:
-                for interval in intervals:
-                    unavailable.append({"symbol": canonical, "interval": interval, "reason": "no_binance_pair_mapping"})
-                    reason_counts["no_binance_pair_mapping"] = reason_counts.get("no_binance_pair_mapping", 0) + 1
-                continue
-            listing = symbol_status.get(pair)
-            if listing is None:
-                reason = "pair_not_listed_on_binance_spot"
-            elif listing.get("status") != "TRADING":
-                reason = "pair_not_trading_on_binance_spot"
-            elif not listing.get("spot_allowed"):
-                reason = "spot_trading_not_allowed_for_pair"
+                reason = "no_binance_pair_mapping"
             else:
-                reason = None
+                listing = symbol_status.get(pair)
+                if listing is None:
+                    reason = "pair_not_listed_on_binance_spot"
+                elif listing.get("status") != "TRADING":
+                    reason = "pair_not_trading_on_binance_spot"
+                elif not listing.get("spot_allowed"):
+                    reason = "spot_trading_not_allowed_for_pair"
+                else:
+                    reason = None
+
             if reason:
                 for interval in intervals:
                     unavailable.append({
@@ -78,35 +83,37 @@ class CryptoWatchlistFeed:
                     })
                     reason_counts[reason] = reason_counts.get(reason, 0) + 1
                 continue
-            for interval in intervals:
-                    unavailable.append({
-                        "symbol": canonical, "provider_symbol": pair,
-                        "interval": interval, "reason": "pair_not_currently_trading_on_binance_spot",
-                    })
-                continue
+
             for interval in intervals:
                 try:
                     rows = self.client.get_klines(pair, interval=interval, limit=limit)
                     data.extend(rows)
                 except (BinanceMarketDataError, ValueError) as exc:
+                    detail = str(exc)
+                    lowered = detail.lower()
+                    if "rate limit" in lowered:
+                        error_reason = "rate_limit"
+                    elif "request failed" in lowered:
+                        error_reason = "provider_request_failed"
+                    elif "invalid" in lowered or "unexpected" in lowered:
+                        error_reason = "invalid_provider_response"
+                    else:
+                        error_reason = "provider_error"
                     unavailable.append({
-                        "symbol": canonical,
-                        "provider_symbol": pair,
-                        "interval": interval,
-                        "reason": str(exc),
+                        "symbol": canonical, "provider_symbol": pair,
+                        "interval": interval, "reason": error_reason, "detail": detail,
                     })
+                    reason_counts[error_reason] = reason_counts.get(error_reason, 0) + 1
+
         return {
-            "source": "binance",
-            "observed_at": observed_at,
-            "read_only": True,
-            "requested_symbols": requested,
-            "intervals": list(intervals),
-            "data": data,
-            "unavailable": unavailable,
+            "source": "binance", "observed_at": observed_at, "read_only": True,
+            "requested_symbols": requested, "intervals": list(intervals),
+            "data": data, "unavailable": unavailable,
             "summary": {
                 "requested": len(requested),
                 "returned_pairs": len({row["symbol"] for row in data}),
                 "observations": len(data),
                 "unavailable_requests": len(unavailable),
+                "availability_counts": reason_counts,
             },
         }

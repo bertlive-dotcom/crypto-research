@@ -106,14 +106,14 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
         self.assertEqual(ranked[0]["components_available"], 4)
 
-    def test_feed_analysis_includes_risk_adjusted_relative_strength(self):
+    def test_feed_analysis_exposes_empty_ranking_when_only_benchmark_exists(self):
         daily = self.rows(count=130, interval="1d")
         tactical = self.rows(count=60, interval="4h")
         result = analyze_feed({
             "source": "binance", "data": daily + tactical, "unavailable": [],
         }, now=self.now)
         self.assertIn("risk_adjusted_relative_strength", result)
-        self.assertTrue(result["risk_adjusted_relative_strength"])
+        self.assertEqual(result["risk_adjusted_relative_strength"], [])
 
     def test_feed_analysis_keeps_provider_unavailable_pairs(self):
         result = analyze_feed({

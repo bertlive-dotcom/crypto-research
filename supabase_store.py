@@ -81,9 +81,14 @@ class SupabasePaperStore:
         """Insert new alerts; duplicate dedupe keys are ignored by the database."""
         if not alerts:
             return
+        # alert_class is presentation metadata introduced in the app; keep the
+        # durable row compatible with existing tables that predate that field.
+        columns = ("dedupe_key", "event_type", "asset", "label", "detail",
+                   "daily_close", "four_hour_close")
+        rows = [{key: alert.get(key) for key in columns} for alert in alerts]
         self._request(
             "POST", "market_alert_events",
             params={"on_conflict": "dedupe_key"},
             headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=minimal"},
-            json=alerts,
+            json=rows,
         )

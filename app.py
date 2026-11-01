@@ -449,7 +449,9 @@ with global_tab:
             if new_alerts:
                 st.markdown("#### Alertes tècniques noves")
                 st.dataframe(pd.DataFrame([{
-                    "Actiu": item["asset"], "Alerta": item["label"], "Detall": item["detail"]
+                    "Actiu": item["asset"],
+                    "Tipus": "Força relativa (no és entrada)" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica (no és entrada)",
+                    "Alerta": item["label"], "Detall": item["detail"]
                 } for item in new_alerts]), use_container_width=True, hide_index=True)
             else:
                 st.caption("Cap alerta tècnica nova en aquesta lectura.")
@@ -457,8 +459,9 @@ with global_tab:
                 with st.expander("Historial d'alertes (90 dies)", expanded=False):
                     st.dataframe(pd.DataFrame([{
                         "Data": item.get("created_at", item.get("daily_close", "")),
-                        "Actiu": item.get("asset"), "Alerta": item.get("label"),
-                        "Detall": item.get("detail"),
+                        "Actiu": item.get("asset"),
+                        "Tipus": "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
+                        "Alerta": item.get("label"), "Detall": item.get("detail"),
                     } for item in stored_alerts]), use_container_width=True, hide_index=True)
 
             if previous_structures is not None:
@@ -541,6 +544,12 @@ with global_tab:
                         "RSI diari": item["RSI diari"],
                         "RSI 4h": item["RSI 4h"],
                     } for item in detail_rows]
+                    macd_rows = [{
+                        "Actiu": item["Actiu"],
+                        "Histograma diari": item["MACD hist. diari"],
+                        "Histograma 4h": item["MACD hist. 4h"],
+                        "Confirmació RSI + MACD": item["Confirmació RSI + MACD"],
+                    } for item in detail_rows]
                     relative_rows = [{
                         "Actiu": item["Actiu"],
                         "Vs BTC 7d (pp)": item["Força vs BTC 7d (pp)"],
@@ -548,6 +557,8 @@ with global_tab:
                     } for item in detail_rows]
                     st.markdown("**RSI**")
                     st.dataframe(pd.DataFrame(rsi_rows), use_container_width=True, hide_index=True)
+                    st.markdown("**Histograma MACD i confirmació**")
+                    st.dataframe(pd.DataFrame(macd_rows), use_container_width=True, hide_index=True)
                     st.markdown("**Força relativa**")
                     st.dataframe(pd.DataFrame(relative_rows), use_container_width=True, hide_index=True)
                     st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")

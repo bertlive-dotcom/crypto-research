@@ -396,12 +396,23 @@ with global_tab:
             analyses = global_report["analyses"]
             eligible = [row for row in analyses if row["eligible"]]
             rejected = [row for row in analyses if not row["eligible"]]
+            unavailable_items = global_report["provider_unavailable"]
+            preflight_reasons = {
+                "pair_not_listed_on_binance_spot",
+                "pair_not_trading_on_binance_spot",
+                "spot_trading_not_allowed_for_pair",
+                "no_binance_pair_mapping",
+                "spot_listing_check_failed",
+            }
+            preflight_items = [item for item in unavailable_items if item.get("reason") in preflight_reasons]
+            request_failures = [item for item in unavailable_items if item.get("reason") not in preflight_reasons]
+            skipped_symbols = {item.get("symbol") for item in preflight_items if item.get("symbol")}
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Valid series", global_report["eligible_series"])
             c2.metric("Rejected series (data quality)", global_report["rejected_series"])
             c3.metric("Symbols with valid data", len({row["symbol"] for row in eligible}))
-            c4.metric("Unavailable requests (no usable feed)", len(global_report["provider_unavailable"]))
-            st.caption("Rejected series are returned candles that failed data-quality checks. Unavailable requests are pairs or intervals for which Binance returned no usable data; they are not included in the rejected-series count.")
+            c4.metric("Assets skipped at Binance preflight", len(skipped_symbols))
+            st.caption("Rejected series are returned candles that failed data-quality checks. The Binance Spot catalog is checked before candle retrieval; assets missing, inactive, or not allowed for Spot are skipped without requesting candles. Provider request failures are shown separately.")
             st.caption("Data source: {} | Feed timestamp: {}".format(
                 global_report.get("source"), global_report.get("observed_at")))
 
@@ -761,45 +772,52 @@ with global_tab:
                 with st.expander("Sèries descartades per qualitat de dades", expanded=False):
                     st.dataframe(pd.DataFrame(rejected_rows), use_container_width=True, hide_index=True)
 
-            if global_report["provider_unavailable"]:
-                unavailable_rows = []
-                for item in global_report["provider_unavailable"]:
-                    raw_reason = str(item.get("reason", "unknown"))
-                    reason_labels = {
-                        "pair_not_listed_on_binance_spot": "El parell no consta al catàleg actual de Binance Spot",
-                        "pair_not_trading_on_binance_spot": "El parell consta al catàleg, però no està en estat TRADING",
-                        "spot_trading_not_allowed_for_pair": "El parell no permet operativa Spot",
-                        "no_binance_pair_mapping": "No hi ha una equivalència configurada amb Binance",
-                        "spot_listing_check_failed": "No s'ha pogut verificar el catàleg Spot",
-                        "rate_limit": "Límit de consultes de Binance assolit",
-                        "provider_request_failed": "Ha fallat la consulta al proveïdor",
-                        "invalid_provider_response": "Resposta del proveïdor invàlida",
-                        "provider_error": "Error del proveïdor de dades",
-                    }
-                    human_reason = reason_labels.get(raw_reason, raw_reason.replace("_", " ").capitalize())
-                    unavailable_rows.append({
-                        "Actiu": item.get("symbol", item.get("provider_symbol", "—")),
+            if unavailable_items:
+                reason_labels = {
+                    "pair_not_listed_on_binance_spot": "El parell no consta al catàleg actual de Binance Spot",
+                    "pair_not_trading_on_binance_spot": "El parell consta al catàleg, però no està en estat TRADING",
+                    "spot_trading_not_allowed_for_pair": "El parell no permet operativa Spot",
+                    "no_binance_pair_mapping": "No hi ha una equivalència configurada amb Binance",
+                    "spot_listing_check_failed": "No s'ha pogut verificar el catàleg Spot",
+                    "rate_limit": "Límit de consultes de Binance assolit",
+                    "provider_request_failed": "Ha fallat la consulta al proveïdor",
+                    "invalid_provider_response": "Resposta del proveïdor invàlida",
+                    "provider_error": "Error del proveïdor de dades",
+                }
+                if preflight_items:
+                    grouped_preflight = {}
+                    for item in preflight_items:
+                        key = (item.get("symbol", "—"), item.get("provider_symbol", "—"), item.get("reason", "unknown"))
+                        grouped_preflight.setdefault(key, set()).add(item.get("interval", "—"))
+                    preflight_rows = [{
+                        "Actiu": symbol,
+                        "Parell Binance": pair or "—",
+                        "Intervals omesos": ", ".join(sorted(intervals)),
+                        "Motiu": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
+                    } for (symbol, pair, reason), intervals in sorted(grouped_preflight.items())]
+                    with st.expander("Actius omesos després de comprovar el catàleg Binance Spot", expanded=True):
+                        st.dataframe(pd.DataFrame(preflight_rows), use_container_width=True, hide_index=True)
+                        st.caption("Aquests parells s'han descartat abans de demanar espelmes. Cada fila agrupa els intervals afectats per actiu.")
+
+                if request_failures:
+                    failure_rows = [{
+                        "Actiu": item.get("symbol", "—"),
+                        "Parell Binance": item.get("provider_symbol", "—"),
                         "Interval": item.get("interval", "—"),
-                        "Disponibilitat": human_reason,
-                    })
-                st.markdown("#### Dades no disponibles")
-                st.dataframe(pd.DataFrame(unavailable_rows), use_container_width=True, hide_index=True)
-                with st.expander("Detall tècnic dels errors", expanded=False):
-                    st.dataframe(pd.DataFrame([{
-                        "Símbol intern": item.get("symbol"),
-                        "Símbol del proveïdor": item.get("provider_symbol"),
-                        "Interval": item.get("interval"),
-                        "Classificació": item.get("reason"),
-                        "Detall tècnic": item.get("detail", ""),
-                    } for item in global_report["provider_unavailable"]]), use_container_width=True, hide_index=True)
+                        "Motiu": reason_labels.get(item.get("reason"), str(item.get("reason", "unknown")).replace("_", " ").capitalize()),
+                        "Detall": item.get("detail", ""),
+                    } for item in request_failures]
+                    with st.expander("Errors en peticions de dades", expanded=True):
+                        st.dataframe(pd.DataFrame(failure_rows), use_container_width=True, hide_index=True)
+
                 availability_counts = global_report.get("availability_counts", {})
                 if availability_counts:
-                    st.markdown("**Resum de causes**")
-                    st.dataframe(pd.DataFrame([
-                        {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
-                         "Sol·licituds": count}
-                        for reason, count in sorted(availability_counts.items())
-                    ]), use_container_width=True, hide_index=True)
+                    with st.expander("Resum de causes per interval", expanded=False):
+                        st.dataframe(pd.DataFrame([
+                            {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
+                             "Intervals afectats": count}
+                            for reason, count in sorted(availability_counts.items())
+                        ]), use_container_width=True, hide_index=True)
 
             st.caption("La puntuació tècnica és un filtre descriptiu basat en tendència, MACD, mitjanes mòbils i RSI. No representa una probabilitat, rendiment esperat ni recomanació d'inversió. Encara no s'hi inclouen dades fonamentals ni catalitzadors.")
         except Exception as error:

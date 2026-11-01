@@ -73,6 +73,24 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(result["eligible_series"], 1)
         self.assertEqual(result["provider_unavailable"][0]["symbol"], "LEOUSD")
 
+    def test_feed_analysis_builds_alignment_only_with_both_fresh_timeframes(self):
+        daily = self.rows(interval="1d")
+        tactical = self.rows(interval="4h")
+        result = analyze_feed({
+            "source": "binance", "data": daily + tactical, "unavailable": [],
+        }, now=self.now)
+        self.assertEqual(len(result["cross_timeframe"]), 1)
+        alignment = result["cross_timeframe"][0]
+        self.assertEqual(alignment["symbol"], "BTCUSDT")
+        self.assertEqual(alignment["alignment_score"], 100.0)
+        self.assertEqual(alignment["stance"], "bullish_alignment")
+
+    def test_feed_analysis_does_not_infer_alignment_when_interval_missing(self):
+        result = analyze_feed({
+            "source": "binance", "data": self.rows(interval="1d"), "unavailable": [],
+        }, now=self.now)
+        self.assertEqual(result["cross_timeframe"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

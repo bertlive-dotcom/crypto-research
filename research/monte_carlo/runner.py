@@ -80,7 +80,9 @@ def main() -> int:
         ruin_drawdown_pct=args.ruin_drawdown_pct,
         seed=args.seed,
     )
-    Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Saved Monte Carlo research report to {args.output}")
     return 0
 

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
 from scanner.market_scanner import apply_paper_rules, score_candidate, scan_market
+from scanner.store import enrich_candidate_diagnostics
 from trading_desk import new_portfolio
 
 class IndicatorTests(unittest.TestCase):
@@ -59,6 +60,34 @@ class ScannerRuleTests(unittest.TestCase):
             "auto_entry_eligible": score >= 80, "features": features, "reasons": [],
         }
 
+
+    def test_legacy_candidate_rebuilds_diagnostics_from_saved_features(self):
+        row = {
+            "symbol": "SPCXBUSDT", "base_asset": "SPCXB", "price_usdt": 102.0,
+            "score": 65, "eligible": True, "auto_entry_eligible": False,
+            "features": {
+                "1h": {"close": 101.0, "ema20": 100.0, "ema50": 95.0,
+                       "rsi14": 40.0, "macd_hist": -0.1, "atr_pct": 2.0,
+                       "volume_ratio": 0.8, "candle_close_time": 123},
+                "4h": {"close": 110.0, "ema20": 100.0},
+                "1d": {"close": 120.0, "ema20": 100.0},
+            },
+            "reasons": ["1h relative volume below 1.2x"],
+        }
+        result = enrich_candidate_diagnostics(row)
+        self.assertEqual(result["entry_status"], "WATCH")
+        self.assertEqual(result["score_gap_to_auto_entry"], 15)
+        self.assertIn("Volum relatiu 1h inferior a 1,2x", result["hard_gate_failures"])
+        self.assertEqual(result["quality_warnings"], [
+            "MACD 1h no positiu",
+            "RSI 1h fora del rang preferit 48-70",
+        ])
+        self.assertFalse(result["auto_entry_eligible"])
+
+    def test_legacy_candidate_without_features_is_marked_incomplete(self):
+        result = enrich_candidate_diagnostics({"symbol": "OLDUSDT", "score": 50})
+        self.assertEqual(result["entry_status"], "LEGACY_UNAVAILABLE")
+        self.assertIsNone(result["hard_gate_failures"])
 
     def test_scan_market_assigns_one_timestamp_to_entire_cycle(self):
         class FakeClient:

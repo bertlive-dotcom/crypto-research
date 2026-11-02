@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, STARTING_CAPITAL_USD,
+    portfolio_summary, update_position_mark, update_position_from_candle, STARTING_CAPITAL_USD,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
-from global_markets.crypto_feed import CryptoWatchlistFeed
+from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
+from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
@@ -306,19 +307,38 @@ with desk_tab:
         st.warning("Supabase is not configured: this session is temporary and will not provide a durable 30-day journal. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Streamlit Secrets.")
     else:
         st.caption("Persistent paper ledger connected to Supabase.")
-        # Refresh open major-asset positions from the current CoinMarketCap snapshot.
-        for open_position in list(portfolio["open_positions"]):
-            current_price = latest_crypto_prices.get(open_position["asset"].upper())
+    # Runs every 60 seconds; candle extremes detect TP/SL touches between quote updates.
+    candle_client = BinanceMarketDataClient()
+    for open_position in list(portfolio["open_positions"]):
+        asset = open_position["asset"].upper()
+        pair = BINANCE_SPOT_PAIRS.get(asset + "USD")
+        stopped_trade = None
+        market_event = None
+        if pair:
+            try:
+                candle = candle_client.get_klines(pair, interval="1m", limit=2)[-1]
+                candle_stamp = candle["timestamp"]
+                if open_position.get("last_market_candle_timestamp") != candle_stamp:
+                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]))
+                    if not stopped_trade:
+                        open_position["last_market_candle_timestamp"] = candle_stamp
+                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}
+            except (BinanceMarketDataError, ValueError, KeyError, TypeError) as error:
+                st.warning("Binance candle check unavailable for {}: {}. Falling back to latest CMC quote.".format(asset, error))
+        if market_event is None and not stopped_trade:
+            current_price = latest_crypto_prices.get(asset)
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
-                stopped_trade = update_position_mark(portfolio, open_position["asset"], float(current_price))
-                event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": open_position["asset"], "price_usd": float(current_price), "trade": stopped_trade}
-                try:
-                    paper_store.save_state(portfolio, event)
-                    if stopped_trade:
-                        st.warning("Automatic {} triggered by latest CMC price for {}.".format(stopped_trade["exit_reason"].replace("_", " "), open_position["asset"]))
-                except SupabaseStoreError as error:
-                    st.error("Could not persist market update: " + str(error))
-                    st.stop()
+                stopped_trade = update_position_mark(portfolio, asset, float(current_price))
+                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "price_usd": float(current_price), "trade": stopped_trade}
+        if market_event and paper_store:
+            try:
+                paper_store.save_state(portfolio, market_event)
+            except SupabaseStoreError as error:
+                st.error("Could not persist market update: " + str(error))
+                st.stop()
+        if stopped_trade:
+            st.warning("Automatic {} triggered for {} at simulated level.".format(stopped_trade["exit_reason"].replace("_", " "), asset))
+
     summary = portfolio_summary(portfolio)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Virtual equity", "USD {:.2f}".format(summary["equity_usd"]))

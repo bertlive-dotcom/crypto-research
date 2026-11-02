@@ -54,10 +54,36 @@ def score_candidate(ticker: dict, one_hour: dict, four_hour: dict, daily: dict) 
     if not multi_tf: reasons.append("4h and daily trend confirmation missing")
     if not volatility_ok: reasons.append("ATR outside 0.5%-8% range")
     if not not_extended: reasons.append("Price extended more than 4% above 1h EMA20")
+    hard_gate_failures = []
+    if not trend: hard_gate_failures.append("Tendència 1h (preu > EMA20 > EMA50)")
+    if not volume_ok: hard_gate_failures.append("Volum relatiu 1h inferior a 1,2x")
+    if not multi_tf: hard_gate_failures.append("Confirmació de tendència 4h i diària")
+    if not volatility_ok: hard_gate_failures.append("ATR fora del rang 0,5%-8%")
+    if not not_extended: hard_gate_failures.append("Preu més d'un 4% sobre EMA20 1h")
+
+    quality_warnings = []
+    if not momentum: quality_warnings.append("MACD 1h no positiu")
+    if not rsi_ok: quality_warnings.append("RSI 1h fora del rang preferit 48-70")
+
+    auto_entry_eligible = score >= AUTO_ENTRY_SCORE and hard_checks_pass
+    eligible = score >= MIN_SCORE
+    if auto_entry_eligible:
+        entry_status = "READY"
+    elif eligible:
+        entry_status = "WATCH"
+    elif score >= max(0, MIN_SCORE - 15):
+        entry_status = "NEAR_MISS"
+    else:
+        entry_status = "FILTERED"
+
     return {
-        **ticker, "score": score, "score_components": parts, "eligible": score >= MIN_SCORE,
-        "auto_entry_eligible": score >= AUTO_ENTRY_SCORE and hard_checks_pass,
+        **ticker, "score": score, "score_components": parts, "eligible": eligible,
+        "auto_entry_eligible": auto_entry_eligible,
         "hard_checks_pass": hard_checks_pass,
+        "entry_status": entry_status,
+        "score_gap_to_auto_entry": max(0, AUTO_ENTRY_SCORE - score),
+        "hard_gate_failures": hard_gate_failures,
+        "quality_warnings": quality_warnings,
         "features": {"1h": one_hour, "4h": four_hour, "1d": daily},
         "reasons": reasons, "scanned_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -28,6 +28,10 @@ class ScannerRuleTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 80)
         self.assertTrue(result["hard_checks_pass"])
         self.assertTrue(result["auto_entry_eligible"])
+        self.assertEqual(result["entry_status"], "READY")
+        self.assertEqual(result["score_gap_to_auto_entry"], 0)
+        self.assertIn("MACD 1h no positiu", result["quality_warnings"])
+        self.assertIn("RSI 1h fora del rang preferit 48-70", result["quality_warnings"])
 
     def test_score_does_not_override_failed_hard_gate(self):
         ticker = {"symbol": "BTCUSDT", "base_asset": "BTC", "price_usdt": 106.0,
@@ -41,6 +45,8 @@ class ScannerRuleTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 80)
         self.assertFalse(result["hard_checks_pass"])
         self.assertFalse(result["auto_entry_eligible"])
+        self.assertEqual(result["entry_status"], "WATCH")
+        self.assertIn("Preu més d'un 4% sobre EMA20 1h", result["hard_gate_failures"])
 
     def candidate(self, symbol="BTCUSDT", score=85):
         features = {

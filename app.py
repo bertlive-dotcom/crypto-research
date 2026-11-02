@@ -1216,6 +1216,7 @@ with scanner_tab:
                         "WATCH": "VIGILÀNCIA",
                         "NEAR_MISS": "A PROP",
                         "FILTERED": "DESCARTAT",
+                        "LEGACY_UNAVAILABLE": "DADES INCOMPLETES",
                     }
                     display_rows.append({
                         "Estat": status_labels.get(row.get("entry_status"), "ANTIC"),

@@ -12,11 +12,33 @@ from trading_desk import (
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
-from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError, last_closed_candle
+from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+
+
+
+def last_closed_candle(candles, now=None):
+    """Return the newest fully closed candle, never the still-forming interval."""
+    reference_time = now or datetime.now(timezone.utc)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=timezone.utc)
+    closed = []
+    for candle in candles:
+        raw_close_time = candle.get("close_timestamp")
+        if not raw_close_time:
+            continue
+        try:
+            close_time = datetime.fromisoformat(str(raw_close_time).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        if close_time <= reference_time:
+            closed.append((close_time, candle))
+    return max(closed, key=lambda item: item[0])[1] if closed else None
 
 st.set_page_config(page_title="Crypto & Equities", layout="wide")
 st.title("Crypto & Equities Dashboard")

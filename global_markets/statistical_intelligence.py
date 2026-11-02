@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from math import isfinite
+from statistics import median
 from typing import Any, Iterable
 
 
@@ -67,10 +68,89 @@ def _summarize(events: list[dict], horizons: tuple[int, ...], min_sample: int) -
         result["horizons"][str(horizon)] = {
             "observations": count,
             "mean_forward_return_pct": round(sum(values) / count, 3) if count else None,
-            "median_forward_return_pct": round(sorted(values)[count // 2], 3) if count else None,
+            "median_forward_return_pct": round(median(values), 3) if count else None,
             "positive_outcome_pct": round(sum(value > 0 for value in values) / count * 100, 1) if count else None,
             "sample_status": "usable_for_exploration" if count >= min_sample else "small_sample",
         }
+    return result
+
+
+def _market_regimes(candles: list[dict]) -> list[str | None]:
+    """Classify each candle using only information available at that close.
+
+    Bullish/bearish regimes require price relative to its 50-day SMA and the
+    SMA direction versus 10 candles earlier. Earlier history is left unclassified.
+    """
+    closes = [candle["close"] for candle in candles]
+    regimes: list[str | None] = [None] * len(candles)
+    for index in range(59, len(candles)):
+        sma_now = sum(closes[index - 49:index + 1]) / 50
+        sma_previous = sum(closes[index - 59:index - 9]) / 50
+        price = closes[index]
+        if price > sma_now and sma_now > sma_previous:
+            regimes[index] = "bullish"
+        elif price < sma_now and sma_now < sma_previous:
+            regimes[index] = "bearish"
+        else:
+            regimes[index] = "sideways_or_transition"
+    return regimes
+
+
+def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
+                       horizons: tuple[int, ...], min_sample: int) -> dict:
+    """Compare each pattern with unconditional returns in the same regime."""
+    regimes = _market_regimes(candles)
+    result: dict[str, dict] = {}
+    for pattern, occurrences in events.items():
+        by_regime: dict[str, list[dict]] = {}
+        for event in occurrences:
+            index = event["index"]
+            regime = regimes[index]
+            if regime is None:
+                continue
+            direction = event["direction"]
+            entry = candles[index]["close"]
+            outcomes = {}
+            baselines = {}
+            for horizon in horizons:
+                target = index + horizon
+                if target < len(candles):
+                    raw = (candles[target]["close"] / entry - 1) * 100
+                    outcomes[str(horizon)] = raw * direction if direction else raw
+                else:
+                    outcomes[str(horizon)] = None
+            by_regime.setdefault(regime, []).append({"outcomes": outcomes})
+        for regime in ("bullish", "bearish", "sideways_or_transition"):
+            by_regime.setdefault(regime, [])
+        result[pattern] = {}
+        for regime, observations in by_regime.items():
+            metrics = {}
+            for horizon in horizons:
+                key = str(horizon)
+                event_values = [o["outcomes"][key] for o in observations if o["outcomes"][key] is not None]
+                # Matched baseline: every eligible candle in this regime, with the
+                # same directional convention as the pattern being evaluated.
+                baseline_values = []
+                direction = 0
+                pattern_events = [e for e in occurrences if regimes[e["index"]] == regime]
+                if pattern_events:
+                    direction = pattern_events[0]["direction"]
+                for index, candle_regime in enumerate(regimes):
+                    target = index + int(horizon)
+                    if candle_regime == regime and target < len(candles):
+                        raw = (candles[target]["close"] / candles[index]["close"] - 1) * 100
+                        baseline_values.append(raw * direction if direction else raw)
+                n = len(event_values)
+                event_mean = sum(event_values) / n if n else None
+                baseline_mean = sum(baseline_values) / len(baseline_values) if baseline_values else None
+                metrics[key] = {
+                    "observations": n,
+                    "event_mean_return_pct": round(event_mean, 3) if event_mean is not None else None,
+                    "matched_baseline_mean_return_pct": round(baseline_mean, 3) if baseline_mean is not None else None,
+                    "excess_vs_baseline_pct_points": round(event_mean - baseline_mean, 3) if event_mean is not None and baseline_mean is not None else None,
+                    "sample_status": "usable_for_exploration" if n >= min_sample else "small_sample",
+                }
+            result[pattern][regime] = metrics
     return result
 
 
@@ -152,6 +232,7 @@ def analyze_pattern_history(
         "minimum_sample": min_sample,
         "horizons_candles": list(horizons),
         "patterns": details,
+        "regime_analysis": _regime_comparison(candles, events, horizons, min_sample),
         "limitations": [
             "Descriptive historical statistics, not predictive probabilities.",
             "Close-to-close outcomes do not model executable entries, fees, slippage, stops or take-profits.",

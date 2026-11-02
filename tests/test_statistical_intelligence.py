@@ -43,6 +43,15 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         })
         self.assertIn("limitations", report)
         self.assertIn("volatility_regime_analysis", report)
+        self.assertEqual(
+            set(report["combined_regime_analysis"]["inside_bar"]),
+            {
+                "bullish_high_volatility", "bullish_low_volatility",
+                "bearish_high_volatility", "bearish_low_volatility",
+                "sideways_or_transition_high_volatility",
+                "sideways_or_transition_low_volatility",
+            },
+        )
 
     def test_direction_adjusted_breakout_return_is_positive_in_uptrend(self):
         rows = self.rows()
@@ -75,6 +84,17 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         self.assertIsNone(labels[199])
         self.assertIn(labels[200], ("high_volatility", "low_volatility"))
         self.assertEqual(len(labels), 300)
+
+    def test_combined_regime_comparison_uses_matched_six_scenario_matrix(self):
+        rows = self.rows(count=300)
+        for row in rows:
+            row["high"] = row["close"] + 0.05
+        report = analyze_pattern_history(rows, now=self.now, min_sample=1)
+        matrix = report["combined_regime_analysis"]["prior_day_range_breakout_up"]
+        self.assertEqual(len(matrix), 6)
+        populated = [cell for cell in matrix.values() if cell["1"]["observations"] > 0]
+        self.assertTrue(populated)
+        self.assertTrue(all(cell["1"]["matched_baseline_mean_return_pct"] is not None for cell in populated))
 
     def test_even_sample_median_is_average_of_middle_values(self):
         from global_markets.statistical_intelligence import _summarize

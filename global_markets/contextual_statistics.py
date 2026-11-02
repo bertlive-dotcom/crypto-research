@@ -95,7 +95,7 @@ def _regimes(candles, vol_window=20, vol_reference=180):
     return trend, volatility, combined
 
 
-def _metric(values, baseline):
+def _metric(values, baseline, min_sample=30):
     n = len(values)
     return {
         "observations": n,
@@ -105,7 +105,7 @@ def _metric(values, baseline):
         "matched_baseline_mean_pct": round(sum(baseline)/len(baseline), 4) if baseline else None,
         "excess_vs_baseline_pct_points": round(sum(values)/n-sum(baseline)/len(baseline), 4)
             if n and baseline else None,
-        "sample_status": "usable_for_exploration" if n >= 30 else "small_sample",
+        "sample_status": "usable_for_exploration" if n >= min_sample else "small_sample",
     }
 
 
@@ -169,10 +169,10 @@ def analyze_context(rows, symbol=None, now=None, horizons=HORIZONS, min_sample=3
                         for i in items
                     ]
                 bucket_result[str(horizon)] = {
-                    "all": _metric(vals(eligible), vals(range(0, len(candles)-horizon))),
-                    "exploration": _metric(vals([i for i in eligible if i < split and i+horizon < split]), vals(all_explore)),
-                    "holdout": _metric(vals([i for i in eligible if i >= split]), vals(all_holdout)),
+                    "all": _metric(vals(eligible), vals(range(0, len(candles)-horizon)), min_sample),
+                    "exploration": _metric(vals([i for i in eligible if i < split and i+horizon < split]), vals(all_explore), min_sample),
+                    "holdout": _metric(vals([i for i in eligible if i >= split]), vals(all_holdout), min_sample),
                 }
-            dimension_result[label] = dimension_result if False else bucket_result
+            dimension_result[label] = bucket_result
         report["dimensions"][dimension] = dimension_result
     return report

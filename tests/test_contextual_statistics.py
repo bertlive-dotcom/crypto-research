@@ -39,7 +39,7 @@ class ContextualStatisticsTests(unittest.TestCase):
             "volatility_regime", "combined_regime",
         })
         self.assertIn("holdout", report["dimensions"]["utc_hour"]["00:00"]["1"])
-        self.assertIn("matched_baseline_mean_pct",
+        self.assertIn("unconditional_baseline_mean_pct",
                       report["dimensions"]["utc_hour"]["00:00"]["1"]["holdout"])
 
     def test_custom_minimum_sample_is_respected(self):

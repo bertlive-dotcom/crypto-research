@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 STARTING_CAPITAL_USD = 80.0
 MAX_TOP10_HOLDER_PCT = 40.0
@@ -104,6 +105,38 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}
 
+
+def ensure_position_ids(portfolio: dict) -> bool:
+    """Assign stable IDs to legacy open positions; return whether state changed."""
+    changed = False
+    seen = set()
+    for position in portfolio.get("open_positions", []):
+        position_id = str(position.get("position_id") or "").strip()
+        if not position_id or position_id in seen:
+            position_id = str(uuid4())
+            position["position_id"] = position_id
+            changed = True
+        seen.add(position_id)
+    return changed
+
+
+def _find_open_position(portfolio: dict, asset: str, position_id: Optional[str] = None):
+    """Resolve a position exactly; never silently select among duplicate assets."""
+    matches = [
+        (index, position) for index, position in enumerate(portfolio.get("open_positions", []))
+        if position.get("asset", "").upper() == asset.upper()
+    ]
+    if position_id is not None:
+        matches = [(i, p) for i, p in matches if str(p.get("position_id", "")) == str(position_id)]
+        if not matches:
+            raise ValueError(f"No open paper position {position_id} for {asset}.")
+        return matches[0]
+    if not matches:
+        raise ValueError(f"No open paper position for {asset}.")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple open positions for {asset}; position_id is required.")
+    return matches[0]
+
 def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_profit_pct: float = 20.0, direction: str = "long",
                 fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
     """Open a paper position only. No live order is ever sent."""
@@ -125,6 +158,7 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
     if notional + entry_fee > portfolio["cash"]:
         raise ValueError("Insufficient virtual cash.")
     position = {
+        "position_id": str(uuid4()),
         "asset": signal.asset, "market": signal.market, "direction": direction,
         "entry_reference_price": signal.price_usd, "entry_fill_price": fill_price,
         "quantity": quantity, "notional_usd": notional, "entry_fee_usd": entry_fee,
@@ -151,12 +185,11 @@ def mark_position(position: dict, price_usd: float, fee_rate: float = DEFAULT_FE
     return {"mark_price_usd": price_usd, "estimated_exit_fill_usd": exit_fill, "unrealized_pnl_usd": pnl}
 
 def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "manual",
-               fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
-    """Close a paper position using conservative slippage and fees."""
-    idx = next((i for i, p in enumerate(portfolio["open_positions"]) if p["asset"].upper() == asset.upper()), None)
-    if idx is None:
-        raise ValueError(f"No open paper position for {asset}.")
-    position = portfolio["open_positions"].pop(idx)
+               fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE,
+               position_id: Optional[str] = None) -> dict:
+    """Close one exact paper position using conservative slippage and fees."""
+    idx, position = _find_open_position(portfolio, asset, position_id)
+    portfolio["open_positions"].pop(idx)
     is_short = position.get("direction", "long") == "short"
     exit_fill = price_usd * (1.0 + slippage_rate if is_short else 1.0 - slippage_rate)
     proceeds = position["quantity"] * exit_fill
@@ -185,11 +218,10 @@ def portfolio_summary(portfolio: dict) -> dict:
     }
 
 
-def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optional[dict]:
-    """Update a paper mark and simulate stop/take-profit exits, including legacy positions."""
-    position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
-    if position is None:
-        raise ValueError(f"No open paper position for {asset}.")
+def update_position_mark(portfolio: dict, asset: str, price_usd: float,
+                         position_id: Optional[str] = None) -> Optional[dict]:
+    """Update one exact paper position and simulate stop/take-profit exits."""
+    _, position = _find_open_position(portfolio, asset, position_id)
     if price_usd <= 0:
         raise ValueError("Mark price must be greater than zero.")
 
@@ -213,19 +245,19 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     stop_hit = price_usd >= position["stop_price"] if is_short else price_usd <= position["stop_price"]
     take_profit_hit = price_usd <= position["take_profit_price"] if is_short else price_usd >= position["take_profit_price"]
     if stop_hit:
-        return paper_exit(portfolio, asset, price_usd, reason="stop_loss")
+        return paper_exit(portfolio, asset, price_usd, reason="stop_loss", position_id=position.get("position_id"))
     if take_profit_hit:
-        return paper_exit(portfolio, asset, price_usd, reason="take_profit")
+        return paper_exit(portfolio, asset, price_usd, reason="take_profit", position_id=position.get("position_id"))
     return None
 
 
-def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float, close: Optional[float] = None) -> Optional[dict]:
-    """Trigger exits from candle extremes; stop wins if both levels are crossed."""
+def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float,
+                                close: Optional[float] = None,
+                                position_id: Optional[str] = None) -> Optional[dict]:
+    """Check candle extremes against one exact position; stop wins if both levels cross."""
     if high <= 0 or low <= 0 or high < low:
         raise ValueError("Invalid candle high/low.")
-    position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
-    if position is None:
-        raise ValueError(f"No open paper position for {asset}.")
+    _, position = _find_open_position(portfolio, asset, position_id)
     if close is not None:
         if close <= 0:
             raise ValueError("Candle close must be positive.")
@@ -234,7 +266,7 @@ def update_position_from_candle(portfolio: dict, asset: str, high: float, low: f
     stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
     tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
     if stop_hit:
-        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss")
+        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss", position_id=position.get("position_id"))
     if tp_hit:
-        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit")
+        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit", position_id=position.get("position_id"))
     return None

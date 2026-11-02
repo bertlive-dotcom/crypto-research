@@ -119,9 +119,20 @@ def _volatility_regimes(candles: list[dict], *, window: int = 20,
             labels[index] = "high_volatility" if current > median(history) else "low_volatility"
     return labels
 
+def _combined_regimes(candles: list[dict]) -> list[str | None]:
+    """Combine trend and volatility labels; unavailable inputs stay unclassified."""
+    trends = _market_regimes(candles)
+    volatility = _volatility_regimes(candles)
+    return [
+        f"{trend}_{vol}" if trend is not None and vol is not None else None
+        for trend, vol in zip(trends, volatility)
+    ]
+
+
 def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
                        horizons: tuple[int, ...], min_sample: int,
-                       regime_labels: list[str | None] | None = None) -> dict:
+                       regime_labels: list[str | None] | None = None,
+                       expected_regimes: tuple[str, ...] | None = None) -> dict:
     """Compare each pattern with unconditional returns in the same regime."""
     regimes = regime_labels if regime_labels is not None else _market_regimes(candles)
     result: dict[str, dict] = {}
@@ -144,10 +155,11 @@ def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
                 else:
                     outcomes[str(horizon)] = None
             by_regime.setdefault(regime, []).append({"outcomes": outcomes})
-        expected_regimes = ("high_volatility", "low_volatility") if regime_labels is not None else (
-            "bullish", "bearish", "sideways_or_transition"
+        regimes_to_report = expected_regimes or (
+            ("high_volatility", "low_volatility") if regime_labels is not None else
+            ("bullish", "bearish", "sideways_or_transition")
         )
-        for regime in expected_regimes:
+        for regime in regimes_to_report:
             by_regime.setdefault(regime, [])
         result[pattern] = {}
         for regime, observations in by_regime.items():
@@ -263,6 +275,16 @@ def analyze_pattern_history(
         "volatility_regime_analysis": _regime_comparison(
             candles, events, horizons, min_sample, regime_labels=_volatility_regimes(candles)
         ),
+        "combined_regime_analysis": _regime_comparison(
+            candles, events, horizons, min_sample,
+            regime_labels=_combined_regimes(candles),
+            expected_regimes=(
+                "bullish_high_volatility", "bullish_low_volatility",
+                "bearish_high_volatility", "bearish_low_volatility",
+                "sideways_or_transition_high_volatility",
+                "sideways_or_transition_low_volatility",
+            ),
+        ),
         "limitations": [
             "Descriptive historical statistics, not predictive probabilities.",
             "Close-to-close outcomes do not model executable entries, fees, slippage, stops or take-profits.",
@@ -271,5 +293,6 @@ def analyze_pattern_history(
             "Small samples must not be used as an entry filter.",
             "Volatility labels require 20 daily returns and 180 prior volatility observations; earlier candles remain unclassified.",
             "High/low volatility is relative to the trailing historical median, not an absolute threshold.",
+            "Combined trend/volatility cells require both regime labels; early warm-up candles are excluded.",
         ],
     }

@@ -193,6 +193,77 @@ def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
     return result
 
 
+def _chronological_validation(
+    candles: list[dict], events: dict[str, list[dict]],
+    horizons: tuple[int, ...], min_sample: int,
+) -> dict:
+    """Evaluate the later 30% of history separately from the earlier 70%."""
+    split_index = int(len(candles) * 0.70)
+    trend = _market_regimes(candles)
+    volatility = _volatility_regimes(candles)
+    combined = _combined_regimes(candles)
+    split_date = candles[split_index]["_close_time"].date().isoformat() if candles else None
+    result: dict[str, Any] = {
+        "method": "chronological_holdout",
+        "exploration_fraction": 0.70,
+        "holdout_fraction": 0.30,
+        "holdout_start_date": split_date,
+        "holdout_candles": max(0, len(candles) - split_index),
+        "patterns": {},
+        "limitations": [
+            "Single chronological holdout; results remain exploratory and may be regime-dependent.",
+            "Holdout events are counted only when the full forward horizon remains inside available history.",
+            "This is not a formal significance test and does not correct for multiple pattern/horizon comparisons.",
+        ],
+    }
+    regime_names = (
+        "bullish_high_volatility", "bullish_low_volatility",
+        "bearish_high_volatility", "bearish_low_volatility",
+        "sideways_or_transition_high_volatility",
+        "sideways_or_transition_low_volatility",
+    )
+    for pattern, occurrences in events.items():
+        pattern_result: dict[str, Any] = {}
+        for regime in regime_names:
+            pattern_events = [
+                event for event in occurrences
+                if event["index"] >= split_index
+                and combined[event["index"]] == regime
+            ]
+            cell: dict[str, Any] = {}
+            for horizon in horizons:
+                eligible = [
+                    event for event in pattern_events
+                    if event["index"] + horizon < len(candles)
+                ]
+                event_returns = []
+                for event in eligible:
+                    index = event["index"]
+                    raw = (candles[index + horizon]["close"] / candles[index]["close"] - 1) * 100
+                    event_returns.append(raw * event["direction"] if event["direction"] else raw)
+                baseline_returns = []
+                direction = pattern_events[0]["direction"] if pattern_events else 0
+                for index in range(split_index, len(candles) - horizon):
+                    if combined[index] == regime:
+                        raw = (candles[index + horizon]["close"] / candles[index]["close"] - 1) * 100
+                        baseline_returns.append(raw * direction if direction else raw)
+                n = len(event_returns)
+                event_mean = sum(event_returns) / n if n else None
+                baseline_mean = sum(baseline_returns) / len(baseline_returns) if baseline_returns else None
+                cell[str(horizon)] = {
+                    "observations": n,
+                    "event_mean_return_pct": round(event_mean, 3) if event_mean is not None else None,
+                    "matched_baseline_observations": len(baseline_returns),
+                    "matched_baseline_mean_return_pct": round(baseline_mean, 3) if baseline_mean is not None else None,
+                    "excess_vs_baseline_pct_points": round(event_mean - baseline_mean, 3)
+                    if event_mean is not None and baseline_mean is not None else None,
+                    "sample_status": "usable_for_exploration" if n >= min_sample else "small_sample",
+                }
+            pattern_result[regime] = cell
+        result["patterns"][pattern] = pattern_result
+    return result
+
+
 def analyze_pattern_history(
     rows: Iterable[dict],
     *,
@@ -237,6 +308,9 @@ def analyze_pattern_history(
             events["prior_day_range_breakout_down"].append({"index": index, "direction": -1})
 
     details = {}
+    trend_labels = _market_regimes(candles)
+    volatility_labels = _volatility_regimes(candles)
+    combined_labels = _combined_regimes(candles)
     for pattern, occurrences in events.items():
         enriched = []
         for event in occurrences:
@@ -253,6 +327,9 @@ def analyze_pattern_history(
             enriched.append({
                 "date": candles[index].get("date") or candles[index]["_close_time"].date().isoformat(),
                 "direction": "long" if direction > 0 else "short" if direction < 0 else "not_directional",
+                "trend_regime": trend_labels[index],
+                "volatility_regime": volatility_labels[index],
+                "combined_regime": combined_labels[index],
                 "forward_returns_pct": forward,
             })
         details[pattern] = {
@@ -277,13 +354,16 @@ def analyze_pattern_history(
         ),
         "combined_regime_analysis": _regime_comparison(
             candles, events, horizons, min_sample,
-            regime_labels=_combined_regimes(candles),
+            regime_labels=combined_labels,
             expected_regimes=(
                 "bullish_high_volatility", "bullish_low_volatility",
                 "bearish_high_volatility", "bearish_low_volatility",
                 "sideways_or_transition_high_volatility",
                 "sideways_or_transition_low_volatility",
             ),
+        ),
+        "chronological_validation": _chronological_validation(
+            candles, events, horizons, min_sample
         ),
         "limitations": [
             "Descriptive historical statistics, not predictive probabilities.",

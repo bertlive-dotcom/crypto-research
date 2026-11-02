@@ -21,7 +21,7 @@ class ScannerRuleTests(unittest.TestCase):
         ticker = {"symbol": "BTCUSDT", "base_asset": "BTC", "price_usdt": 102.0,
                   "quote_volume_24h": 20_000_000, "change_24h_pct": 1.0}
         one_hour = {"close": 101.0, "ema20": 100.0, "ema50": 95.0,
-                    "rsi14": 50.0, "macd_hist": -0.1, "atr_pct": 2.0,
+                    "rsi14": 40.0, "macd_hist": -0.1, "atr_pct": 2.0,
                     "volume_ratio": 1.5, "candle_close_time": 123}
         four_hour = {"close": 110.0, "ema20": 100.0}
         daily = {"close": 120.0, "ema20": 100.0}
@@ -67,7 +67,7 @@ class ScannerRuleTests(unittest.TestCase):
             "score": 70, "eligible": True, "auto_entry_eligible": False,
             "features": {
                 "1h": {"close": 101.0, "ema20": 100.0, "ema50": 95.0,
-                       "rsi14": 40.0, "macd_hist": -0.1, "atr_pct": 2.0,
+                       "rsi14": 50.0, "macd_hist": -0.1, "atr_pct": 2.0,
                        "volume_ratio": 0.8, "candle_close_time": 123},
                 "4h": {"close": 110.0, "ema20": 100.0},
                 "1d": {"close": 120.0, "ema20": 100.0},

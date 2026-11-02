@@ -96,10 +96,34 @@ def _market_regimes(candles: list[dict]) -> list[str | None]:
     return regimes
 
 
+
+def _volatility_regimes(candles: list[dict], *, window: int = 20,
+                        reference_window: int = 180) -> list[str | None]:
+    """Classify realized volatility against a trailing historical median."""
+    from math import log, sqrt
+    closes = [candle["close"] for candle in candles]
+    returns: list[float | None] = [None]
+    for index in range(1, len(closes)):
+        returns.append(log(closes[index] / closes[index - 1]))
+    rolling: list[float | None] = [None] * len(candles)
+    for index in range(window, len(candles)):
+        values = returns[index - window + 1:index + 1]
+        if len(values) == window:
+            mean = sum(values) / window
+            variance = sum((value - mean) ** 2 for value in values) / (window - 1)
+            rolling[index] = sqrt(variance) * sqrt(365) * 100
+    labels: list[str | None] = [None] * len(candles)
+    for index, current in enumerate(rolling):
+        history = [v for v in rolling[max(0, index-reference_window):index] if v is not None]
+        if current is not None and len(history) == reference_window:
+            labels[index] = "high_volatility" if current > median(history) else "low_volatility"
+    return labels
+
 def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
-                       horizons: tuple[int, ...], min_sample: int) -> dict:
+                       horizons: tuple[int, ...], min_sample: int,
+                       regime_labels: list[str | None] | None = None) -> dict:
     """Compare each pattern with unconditional returns in the same regime."""
-    regimes = _market_regimes(candles)
+    regimes = regime_labels if regime_labels is not None else _market_regimes(candles)
     result: dict[str, dict] = {}
     for pattern, occurrences in events.items():
         by_regime: dict[str, list[dict]] = {}
@@ -120,7 +144,10 @@ def _regime_comparison(candles: list[dict], events: dict[str, list[dict]],
                 else:
                     outcomes[str(horizon)] = None
             by_regime.setdefault(regime, []).append({"outcomes": outcomes})
-        for regime in ("bullish", "bearish", "sideways_or_transition"):
+        expected_regimes = ("high_volatility", "low_volatility") if regime_labels is not None else (
+            "bullish", "bearish", "sideways_or_transition"
+        )
+        for regime in expected_regimes:
             by_regime.setdefault(regime, [])
         result[pattern] = {}
         for regime, observations in by_regime.items():
@@ -233,11 +260,16 @@ def analyze_pattern_history(
         "horizons_candles": list(horizons),
         "patterns": details,
         "regime_analysis": _regime_comparison(candles, events, horizons, min_sample),
+        "volatility_regime_analysis": _regime_comparison(
+            candles, events, horizons, min_sample, regime_labels=_volatility_regimes(candles)
+        ),
         "limitations": [
             "Descriptive historical statistics, not predictive probabilities.",
             "Close-to-close outcomes do not model executable entries, fees, slippage, stops or take-profits.",
             "Overlapping pattern events are retained and are not statistically independent.",
             "Daily candles do not capture intraday session behaviour.",
             "Small samples must not be used as an entry filter.",
+            "Volatility labels require 20 daily returns and 180 prior volatility observations; earlier candles remain unclassified.",
+            "High/low volatility is relative to the trailing historical median, not an absolute threshold.",
         ],
     }

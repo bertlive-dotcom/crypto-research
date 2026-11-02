@@ -102,8 +102,8 @@ def _metric(values, baseline, min_sample=30):
         "mean_forward_return_pct": round(sum(values)/n, 4) if n else None,
         "median_forward_return_pct": round(median(values), 4) if n else None,
         "positive_outcome_pct": round(sum(v > 0 for v in values)/n*100, 2) if n else None,
-        "matched_baseline_mean_pct": round(sum(baseline)/len(baseline), 4) if baseline else None,
-        "excess_vs_baseline_pct_points": round(sum(values)/n-sum(baseline)/len(baseline), 4)
+        "unconditional_baseline_mean_pct": round(sum(baseline)/len(baseline), 4) if baseline else None,
+        "excess_vs_unconditional_baseline_pct_points": round(sum(values)/n-sum(baseline)/len(baseline), 4)
             if n and baseline else None,
         "sample_status": "usable_for_exploration" if n >= min_sample else "small_sample",
     }

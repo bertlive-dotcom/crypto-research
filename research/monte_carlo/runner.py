@@ -28,6 +28,7 @@ def build_report(source: dict, *, simulations: int = 10_000,
             if len(r_values) < 10:
                 result["sample"][segment] = {
                     "status": "insufficient_sample",
+                    "sample_trades": len(r_values),
                     "trades": len(r_values),
                     "minimum_for_simulation": 10,
                 }

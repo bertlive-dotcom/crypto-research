@@ -12,7 +12,7 @@ from trading_desk import (
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
 from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
-from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
+from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError, last_closed_candle
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
@@ -322,9 +322,11 @@ with desk_tab:
         market_event = None
         if pair:
             try:
-                candle = candle_client.get_klines(pair, interval="1m", limit=2)[-1]
-                candle_stamp = candle["timestamp"]
-                if open_position.get("last_market_candle_timestamp") != candle_stamp:
+                candles = candle_client.get_klines(pair, interval="1m", limit=2)
+                candle = last_closed_candle(candles)
+                if candle is not None:
+                    candle_stamp = candle["timestamp"]
+                if candle is not None and open_position.get("last_market_candle_timestamp") != candle_stamp:
                     stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]), position_id=open_position["position_id"])
                     if not stopped_trade:
                         open_position["last_market_candle_timestamp"] = candle_stamp

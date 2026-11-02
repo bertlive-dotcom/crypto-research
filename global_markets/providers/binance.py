@@ -110,3 +110,24 @@ class BinanceMarketDataClient:
         if not rows:
             raise BinanceMarketDataError("Binance returned no kline observations")
         return rows
+
+
+def last_closed_candle(candles: list[dict[str, Any]], *, now: datetime | None = None) -> dict[str, Any] | None:
+    """Return the newest fully closed candle, never the still-forming interval."""
+    reference_time = now or datetime.now(timezone.utc)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=timezone.utc)
+    closed = []
+    for candle in candles:
+        raw_close_time = candle.get("close_timestamp")
+        if not raw_close_time:
+            continue
+        try:
+            close_time = datetime.fromisoformat(str(raw_close_time).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        if close_time <= reference_time:
+            closed.append((close_time, candle))
+    return max(closed, key=lambda item: item[0])[1] if closed else None

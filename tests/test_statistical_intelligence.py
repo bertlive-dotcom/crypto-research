@@ -57,6 +57,25 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         pattern = report["patterns"]["prior_day_range_breakout_up"]
         self.assertEqual(pattern["horizons"]["1"]["sample_status"], "small_sample")
 
+    def test_regime_analysis_includes_matched_baseline(self):
+        rows = self.rows()
+        for row in rows:
+            row["high"] = row["close"] + 0.05
+        report = analyze_pattern_history(rows, now=self.now, min_sample=1)
+        breakout = report["regime_analysis"]["prior_day_range_breakout_up"]["bullish"]["1"]
+        self.assertGreater(breakout["observations"], 0)
+        self.assertIsNotNone(breakout["matched_baseline_mean_return_pct"])
+        self.assertIsNotNone(breakout["excess_vs_baseline_pct_points"])
+
+    def test_even_sample_median_is_average_of_middle_values(self):
+        from global_markets.statistical_intelligence import _summarize
+        events = [
+            {"forward_returns_pct": {"1": value}}
+            for value in (1.0, 2.0, 3.0, 4.0)
+        ]
+        summary = _summarize(events, (1,), 1)
+        self.assertEqual(summary["horizons"]["1"]["median_forward_return_pct"], 2.5)
+
     def test_invalid_horizon_is_rejected(self):
         with self.assertRaises(ValueError):
             analyze_pattern_history(self.rows(), now=self.now, horizons=(0,))

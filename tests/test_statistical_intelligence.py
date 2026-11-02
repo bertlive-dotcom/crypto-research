@@ -42,6 +42,7 @@ class StatisticalIntelligenceTests(unittest.TestCase):
             "prior_day_range_breakout_up", "prior_day_range_breakout_down",
         })
         self.assertIn("limitations", report)
+        self.assertIn("volatility_regime_analysis", report)
 
     def test_direction_adjusted_breakout_return_is_positive_in_uptrend(self):
         rows = self.rows()
@@ -66,6 +67,14 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         self.assertGreater(breakout["observations"], 0)
         self.assertIsNotNone(breakout["matched_baseline_mean_return_pct"])
         self.assertIsNotNone(breakout["excess_vs_baseline_pct_points"])
+
+    def test_volatility_regimes_use_trailing_history_only(self):
+        from global_markets.statistical_intelligence import _volatility_regimes
+        rows = self.rows(count=300)
+        labels = _volatility_regimes(rows)
+        self.assertIsNone(labels[199])
+        self.assertIn(labels[200], ("high_volatility", "low_volatility"))
+        self.assertEqual(len(labels), 300)
 
     def test_even_sample_median_is_average_of_middle_values(self):
         from global_markets.statistical_intelligence import _summarize

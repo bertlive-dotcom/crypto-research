@@ -68,7 +68,7 @@ class BinanceMarketDataClientTests(unittest.TestCase):
 
         self.assertEqual(len(result), 1500)
         self.assertEqual(result[0]["date"], "2020-01-01")
-        self.assertEqual(result[-1]["date"], "2024-02-09")
+        self.assertEqual(result[-1]["date"], "2024-02-08")
         self.assertEqual(mocked.call_count, 2)
         self.assertIsNone(mocked.call_args_list[0].kwargs["end_time_ms"])
         self.assertIsNotNone(mocked.call_args_list[1].kwargs["end_time_ms"])

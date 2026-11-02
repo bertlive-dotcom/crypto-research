@@ -96,6 +96,47 @@ class TradingDeskTests(unittest.TestCase):
         trade = update_position_from_candle(p, "TEST", pos["take_profit_price"] * 1.01, pos["stop_price"] * 0.99)
         self.assertEqual(trade["exit_reason"], "stop_loss")
 
+    def test_duplicate_asset_positions_are_managed_by_unique_id(self):
+        p = new_portfolio(80)
+        first = paper_entry(p, self.valid_solana(), stop_loss_pct=1, take_profit_pct=1, direction="long")
+        second = paper_entry(p, self.valid_solana(), stop_loss_pct=3, take_profit_pct=20, direction="short")
+        self.assertNotEqual(first["position_id"], second["position_id"])
+        with self.assertRaisesRegex(ValueError, "position_id is required"):
+            update_position_mark(p, "TEST", first["stop_price"] * 0.99)
+        trade = update_position_mark(
+            p, "TEST", first["take_profit_price"] * 1.01,
+            position_id=first["position_id"],
+        )
+        self.assertEqual(trade["position_id"], first["position_id"])
+        self.assertEqual(trade["exit_reason"], "take_profit")
+        self.assertEqual(len(p["open_positions"]), 1)
+        self.assertEqual(p["open_positions"][0]["position_id"], second["position_id"])
+
+    def test_candle_exit_targets_only_matching_duplicate_asset_position(self):
+        p = new_portfolio(80)
+        first = paper_entry(p, self.valid_solana(), stop_loss_pct=1, take_profit_pct=1, direction="long")
+        second = paper_entry(p, self.valid_solana(), stop_loss_pct=3, take_profit_pct=20, direction="short")
+        trade = update_position_from_candle(
+            p, "TEST", high=first["take_profit_price"] * 1.01,
+            low=first["entry_fill_price"], close=first["entry_fill_price"],
+            position_id=first["position_id"],
+        )
+        self.assertEqual(trade["position_id"], first["position_id"])
+        self.assertEqual(trade["exit_reason"], "take_profit")
+        self.assertEqual([item["position_id"] for item in p["open_positions"]], [second["position_id"]])
+
+    def test_legacy_duplicate_positions_receive_distinct_stable_ids(self):
+        p = new_portfolio(80)
+        p["open_positions"] = [
+            {"asset": "BTC", "direction": "long"},
+            {"asset": "BTC", "direction": "short"},
+        ]
+        from trading_desk import ensure_position_ids
+        self.assertTrue(ensure_position_ids(p))
+        ids = [item["position_id"] for item in p["open_positions"]]
+        self.assertEqual(len(set(ids)), 2)
+        self.assertFalse(ensure_position_ids(p))
+
     def test_candle_low_triggers_short_take_profit(self):
         p = new_portfolio(80)
         paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")

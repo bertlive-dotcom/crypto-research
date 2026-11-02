@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, update_position_from_candle, STARTING_CAPITAL_USD,
+    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
@@ -303,6 +303,12 @@ with desk_tab:
         st.session_state.desk_last_result = None
 
     portfolio = st.session_state.paper_portfolio
+    if ensure_position_ids(portfolio) and paper_store:
+        try:
+            paper_store.save_state(portfolio, {"event_type": "position_ids_migrated", "asset": "", "position_count": len(portfolio["open_positions"])})
+        except SupabaseStoreError as error:
+            st.error("Could not persist position ID migration: " + str(error))
+            st.stop()
     if not paper_store:
         st.warning("Supabase is not configured: this session is temporary and will not provide a durable 30-day journal. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Streamlit Secrets.")
     else:
@@ -319,17 +325,17 @@ with desk_tab:
                 candle = candle_client.get_klines(pair, interval="1m", limit=2)[-1]
                 candle_stamp = candle["timestamp"]
                 if open_position.get("last_market_candle_timestamp") != candle_stamp:
-                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]))
+                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]), position_id=open_position["position_id"])
                     if not stopped_trade:
                         open_position["last_market_candle_timestamp"] = candle_stamp
-                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}
+                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}
             except (BinanceMarketDataError, ValueError, KeyError, TypeError) as error:
                 st.warning("Binance candle check unavailable for {}: {}. Falling back to latest CMC quote.".format(asset, error))
         if market_event is None and not stopped_trade:
             current_price = latest_crypto_prices.get(asset)
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
-                stopped_trade = update_position_mark(portfolio, asset, float(current_price))
-                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "price_usd": float(current_price), "trade": stopped_trade}
+                stopped_trade = update_position_mark(portfolio, asset, float(current_price), position_id=open_position["position_id"])
+                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(current_price), "trade": stopped_trade}
         if market_event and paper_store:
             try:
                 paper_store.save_state(portfolio, market_event)
@@ -479,24 +485,34 @@ with desk_tab:
     if portfolio["open_positions"]:
         st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
         with st.form("position_update_form"):
-            assets = [position["asset"] for position in portfolio["open_positions"]]
-            selected = st.selectbox("Position", assets)
-            default_price = next(p["last_price_usd"] for p in portfolio["open_positions"] if p["asset"] == selected)
+            position_by_id = {position["position_id"]: position for position in portfolio["open_positions"]}
+            selected_id = st.selectbox(
+                "Position",
+                list(position_by_id),
+                format_func=lambda position_id: "{} · {} · {}".format(
+                    position_by_id[position_id]["asset"],
+                    position_by_id[position_id].get("direction", "long").upper(),
+                    position_id[:8],
+                ),
+            )
+            selected_position = position_by_id[selected_id]
+            selected_asset = selected_position["asset"]
+            default_price = selected_position["last_price_usd"]
             mark_price = st.number_input("Latest/reference price (USD)", min_value=0.00000001, value=float(default_price), format="%.8f")
             update_mark = st.form_submit_button("Update simulated market price")
             close_position = st.form_submit_button("Close paper position at this price")
         if update_mark:
-            stopped_trade = update_position_mark(portfolio, selected, mark_price)
+            stopped_trade = update_position_mark(portfolio, selected_asset, mark_price, position_id=selected_id)
             if paper_store:
-                paper_store.save_state(portfolio, {"event_type": stopped_trade["exit_reason"] if stopped_trade else "manual_mark", "asset": selected, "price_usd": mark_price, "trade": stopped_trade})
+                paper_store.save_state(portfolio, {"event_type": stopped_trade["exit_reason"] if stopped_trade else "manual_mark", "asset": selected_asset, "position_id": selected_id, "price_usd": mark_price, "trade": stopped_trade})
             if stopped_trade:
                 st.warning("Automatic {} triggered. Simulated exit P&L: USD {:.2f}".format(stopped_trade["exit_reason"].replace("_", " "), stopped_trade["realized_pnl_usd"]))
             else:
                 st.success("Paper mark price updated.")
         if close_position:
-            trade = paper_exit(portfolio, selected, mark_price)
+            trade = paper_exit(portfolio, selected_asset, mark_price, position_id=selected_id)
             if paper_store:
-                paper_store.save_state(portfolio, {"event_type": "manual_exit", "asset": selected, "trade": trade})
+                paper_store.save_state(portfolio, {"event_type": "manual_exit", "asset": selected_asset, "position_id": selected_id, "trade": trade})
             st.success("Paper position closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
     else:
         st.info("No open paper positions.")

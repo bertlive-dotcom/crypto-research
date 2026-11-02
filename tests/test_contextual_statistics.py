@@ -42,6 +42,11 @@ class ContextualStatisticsTests(unittest.TestCase):
         self.assertIn("matched_baseline_mean_pct",
                       report["dimensions"]["utc_hour"]["00:00"]["1"]["holdout"])
 
+    def test_custom_minimum_sample_is_respected(self):
+        report = analyze_context(self.rows(), now=datetime(2026, 2, 1, tzinfo=timezone.utc), min_sample=1)
+        cell = report["dimensions"]["utc_hour"]["00:00"]["1"]["all"]
+        self.assertEqual(cell["sample_status"], "usable_for_exploration")
+
     def test_invalid_horizon_rejected(self):
         with self.assertRaises(ValueError):
             analyze_context(self.rows(), horizons=(0,))

@@ -1,6 +1,8 @@
 """Deterministic, simulation-only trading desk primitives.
 
 No exchange execution, wallet signing, private keys, or external API calls live here.
+
+Deployment sync marker: position-id migration support is included in this module.
 """
 from __future__ import annotations
 from dataclasses import dataclass

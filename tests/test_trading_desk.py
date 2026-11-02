@@ -1,5 +1,5 @@
 import unittest
-from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, size_position, update_position_mark
+from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, size_position, update_position_mark, update_position_from_candle
 
 class TradingDeskTests(unittest.TestCase):
     def valid_solana(self):
@@ -79,6 +79,29 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(len(p["open_positions"]),0)
         self.assertEqual(len(p["closed_trades"]),1)
         self.assertGreater(portfolio_summary(p)["equity_usd"],80)
+
+
+    def test_candle_high_triggers_long_take_profit(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        pos = p["open_positions"][0]
+        trade = update_position_from_candle(p, "TEST", pos["take_profit_price"] * 1.01, pos["entry_fill_price"], pos["entry_fill_price"])
+        self.assertEqual(trade["exit_reason"], "take_profit")
+        self.assertAlmostEqual(trade["exit_reference_price"], pos["take_profit_price"])
+
+    def test_stop_loss_wins_if_both_levels_cross_in_same_candle(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        pos = p["open_positions"][0]
+        trade = update_position_from_candle(p, "TEST", pos["take_profit_price"] * 1.01, pos["stop_price"] * 0.99)
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+
+    def test_candle_low_triggers_short_take_profit(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")
+        pos = p["open_positions"][0]
+        trade = update_position_from_candle(p, "TEST", pos["entry_fill_price"], pos["take_profit_price"] * 0.99)
+        self.assertEqual(trade["exit_reason"], "take_profit")
 
 if __name__ == "__main__":
     unittest.main()

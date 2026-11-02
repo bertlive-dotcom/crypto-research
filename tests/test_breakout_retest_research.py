@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
-
-import pytest
+import unittest
 
 from tools.run_breakout_retest_research import evaluate
 
@@ -10,7 +9,6 @@ def _candles(count=260):
     start = datetime(2025, 1, 1, tzinfo=timezone.utc)
     price = 100.0
     for i in range(count):
-        # Smooth rising history; deterministic, valid OHLC and closed candles.
         open_price = price
         close = price * 1.001
         rows.append({
@@ -26,16 +24,20 @@ def _candles(count=260):
     return rows
 
 
-def test_retest_research_returns_separate_exploration_and_holdout():
-    result = evaluate(_candles())
-    assert result["method"] == "daily_breakout_retest_next_open"
-    assert "exploration" in result
-    assert "holdout" in result
-    assert result["exploration"]["sample_status"] == "small_sample"
-    assert result["holdout"]["sample_status"] == "small_sample"
-    assert result["limitations"]
+class BreakoutRetestResearchTests(unittest.TestCase):
+    def test_retest_research_returns_separate_exploration_and_holdout(self):
+        result = evaluate(_candles())
+        self.assertEqual(result["method"], "daily_breakout_retest_next_open")
+        self.assertIn("exploration", result)
+        self.assertIn("holdout", result)
+        self.assertEqual(result["exploration"]["sample_status"], "small_sample")
+        self.assertEqual(result["holdout"]["sample_status"], "small_sample")
+        self.assertTrue(result["limitations"])
+
+    def test_retest_window_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            evaluate(_candles(), retest_window=0)
 
 
-def test_retest_window_must_be_positive():
-    with pytest.raises(ValueError):
-        evaluate(_candles(), retest_window=0)
+if __name__ == "__main__":
+    unittest.main()

@@ -163,14 +163,14 @@ def evaluate(candles, *, min_sample=30, retest_window=3, fee_per_side_pct=0.10,
 def main():
     parser = argparse.ArgumentParser(description="Read-only breakout-retest study")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "BONKUSDT", "WIFUSDT", "PUMPUSDT", "UNIUSDT", "NEARUSDT", "ZECUSDT", "AAVEUSDT", "PEPEUSDT"])
-    parser.add_argument("--limit", type=int, default=1000, choices=range(60, 1001))
+    parser.add_argument("--limit", type=int, default=5000, choices=(1000, 2000, 3000, 5000))
     parser.add_argument("--output", default="breakout_retest_report.json")
     args = parser.parse_args()
     client = BinanceMarketDataClient()
     assets, failures = [], []
     for symbol in args.symbols:
         try:
-            rows = closed_candles(client.get_klines(symbol, interval="1d", limit=args.limit))
+            rows = closed_candles(client.get_klines_history(symbol, interval="1d", total_limit=args.limit))
             assets.append({"symbol": symbol, "candles": len(rows),
                            "first_date": rows[0].get("date") if rows else None,
                            "last_date": rows[-1].get("date") if rows else None,

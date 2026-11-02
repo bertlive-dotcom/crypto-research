@@ -65,7 +65,7 @@ jobs:
 
       - name: Run Monte Carlo risk research
         run: |
-          python tools/run_monte_carlo_research.py \
+          PYTHONPATH=. python tools/run_monte_carlo_research.py \
             --input reports/breakout_retest_latest.json \
             --output reports/monte_carlo/monte_carlo_risk_latest.json \
             --simulations "${{ inputs.simulations }}" \

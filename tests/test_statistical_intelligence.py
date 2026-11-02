@@ -43,6 +43,7 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         })
         self.assertIn("limitations", report)
         self.assertIn("volatility_regime_analysis", report)
+        self.assertIn("breakout_confluence_candidate", report)
         self.assertEqual(
             set(report["combined_regime_analysis"]["inside_bar"]),
             {
@@ -108,6 +109,17 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         cell = validation["patterns"]["prior_day_range_breakout_up"]["bullish_high_volatility"]["1"]
         self.assertIn("matched_baseline_observations", cell)
         self.assertEqual(len(report["patterns"]["prior_day_range_breakout_up"]["events"][0]["forward_returns_pct"]), 3)
+
+    def test_breakout_candidate_reports_costs_and_separate_holdout(self):
+        rows = self.rows(count=300)
+        report = analyze_pattern_history(rows, now=self.now, min_sample=30)
+        candidate = report["breakout_confluence_candidate"]
+        self.assertEqual(candidate["setup"], "daily_prior_range_breakout_trend_momentum_volume")
+        self.assertEqual(candidate["cost_assumption_round_trip_pct"], 0.3)
+        self.assertEqual(candidate["rules"]["entry"], "Next candle open after signal close.")
+        self.assertIn("trades", candidate)
+        self.assertIn("holdout", candidate)
+        self.assertIn("exploration", candidate)
 
     def test_even_sample_median_is_average_of_middle_values(self):
         from global_markets.statistical_intelligence import _summarize

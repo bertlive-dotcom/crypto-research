@@ -319,7 +319,11 @@ with desk_tab:
                 candle = candle_client.get_klines(pair, interval="1m", limit=2)[-1]
                 candle_stamp = candle["timestamp"]
                 if open_position.get("last_market_candle_timestamp") != candle_stamp:
-                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]))
+                    stopped_trade = update_position_from_candle(
+                        portfolio, asset, high=float(candle["high"]),
+                        low=float(candle["low"]), close=float(candle["close"]),
+                        open=float(candle["open"]),
+                    )
                     if not stopped_trade:
                         open_position["last_market_candle_timestamp"] = candle_stamp
                     market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}

@@ -1199,7 +1199,36 @@ with scanner_tab:
             st.markdown("#### Candidats de l'últim escaneig")
             st.caption("Aquesta llista prové de l'últim cicle complet i només inclou parells que Binance Spot marcava com a actius en aquell escaneig. No barreja operacions històriques tancades amb candidats actuals.")
             if scanner_candidates:
-                st.dataframe(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
+                ready_count = sum(bool(row.get("auto_entry_eligible")) for row in scanner_candidates)
+                watch_count = sum(row.get("entry_status") == "WATCH" for row in scanner_candidates)
+                near_miss_count = sum(row.get("entry_status") == "NEAR_MISS" for row in scanner_candidates)
+                rejected_count = sum(row.get("entry_status") == "FILTERED" for row in scanner_candidates)
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Preparats per entrar", ready_count)
+                d2.metric("En vigilància", watch_count)
+                d3.metric("A prop del mínim", near_miss_count)
+                d4.metric("Descartats", rejected_count)
+                st.caption("No s'han modificat els llindars d'entrada. 'Preparat' exigeix puntuació mínima i tots els filtres obligatoris; la resta es classifica per facilitar el diagnòstic.")
+                display_rows = []
+                for row in scanner_candidates:
+                    status_labels = {
+                        "READY": "PREPARAT",
+                        "WATCH": "VIGILÀNCIA",
+                        "NEAR_MISS": "A PROP",
+                        "FILTERED": "DESCARTAT",
+                    }
+                    display_rows.append({
+                        "Estat": status_labels.get(row.get("entry_status"), "ANTIC"),
+                        "Parell": row.get("symbol"),
+                        "Puntuació": row.get("score"),
+                        "Falten punts": row.get("score_gap_to_auto_entry"),
+                        "Filtres obligatoris pendents": ", ".join(row.get("hard_gate_failures", [])) or "Cap",
+                        "Alertes tècniques": ", ".join(row.get("quality_warnings", [])) or "Cap",
+                        "Entrada automàtica": "Sí" if row.get("auto_entry_eligible") else "No",
+                    })
+                st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+                with st.expander("Dades tècniques completes de cada candidat"):
+                    st.dataframe(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
             else:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:

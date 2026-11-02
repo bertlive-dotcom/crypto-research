@@ -27,6 +27,7 @@ It reads public Binance Spot daily candles and writes a JSON report. No API key,
 - Occurrence counts, mean return, median return, positive-outcome percentage, and a small-sample warning.\n- Trend-regime breakdown (bullish, bearish, sideways/transition) using a 50-day SMA and its 10-day direction.\n- Pattern returns compared with a matched unconditional candle-return baseline in the same regime, including excess return in percentage points.
 - Volatility split: annualized 20-day realized volatility classified as high or low against the median of the previous 180 volatility observations.
 - Combined six-scenario matrix: bullish, bearish, or sideways/transition trend crossed with high or low volatility. Each pattern is compared with a matched baseline from the same combined regime.
+- Chronological validation: first 70% of history for exploration and final 30% as a holdout, with separate pattern and matched-baseline returns by combined regime.
 
 A minimum sample of 30 observations is used only as an exploratory label, not as proof of statistical significance.
 
@@ -46,4 +47,5 @@ A minimum sample of 30 observations is used only as an exploratory label, not as
 3. Compare 1-, 3- and 5-day results; look for stability rather than the best single percentage.
 4. Split the history chronologically into an exploratory period and a later holdout period before treating any pattern as potentially useful.
 5. Compare pattern results across the six combined trend/volatility scenarios; treat missing early regime labels as unavailable history, not zero volatility.
+6. Judge potential robustness using the later chronological holdout, not only the full-history results. This single holdout is exploratory, not a formal significance test.
 6. Only after independent validation consider adding a read-only research panel to the dashboard. Do not convert these metrics into entry gates without a separate decision and paper test.

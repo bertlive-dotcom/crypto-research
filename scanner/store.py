@@ -3,9 +3,48 @@ from __future__ import annotations
 import requests
 from datetime import datetime, timedelta, timezone
 from .config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from .market_scanner import score_candidate
 
 class ScannerStoreError(RuntimeError):
     pass
+
+
+def enrich_candidate_diagnostics(row: dict) -> dict:
+    """Rebuild diagnostic-only fields for rows saved before the UI enhancement."""
+    enriched = dict(row)
+    features = enriched.get("features") or {}
+    one_hour = features.get("1h") if isinstance(features, dict) else None
+    four_hour = features.get("4h") if isinstance(features, dict) else None
+    daily = features.get("1d") if isinstance(features, dict) else None
+
+    if not all(isinstance(item, dict) for item in (one_hour, four_hour, daily)):
+        enriched.update({
+            "entry_status": "LEGACY_UNAVAILABLE",
+            "score_gap_to_auto_entry": None,
+            "hard_gate_failures": None,
+            "quality_warnings": None,
+        })
+        return enriched
+
+    try:
+        diagnostics = score_candidate(enriched, one_hour, four_hour, daily)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        enriched.update({
+            "entry_status": "LEGACY_UNAVAILABLE",
+            "score_gap_to_auto_entry": None,
+            "hard_gate_failures": None,
+            "quality_warnings": None,
+        })
+        return enriched
+
+    for key in (
+        "entry_status", "score_gap_to_auto_entry", "hard_gate_failures",
+        "quality_warnings", "hard_checks_pass",
+    ):
+        enriched[key] = diagnostics[key]
+    # Preserve the values persisted by the scanner; diagnostics are explanatory
+    # fields only and must never change the paper-entry decision.
+    return enriched
 
 class ScannerStore:
     def __init__(self, url: str = SUPABASE_URL, key: str = SUPABASE_SERVICE_ROLE_KEY, timeout: int = 15):
@@ -70,4 +109,4 @@ class ScannerStore:
             symbol = str(row.get("symbol", "")).strip().upper()
             if symbol and symbol not in unique:
                 unique[symbol] = row
-        return list(unique.values())
+        return [enrich_candidate_diagnostics(row) for row in unique.values()]

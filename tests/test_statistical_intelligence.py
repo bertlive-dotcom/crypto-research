@@ -44,7 +44,10 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         self.assertIn("limitations", report)
 
     def test_direction_adjusted_breakout_return_is_positive_in_uptrend(self):
-        report = analyze_pattern_history(self.rows(), now=self.now, min_sample=1)
+        rows = self.rows()
+        for row in rows:
+            row["high"] = row["close"] + 0.05
+        report = analyze_pattern_history(rows, now=self.now, min_sample=1)
         breakout = report["patterns"]["prior_day_range_breakout_up"]
         self.assertGreater(breakout["horizons"]["1"]["mean_forward_return_pct"], 0)
         self.assertEqual(breakout["horizons"]["1"]["sample_status"], "usable_for_exploration")

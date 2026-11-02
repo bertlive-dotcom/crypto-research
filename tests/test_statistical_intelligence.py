@@ -96,6 +96,19 @@ class StatisticalIntelligenceTests(unittest.TestCase):
         self.assertTrue(populated)
         self.assertTrue(all(cell["1"]["matched_baseline_mean_return_pct"] is not None for cell in populated))
 
+    def test_chronological_holdout_is_separate_and_has_six_regimes(self):
+        rows = self.rows(count=300)
+        for row in rows:
+            row["high"] = row["close"] + 0.05
+        report = analyze_pattern_history(rows, now=self.now, min_sample=1)
+        validation = report["chronological_validation"]
+        self.assertEqual(validation["method"], "chronological_holdout")
+        self.assertEqual(validation["holdout_candles"], 90)
+        self.assertEqual(len(validation["patterns"]["prior_day_range_breakout_up"]), 6)
+        cell = validation["patterns"]["prior_day_range_breakout_up"]["bullish_high_volatility"]["1"]
+        self.assertIn("matched_baseline_observations", cell)
+        self.assertEqual(len(report["patterns"]["prior_day_range_breakout_up"]["events"][0]["forward_returns_pct"]), 3)
+
     def test_even_sample_median_is_average_of_middle_values(self):
         from global_markets.statistical_intelligence import _summarize
         events = [

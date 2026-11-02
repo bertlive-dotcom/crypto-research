@@ -162,7 +162,7 @@ def evaluate(candles, *, min_sample=30, retest_window=3, fee_per_side_pct=0.10,
 
 def main():
     parser = argparse.ArgumentParser(description="Read-only breakout-retest study")
-    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "BONKUSDT", "WIFUSDT", "PUMPUSDT", "UNIUSDT", "NEARUSDT", "ZECUSDT", "AAVEUSDT", "PEPEUSDT"])
     parser.add_argument("--limit", type=int, default=1000, choices=range(60, 1001))
     parser.add_argument("--output", default="breakout_retest_report.json")
     args = parser.parse_args()

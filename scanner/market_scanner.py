@@ -85,11 +85,18 @@ def scan_market(client: BinanceSpotClient | None = None) -> tuple[list[dict], di
         if row["symbol"] in watch and row["symbol"] not in selected_symbols:
             selected.append(row)
             selected_symbols.add(row["symbol"])
+    # One shared timestamp identifies the entire scan cycle. The dashboard queries
+    # candidates by the newest scanned_at value, so per-symbol timestamps would
+    # incorrectly make it display only the final symbol processed.
+    scan_timestamp = datetime.now(timezone.utc).isoformat()
+    for row in selected:
+        row["scanned_at"] = scan_timestamp
+
     run = {
         "status": "completed" if candidates else "empty",
         "universe_size": len(tickers), "analysed_count": len(candidates),
         "candidate_count": len(selected), "error_count": len(errors),
-        "errors": errors[:30], "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "errors": errors[:30], "scanned_at": scan_timestamp,
     }
     return selected, run
 

@@ -24,7 +24,7 @@ It reads public Binance Spot daily candles and writes a JSON report. No API key,
 - Bullish and bearish engulfing candles: direction-adjusted close-to-close returns.
 - Previous-day range breakouts: direction-adjusted close-to-close returns after a daily close beyond the previous candle's high or low.
 - Forward horizons: 1, 3 and 5 daily candles by default.
-- Occurrence counts, mean return, median return, positive-outcome percentage, and a small-sample warning.
+- Occurrence counts, mean return, median return, positive-outcome percentage, and a small-sample warning.\n- Trend-regime breakdown (bullish, bearish, sideways/transition) using a 50-day SMA and its 10-day direction.\n- Pattern returns compared with a matched unconditional candle-return baseline in the same regime, including excess return in percentage points.
 
 A minimum sample of 30 observations is used only as an exploratory label, not as proof of statistical significance.
 
@@ -32,7 +32,7 @@ A minimum sample of 30 observations is used only as an exploratory label, not as
 
 - These are descriptive historical conditional outcomes, **not predictive probabilities or trade recommendations**.
 - Outcomes are measured from the pattern candle close. They do not model executable entries, fees, slippage, stop-losses, take-profits, or position sizing.
-- Overlapping events are retained and are not independent observations.
+- Overlapping events are retained and are not independent observations.\n- Regime labels use only information available at the event candle close; the 50-day SMA needs 60 candles of warm-up. Regime comparison remains descriptive and is not a significance test.
 - Daily bars do not test intraday session behaviour.
 - A 1,000-candle Binance request is a finite history window; it is not equivalent to Edgeful's longer historical database.
 - The prototype deliberately does not feed results into Market Scanner scoring or paper trading.

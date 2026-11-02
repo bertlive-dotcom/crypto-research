@@ -217,3 +217,24 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     if take_profit_hit:
         return paper_exit(portfolio, asset, price_usd, reason="take_profit")
     return None
+
+
+def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float, close: Optional[float] = None) -> Optional[dict]:
+    """Trigger exits from candle extremes; stop wins if both levels are crossed."""
+    if high <= 0 or low <= 0 or high < low:
+        raise ValueError("Invalid candle high/low.")
+    position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
+    if position is None:
+        raise ValueError(f"No open paper position for {asset}.")
+    if close is not None:
+        if close <= 0:
+            raise ValueError("Candle close must be positive.")
+        position["last_price_usd"] = float(close)
+    short = position.get("direction", "long") == "short"
+    stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
+    tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
+    if stop_hit:
+        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss")
+    if tp_hit:
+        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit")
+    return None

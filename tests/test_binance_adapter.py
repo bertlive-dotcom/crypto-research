@@ -50,5 +50,33 @@ class BinanceMarketDataClientTests(unittest.TestCase):
             self.client.get_klines("BTCUSDT")
 
 
+    def test_paginated_history_returns_sorted_deduplicated_rows(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        origin = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        def row(index):
+            stamp = origin + timedelta(days=index)
+            return {"timestamp": stamp.isoformat(), "date": stamp.date().isoformat(),
+                    "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}
+
+        newest_page = [row(i) for i in range(500, 1500)]
+        older_page = [row(i) for i in range(0, 500)]
+        with patch.object(self.client, "get_klines",
+                          side_effect=[newest_page, older_page]) as mocked:
+            result = self.client.get_klines_history("BTCUSDT", total_limit=1500)
+
+        self.assertEqual(len(result), 1500)
+        self.assertEqual(result[0]["date"], "2020-01-01")
+        self.assertEqual(result[-1]["date"], "2024-02-09")
+        self.assertEqual(mocked.call_count, 2)
+        self.assertIsNone(mocked.call_args_list[0].kwargs["end_time_ms"])
+        self.assertIsNotNone(mocked.call_args_list[1].kwargs["end_time_ms"])
+
+    def test_paginated_history_rejects_oversized_limit(self):
+        with self.assertRaises(ValueError):
+            self.client.get_klines_history("BTCUSDT", total_limit=10001)
+
+
 if __name__ == "__main__":
     unittest.main()

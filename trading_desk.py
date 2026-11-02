@@ -219,22 +219,68 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     return None
 
 
-def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float, close: Optional[float] = None) -> Optional[dict]:
-    """Trigger exits from candle extremes; stop wins if both levels are crossed."""
+def update_position_from_candle(
+    portfolio: dict,
+    asset: str,
+    high: float,
+    low: float,
+    close: Optional[float] = None,
+    open: Optional[float] = None,
+) -> Optional[dict]:
+    """Trigger exits from candle extremes; stop wins ambiguous candles.
+
+    Legacy positions are migrated before checking thresholds. If a candle opens
+    beyond the stop, the simulated stop fills from the open (plus adverse
+    slippage), not at the more favourable stop level.
+    """
     if high <= 0 or low <= 0 or high < low:
         raise ValueError("Invalid candle high/low.")
+    if open is not None and (open <= 0 or not low <= open <= high):
+        raise ValueError("Invalid candle open.")
     position = next((p for p in portfolio["open_positions"] if p["asset"].upper() == asset.upper()), None)
     if position is None:
         raise ValueError(f"No open paper position for {asset}.")
+
+    direction = str(position.get("direction", "long")).lower()
+    if direction not in ("long", "short"):
+        raise ValueError("Invalid paper position direction.")
+    short = direction == "short"
+    position.setdefault("direction", direction)
+    reference_entry = float(
+        position.get("entry_fill_price")
+        or position.get("entry_reference_price")
+        or position.get("entry_price_usd")
+        or position.get("last_price_usd")
+        or (close if close is not None else open if open is not None else high)
+    )
+    stop_pct = float(position.get("stop_loss_pct", 10.0))
+    take_profit_pct = float(position.get("take_profit_pct", 20.0))
+    if stop_pct <= 0 or take_profit_pct <= 0:
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
+    if position.get("stop_price") is None:
+        position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if short else 1.0 - stop_pct / 100.0)
+    if position.get("take_profit_price") is None:
+        position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if short else 1.0 + take_profit_pct / 100.0)
+    position.setdefault("stop_loss_pct", stop_pct)
+    position.setdefault("take_profit_pct", take_profit_pct)
+
     if close is not None:
         if close <= 0:
             raise ValueError("Candle close must be positive.")
         position["last_price_usd"] = float(close)
-    short = position.get("direction", "long") == "short"
-    stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
-    tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
+
+    stop_price = float(position["stop_price"])
+    take_profit_price = float(position["take_profit_price"])
+    stop_hit = high >= stop_price if short else low <= stop_price
+    tp_hit = low <= take_profit_price if short else high >= take_profit_price
     if stop_hit:
-        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss")
+        # A gap through the stop is filled at the worse opening price.
+        stop_fill_reference = (
+            max(stop_price, float(open)) if short and open is not None
+            else min(stop_price, float(open)) if not short and open is not None
+            else stop_price
+        )
+        return paper_exit(portfolio, asset, stop_fill_reference, reason="stop_loss")
     if tp_hit:
-        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit")
+        return paper_exit(portfolio, asset, take_profit_price, reason="take_profit")
     return None

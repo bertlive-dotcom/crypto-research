@@ -57,7 +57,7 @@ class BinanceMarketDataClient:
             if details["status"] == "TRADING" and details["spot_allowed"]
         }
 
-    def get_klines(self, symbol: str, interval: str = "1d", limit: int = 500) -> list[dict[str, Any]]:
+    def get_klines(self, symbol: str, interval: str = "1d", limit: int = 500, *, end_time_ms: int | None = None) -> list[dict[str, Any]]:
         pair = symbol.strip().upper()
         if not pair or not pair.isalnum():
             raise ValueError("symbol must contain only letters and digits")
@@ -68,7 +68,8 @@ class BinanceMarketDataClient:
         try:
             response = self.session.get(
                 BASE_URL,
-                params={"symbol": pair, "interval": interval, "limit": limit},
+                params={**{"symbol": pair, "interval": interval, "limit": limit},
+                        **({"endTime": int(end_time_ms)} if end_time_ms is not None else {})},
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -110,6 +111,38 @@ class BinanceMarketDataClient:
         if not rows:
             raise BinanceMarketDataError("Binance returned no kline observations")
         return rows
+
+
+    def get_klines_history(self, symbol: str, interval: str = "1d", total_limit: int = 5000) -> list[dict[str, Any]]:
+        """Fetch up to total_limit candles by paging backwards through Binance Spot.
+
+        Pages contain at most 1000 candles. Results are deduplicated and returned
+        oldest-to-newest; callers must still remove the currently forming candle.
+        """
+        if not 1 <= total_limit <= 10000:
+            raise ValueError("total_limit must be between 1 and 10000")
+        collected: dict[str, dict[str, Any]] = {}
+        end_time_ms = None
+        while len(collected) < total_limit:
+            page_limit = min(1000, total_limit - len(collected))
+            page = self.get_klines(
+                symbol, interval=interval, limit=page_limit, end_time_ms=end_time_ms
+            )
+            if not page:
+                break
+            for row in page:
+                collected[row["timestamp"]] = row
+            oldest = min(
+                datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp()
+                for row in page
+            )
+            next_end_time_ms = int(oldest * 1000) - 1
+            if end_time_ms is not None and next_end_time_ms >= end_time_ms:
+                raise BinanceMarketDataError("Binance kline pagination did not advance")
+            end_time_ms = next_end_time_ms
+            if len(page) < page_limit:
+                break
+        return sorted(collected.values(), key=lambda row: row["timestamp"])[-total_limit:]
 
 
 def last_closed_candle(candles: list[dict[str, Any]], *, now: datetime | None = None) -> dict[str, Any] | None:

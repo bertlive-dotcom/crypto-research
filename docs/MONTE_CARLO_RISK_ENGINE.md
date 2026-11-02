@@ -4,11 +4,13 @@ Isolated, read-only risk research for historical strategy outcomes. It has no ex
 
 ## Input and R normalization
 
-The first adapter consumes the existing breakout-retest JSON report. Each trade's net R is calculated as:
+The adapter accepts both the current flat report shape (`assets[].trades[]`) and the earlier nested shape (`assets[].breakout_retest.trades[]`). Each trade's net R is calculated as:
 
 `net R = net_return_pct / (abs(entry - stop) / entry * 100)`
 
-The existing report's `net_return_pct` already includes its configured round-trip fee and slippage assumptions. Do not subtract costs a second time. Rows without a valid entry, stop and net return are rejected.
+The breakout-retest generator records entry and stop prices in its trade rows. The expanded-universe JSON report dated 2026-11-02 predates that output change and contains only dates, side, exit reason and net return. It cannot support a valid R calculation: percentage return alone does not identify the initial price risk. The runner now labels these rows `incomplete_trade_data` and refuses to simulate them. Regenerate the source report with the current `tools/run_breakout_retest_research.py` before running Monte Carlo.
+
+The source report's `net_return_pct` already includes its configured round-trip fee and slippage assumptions. Do not subtract costs a second time.
 
 ## Simulation methods
 
@@ -20,7 +22,14 @@ Equity compounds using fixed-fractional risk per trade. The default 1% risk and 
 
 ## Run
 
-From repository root:
+First regenerate a source report using closed daily candles:
+
+```bash
+python tools/run_breakout_retest_research.py \
+  --output reports/breakout_retest_expanded_universe_2026-11-02.json
+```
+
+Then run the Monte Carlo research:
 
 ```bash
 python tools/run_monte_carlo_research.py \
@@ -30,7 +39,7 @@ python tools/run_monte_carlo_research.py \
 
 Optional controls: `--simulations`, `--risk-per-trade-pct`, `--block-size`, `--ruin-drawdown-pct`, and `--seed`.
 
-The runner simulates exploration and holdout trades separately. A segment with fewer than 10 trades is reported as insufficient for simulation; 10 is only a technical floor, not evidence of statistical sufficiency.
+The runner simulates exploration and holdout trades separately. A segment with fewer than 10 trades is reported as insufficient for simulation; 10 is only a technical floor, not evidence of statistical sufficiency. Missing entry/stop fields or invalid trade rows are reported explicitly and never silently coerced.
 
 ## Interpretation
 

@@ -264,6 +264,177 @@ def _chronological_validation(
     return result
 
 
+def _ema(values: list[float], period: int) -> list[float | None]:
+    output: list[float | None] = [None] * len(values)
+    if len(values) < period:
+        return output
+    seed = sum(values[:period]) / period
+    output[period - 1] = seed
+    alpha = 2 / (period + 1)
+    for index in range(period, len(values)):
+        seed = values[index] * alpha + seed * (1 - alpha)
+        output[index] = seed
+    return output
+
+
+def _sma(values: list[float], period: int) -> list[float | None]:
+    output: list[float | None] = [None] * len(values)
+    for index in range(period - 1, len(values)):
+        output[index] = sum(values[index - period + 1:index + 1]) / period
+    return output
+
+
+def _rsi(closes: list[float], period: int = 14) -> list[float | None]:
+    output: list[float | None] = [None] * len(closes)
+    changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    for index in range(period, len(closes)):
+        window = changes[index - period:index]
+        gains = sum(max(change, 0) for change in window) / period
+        losses = sum(max(-change, 0) for change in window) / period
+        output[index] = 100.0 if losses == 0 and gains > 0 else 50.0 if losses == gains == 0 else (
+            0.0 if gains == 0 else 100 - 100 / (1 + gains / losses)
+        )
+    return output
+
+
+def _atr(candles: list[dict], period: int = 14) -> list[float | None]:
+    true_ranges = [None]
+    for index in range(1, len(candles)):
+        current, previous = candles[index], candles[index - 1]
+        true_ranges.append(max(
+            current["high"] - current["low"],
+            abs(current["high"] - previous["close"]),
+            abs(current["low"] - previous["close"]),
+        ))
+    output: list[float | None] = [None] * len(candles)
+    for index in range(period, len(candles)):
+        values = true_ranges[index - period + 1:index + 1]
+        if all(value is not None for value in values):
+            output[index] = sum(values) / period
+    return output
+
+
+def _evaluate_breakout_confluence(
+    candles: list[dict], *, min_sample: int,
+    fee_per_side_pct: float = 0.10, slippage_per_side_pct: float = 0.05,
+    volume_multiple: float = 1.20, stop_atr_multiple: float = 1.50,
+    reward_risk: float = 2.0, max_holding_candles: int = 5,
+) -> dict:
+    """Research-only daily breakout setup with next-open execution and conservative exits."""
+    closes = [c["close"] for c in candles]
+    volumes = [float(c.get("volume", 0) or 0) for c in candles]
+    ema50, ema200 = _ema(closes, 50), _ema(closes, 200)
+    ema12, ema26 = _ema(closes, 12), _ema(closes, 26)
+    macd_line = [
+        (ema12[i] - ema26[i]) if ema12[i] is not None and ema26[i] is not None else None
+        for i in range(len(candles))
+    ]
+    macd_signal = _ema([v if v is not None else 0.0 for v in macd_line], 9)
+    rsi, atr, volume_sma = _rsi(closes), _atr(candles), _sma(volumes, 20)
+    split_index = int(len(candles) * 0.70)
+    trades = []
+    total_cost_pct = 2 * (fee_per_side_pct + slippage_per_side_pct)
+    index = 200
+    while index < len(candles) - 1:
+        previous, current = candles[index - 1], candles[index]
+        required = (ema50[index], ema200[index], rsi[index], atr[index],
+                    volume_sma[index], macd_line[index], macd_signal[index])
+        if any(value is None for value in required) or volume_sma[index] <= 0:
+            index += 1
+            continue
+        volume_ok = volumes[index] >= volume_sma[index] * volume_multiple
+        long_signal = (
+            current["close"] > previous["high"]
+            and current["close"] > ema50[index] > ema200[index]
+            and 50 <= rsi[index] <= 70
+            and macd_line[index] > macd_signal[index]
+            and volume_ok
+        )
+        short_signal = (
+            current["close"] < previous["low"]
+            and current["close"] < ema50[index] < ema200[index]
+            and 30 <= rsi[index] <= 50
+            and macd_line[index] < macd_signal[index]
+            and volume_ok
+        )
+        if not (long_signal or short_signal):
+            index += 1
+            continue
+        direction = 1 if long_signal else -1
+        entry_index = index + 1
+        entry = candles[entry_index]["open"]
+        risk_distance = atr[index] * stop_atr_multiple
+        stop = entry - direction * risk_distance
+        target = entry + direction * risk_distance * reward_risk
+        exit_index = min(entry_index + max_holding_candles - 1, len(candles) - 1)
+        exit_price, exit_reason, actual_exit_index = candles[exit_index]["close"], "time_exit", exit_index
+        for j in range(entry_index, exit_index + 1):
+            bar = candles[j]
+            stop_hit = bar["low"] <= stop if direction > 0 else bar["high"] >= stop
+            target_hit = bar["high"] >= target if direction > 0 else bar["low"] <= target
+            if stop_hit:
+                exit_price, exit_reason, actual_exit_index = stop, "stop_loss", j
+                break
+            if target_hit:
+                exit_price, exit_reason, actual_exit_index = target, "take_profit", j
+                break
+        gross = ((exit_price / entry) - 1) * 100 * direction
+        net = gross - total_cost_pct
+        trades.append({
+            "signal_date": current.get("date") or current["_close_time"].date().isoformat(),
+            "side": "long" if direction > 0 else "short",
+            "entry_date": candles[entry_index].get("date") or candles[entry_index]["_close_time"].date().isoformat(),
+            "exit_date": candles[actual_exit_index].get("date") or candles[actual_exit_index]["_close_time"].date().isoformat(),
+            "entry": round(entry, 8), "exit": round(exit_price, 8),
+            "stop": round(stop, 8), "take_profit": round(target, 8),
+            "exit_reason": exit_reason, "gross_return_pct": round(gross, 4),
+            "net_return_pct": round(net, 4), "holdout": index >= split_index,
+        })
+        index = actual_exit_index + 1
+    def summarize(items: list[dict]) -> dict:
+        returns = [trade["net_return_pct"] for trade in items]
+        wins = [value for value in returns if value > 0]
+        losses = [value for value in returns if value < 0]
+        gross_profit, gross_loss = sum(wins), abs(sum(losses))
+        return {
+            "trades": len(items), "wins": len(wins), "losses": len(losses),
+            "win_rate_pct": round(len(wins) / len(items) * 100, 1) if items else None,
+            "mean_net_return_pct": round(sum(returns) / len(returns), 3) if items else None,
+            "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else None,
+            "sample_status": "usable_for_exploration" if len(items) >= min_sample else "small_sample",
+            "exit_reasons": {
+                reason: sum(trade["exit_reason"] == reason for trade in items)
+                for reason in ("stop_loss", "take_profit", "time_exit")
+            },
+        }
+    return {
+        "setup": "daily_prior_range_breakout_trend_momentum_volume",
+        "rules": {
+            "long": "Close above prior high; close > EMA50 > EMA200; RSI 50-70; MACD line > signal; volume >= 1.2x 20-day average.",
+            "short": "Close below prior low; close < EMA50 < EMA200; RSI 30-50; MACD line < signal; volume >= 1.2x 20-day average.",
+            "entry": "Next candle open after signal close.",
+            "stop": f"{stop_atr_multiple} x ATR(14) from entry.",
+            "take_profit": f"{reward_risk}:1 reward/risk from entry.",
+            "max_holding_candles": max_holding_candles,
+            "fees_per_side_pct": fee_per_side_pct,
+            "slippage_per_side_pct": slippage_per_side_pct,
+            "same_candle_stop_and_target": "stop_loss_first_conservative",
+            "position_overlap": "one position at a time; next signal only after previous exit",
+        },
+        "cost_assumption_round_trip_pct": round(total_cost_pct, 3),
+        "exploration": summarize([trade for trade in trades if not trade["holdout"]]),
+        "holdout": summarize([trade for trade in trades if trade["holdout"]]),
+        "trades": trades,
+        "limitations": [
+            "Research candidate only; not connected to scanner, paper trading or execution.",
+            "Daily OHLC simulation cannot determine intrabar order when stop and target are both touched; stop is assumed first.",
+            "Fees and slippage are configurable assumptions and must be replaced with account-specific actual costs.",
+            "No funding, spread, partial fills, gaps beyond stop price, or market impact are modeled.",
+            "Small holdout samples do not establish a reliable edge.",
+        ],
+    }
+
+
 def analyze_pattern_history(
     rows: Iterable[dict],
     *,
@@ -364,6 +535,9 @@ def analyze_pattern_history(
         ),
         "chronological_validation": _chronological_validation(
             candles, events, horizons, min_sample
+        ),
+        "breakout_confluence_candidate": _evaluate_breakout_confluence(
+            candles, min_sample=min_sample
         ),
         "limitations": [
             "Descriptive historical statistics, not predictive probabilities.",

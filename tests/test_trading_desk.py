@@ -18,6 +18,27 @@ class TradingDeskTests(unittest.TestCase):
         self.assertTrue(evaluate_signal(s)["approved"])
         s.volume_24h_usd=100
         self.assertFalse(evaluate_signal(s)["approved"])
+    def test_major_asset_requires_one_hour_change_for_manual_entries(self):
+        signal = Signal(asset="BTC", market="major", price_usd=65000, volume_24h_usd=10000000)
+        result = evaluate_signal(signal)
+        self.assertFalse(result["approved"])
+        self.assertTrue(any("1-hour" in reason for reason in result["reasons"]))
+
+    def test_scanner_approved_major_signal_uses_its_own_hard_filters(self):
+        signal = Signal(
+            asset="BTC", market="major", price_usd=65000,
+            volume_24h_usd=20000000, source="Market Scanner v1 / Binance Spot",
+            scanner_approved=True,
+        )
+        self.assertTrue(evaluate_signal(signal)["approved"])
+
+    def test_scanner_approval_cannot_be_claimed_by_other_sources(self):
+        signal = Signal(
+            asset="BTC", market="major", price_usd=65000,
+            volume_24h_usd=20000000, source="manual", scanner_approved=True,
+        )
+        self.assertFalse(evaluate_signal(signal)["approved"])
+
     def test_position_size_respects_risk_and_exposure(self):
         self.assertEqual(size_position(80,10),8.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
@@ -95,6 +116,35 @@ class TradingDeskTests(unittest.TestCase):
         pos = p["open_positions"][0]
         trade = update_position_from_candle(p, "TEST", pos["take_profit_price"] * 1.01, pos["stop_price"] * 0.99)
         self.assertEqual(trade["exit_reason"], "stop_loss")
+
+    def test_candle_migrates_legacy_position_before_tp_sl_check(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        position = p["open_positions"][0]
+        position.pop("stop_price")
+        position.pop("take_profit_price")
+        position.pop("stop_loss_pct")
+        position.pop("take_profit_pct")
+        trade = update_position_from_candle(
+            p, "TEST", high=position["entry_fill_price"] * 1.01,
+            low=position["entry_fill_price"] * 0.99,
+            close=position["entry_fill_price"],
+        )
+        self.assertIsNone(trade)
+        self.assertIn("stop_price", position)
+        self.assertIn("take_profit_price", position)
+
+    def test_long_stop_gap_uses_candle_open_not_stop_level(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        pos = p["open_positions"][0]
+        gap_open = pos["stop_price"] * 0.98
+        trade = update_position_from_candle(
+            p, "TEST", high=pos["entry_fill_price"], low=gap_open * 0.99,
+            close=gap_open, open=gap_open,
+        )
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertAlmostEqual(trade["exit_reference_price"], gap_open)
 
     def test_candle_low_triggers_short_take_profit(self):
         p = new_portfolio(80)

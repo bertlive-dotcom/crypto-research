@@ -28,12 +28,14 @@ It reads public Binance Spot daily candles and writes a JSON report. No API key,
 - Volatility split: annualized 20-day realized volatility classified as high or low against the median of the previous 180 volatility observations.
 - Combined six-scenario matrix: bullish, bearish, or sideways/transition trend crossed with high or low volatility. Each pattern is compared with a matched baseline from the same combined regime.
 - Chronological validation: first 70% of history for exploration and final 30% as a holdout, with separate pattern and matched-baseline returns by combined regime.
+- Breakout confluence candidate: daily prior-range breakout confirmed by EMA50/EMA200 trend alignment, RSI, MACD and relative volume. Entry is the next daily open; stop is 1.5 ATR(14), target is 2R, maximum holding period is five candles. Reports separate exploration and holdout results after assumed fees and slippage.
 
 A minimum sample of 30 observations is used only as an exploratory label, not as proof of statistical significance.
 
 ## Interpretation and limits
 
 - These are descriptive historical conditional outcomes, **not predictive probabilities or trade recommendations**.
+- The confluence candidate uses configurable baseline costs of 0.10% fee and 0.05% slippage per side (0.30% round trip); replace these with actual account-specific costs before interpreting results.
 - Outcomes are measured from the pattern candle close. They do not model executable entries, fees, slippage, stop-losses, take-profits, or position sizing.
 - Overlapping events are retained and are not independent observations.\n- Trend labels use only information available at the event candle close; the 50-day SMA needs 60 candles of warm-up. Volatility labels require 20 daily returns plus 180 prior volatility observations. Both comparisons are descriptive and are not significance tests.
 - Daily bars do not test intraday session behaviour.
@@ -48,4 +50,5 @@ A minimum sample of 30 observations is used only as an exploratory label, not as
 4. Split the history chronologically into an exploratory period and a later holdout period before treating any pattern as potentially useful.
 5. Compare pattern results across the six combined trend/volatility scenarios; treat missing early regime labels as unavailable history, not zero volatility.
 6. Judge potential robustness using the later chronological holdout, not only the full-history results. This single holdout is exploratory, not a formal significance test.
+7. Compare the confluence candidate after costs, including win rate, mean net return, profit factor and exit reasons. Do not connect it to live or paper execution until it is independently reviewed.
 6. Only after independent validation consider adding a read-only research panel to the dashboard. Do not convert these metrics into entry gates without a separate decision and paper test.

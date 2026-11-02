@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
-from scanner.market_scanner import apply_paper_rules, score_candidate
+from scanner.market_scanner import apply_paper_rules, score_candidate, scan_market
 from trading_desk import new_portfolio
 
 class IndicatorTests(unittest.TestCase):
@@ -51,6 +52,33 @@ class ScannerRuleTests(unittest.TestCase):
             "quote_volume_24h": 20_000_000, "score": score,
             "auto_entry_eligible": score >= 80, "features": features, "reasons": [],
         }
+
+
+    def test_scan_market_assigns_one_timestamp_to_entire_cycle(self):
+        class FakeClient:
+            def universe(self):
+                return [
+                    {"symbol": f"COIN{i}USDT", "base_asset": f"COIN{i}",
+                     "price_usdt": 100.0, "quote_volume_24h": 20_000_000,
+                     "change_24h_pct": 1.0}
+                    for i in range(3)
+                ]
+
+            def klines(self, symbol, interval, limit):
+                return []
+
+        features = {
+            "close": 101.0, "ema20": 100.0, "ema50": 95.0,
+            "rsi14": 55.0, "macd_hist": 0.2, "atr_pct": 2.0,
+            "volume_ratio": 1.5, "candle_close_time": 123456,
+        }
+        with patch("scanner.market_scanner._features", return_value=features):
+            candidates, run = scan_market(FakeClient())
+
+        self.assertEqual(len(candidates), 3)
+        timestamps = {row["scanned_at"] for row in candidates}
+        self.assertEqual(len(timestamps), 1)
+        self.assertEqual(run["scanned_at"], next(iter(timestamps)))
 
     def test_auto_entry_requires_strong_score(self):
         portfolio = new_portfolio(80)

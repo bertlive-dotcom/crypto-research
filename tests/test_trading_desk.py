@@ -31,6 +31,10 @@ class TradingDeskTests(unittest.TestCase):
             scanner_approved=True,
         )
         self.assertTrue(evaluate_signal(signal)["approved"])
+        portfolio = new_portfolio(80)
+        opened = paper_entry(portfolio, signal, stop_loss_pct=3, take_profit_pct=6)
+        self.assertEqual(opened["source"], "Market Scanner v1 / Binance Spot")
+        self.assertEqual(len(portfolio["open_positions"]), 1)
 
     def test_scanner_approval_cannot_be_claimed_by_other_sources(self):
         signal = Signal(
@@ -141,6 +145,18 @@ class TradingDeskTests(unittest.TestCase):
         gap_open = pos["stop_price"] * 0.98
         trade = update_position_from_candle(
             p, "TEST", high=pos["entry_fill_price"], low=gap_open * 0.99,
+            close=gap_open, open=gap_open,
+        )
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertAlmostEqual(trade["exit_reference_price"], gap_open)
+
+    def test_short_stop_gap_uses_candle_open_not_stop_level(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")
+        pos = p["open_positions"][0]
+        gap_open = pos["stop_price"] * 1.02
+        trade = update_position_from_candle(
+            p, "TEST", high=gap_open * 1.01, low=pos["entry_fill_price"],
             close=gap_open, open=gap_open,
         )
         self.assertEqual(trade["exit_reason"], "stop_loss")

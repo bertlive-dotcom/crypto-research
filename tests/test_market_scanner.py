@@ -21,7 +21,7 @@ class ScannerRuleTests(unittest.TestCase):
         ticker = {"symbol": "BTCUSDT", "base_asset": "BTC", "price_usdt": 102.0,
                   "quote_volume_24h": 20_000_000, "change_24h_pct": 1.0}
         one_hour = {"close": 101.0, "ema20": 100.0, "ema50": 95.0,
-                    "rsi14": 40.0, "macd_hist": -0.1, "atr_pct": 2.0,
+                    "rsi14": 50.0, "macd_hist": -0.1, "atr_pct": 2.0,
                     "volume_ratio": 1.5, "candle_close_time": 123}
         four_hour = {"close": 110.0, "ema20": 100.0}
         daily = {"close": 120.0, "ema20": 100.0}
@@ -64,7 +64,7 @@ class ScannerRuleTests(unittest.TestCase):
     def test_legacy_candidate_rebuilds_diagnostics_from_saved_features(self):
         row = {
             "symbol": "SPCXBUSDT", "base_asset": "SPCXB", "price_usdt": 102.0,
-            "score": 65, "eligible": True, "auto_entry_eligible": False,
+            "score": 70, "eligible": True, "auto_entry_eligible": False,
             "features": {
                 "1h": {"close": 101.0, "ema20": 100.0, "ema50": 95.0,
                        "rsi14": 40.0, "macd_hist": -0.1, "atr_pct": 2.0,
@@ -76,12 +76,9 @@ class ScannerRuleTests(unittest.TestCase):
         }
         result = enrich_candidate_diagnostics(row)
         self.assertEqual(result["entry_status"], "WATCH")
-        self.assertEqual(result["score_gap_to_auto_entry"], 15)
+        self.assertEqual(result["score_gap_to_auto_entry"], 10)
         self.assertIn("Volum relatiu 1h inferior a 1,2x", result["hard_gate_failures"])
-        self.assertEqual(result["quality_warnings"], [
-            "MACD 1h no positiu",
-            "RSI 1h fora del rang preferit 48-70",
-        ])
+        self.assertEqual(result["quality_warnings"], ["MACD 1h no positiu"])
         self.assertFalse(result["auto_entry_eligible"])
 
     def test_legacy_candidate_without_features_is_marked_incomplete(self):

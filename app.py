@@ -349,7 +349,11 @@ with desk_tab:
                 if candle is not None:
                     candle_stamp = candle["timestamp"]
                 if candle is not None and open_position.get("last_market_candle_timestamp") != candle_stamp:
-                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]), position_id=open_position["position_id"])
+                    stopped_trade = update_position_from_candle(
+                        portfolio, asset, high=float(candle["high"]),
+                        low=float(candle["low"]), close=float(candle["close"]),
+                        position_id=open_position["position_id"], open=float(candle["open"]),
+                    )
                     if not stopped_trade:
                         open_position["last_market_candle_timestamp"] = candle_stamp
                     market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}
@@ -358,8 +362,11 @@ with desk_tab:
         if market_event is None and not stopped_trade:
             current_price = latest_crypto_prices.get(asset)
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
-                stopped_trade = update_position_mark(portfolio, asset, float(current_price), position_id=open_position["position_id"])
-                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(current_price), "trade": stopped_trade}
+                try:
+                    stopped_trade = update_position_mark(portfolio, asset, float(current_price), position_id=open_position["position_id"])
+                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(current_price), "trade": stopped_trade}
+                except ValueError as error:
+                    st.error("Paper position {} needs manual risk-level reconciliation; no fallback mark was applied: {}".format(asset, error))
         if market_event and paper_store:
             try:
                 paper_store.save_state(portfolio, market_event)

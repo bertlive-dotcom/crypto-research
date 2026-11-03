@@ -285,11 +285,19 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
         from datetime import datetime, timezone
         from scanner.worker import run_once
 
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        current_open_ms = (now_ms // 300_000) * 300_000
+        checkpoint = current_open_ms - 600_001
+        candle_1_close = current_open_ms - 300_001
+        candle_2_close = current_open_ms - 1
+        forming_close = current_open_ms + 299_999
+
         class FakeStore:
             def __init__(self):
                 self.state = new_portfolio(80)
                 self.state["open_positions"] = [{
                     "position_id": "position-1", "asset": "BTC", "market_symbol": "BTCUSDT",
+                    "last_market_candle_close_ms": checkpoint,
                     "direction": "long", "notional_usd": 5.0, "quantity": 0.05,
                     "entry_fee_usd": 0.01, "entry_fill_price": 100.0,
                     "stop_price": 95.0, "take_profit_price": 120.0,
@@ -303,13 +311,6 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
             def save_cycle(self, state, run, candidates, signals):
                 self.saved = (state, run, candidates, signals)
             def release_lock(self, worker_id): pass
-
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        current_open_ms = (now_ms // 300_000) * 300_000
-        checkpoint = current_open_ms - 600_001
-        candle_1_close = current_open_ms - 300_001
-        candle_2_close = current_open_ms - 1
-        forming_close = current_open_ms + 299_999
 
         class FakeClient:
             def klines(self, symbol, interval, limit):
@@ -337,11 +338,18 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
         from datetime import datetime, timezone
         from scanner.worker import run_once
 
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        current_open_ms = (now_ms // 300_000) * 300_000
+        checkpoint = current_open_ms - 300_001
+        candle_close = current_open_ms - 1
+        forming_close = current_open_ms + 299_999
+
         class FakeStore:
             def __init__(self):
                 self.state = new_portfolio(80)
                 self.state["open_positions"] = [{
                     "position_id": "position-2", "asset": "ETH", "market_symbol": "ETHUSDT",
+                    "last_market_candle_close_ms": checkpoint,
                     "direction": "long", "notional_usd": 5.0, "quantity": 0.05,
                     "entry_fee_usd": 0.01, "entry_fill_price": 100.0,
                     "stop_price": 90.0, "take_profit_price": 120.0,
@@ -355,12 +363,6 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
             def save_cycle(self, state, run, candidates, signals):
                 self.saved = (state, run, candidates, signals)
             def release_lock(self, worker_id): pass
-
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        current_open_ms = (now_ms // 300_000) * 300_000
-        checkpoint = current_open_ms - 300_001
-        candle_close = current_open_ms - 1
-        forming_close = current_open_ms + 299_999
 
         class FakeClient:
             def klines(self, symbol, interval, limit):

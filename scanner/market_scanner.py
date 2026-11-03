@@ -7,6 +7,7 @@ from .config import (
 )
 from .indicators import atr_pct, candle_series, ema, macd_histogram, rsi, volume_ratio
 from .market_data import BinanceSpotClient
+from trading_desk import mark_position
 
 def _features(raw: list[list]) -> dict:
     c = candle_series(raw)
@@ -138,11 +139,46 @@ def daily_realized_pnl(portfolio: dict) -> float:
             continue
     return total
 
+def daily_total_pnl(portfolio: dict) -> float:
+    """UTC-day realized P&L plus current marked P&L; fail closed on unmarked positions."""
+    total = daily_realized_pnl(portfolio)
+    for position in portfolio.get("open_positions", []):
+        price = position.get("last_price_usd")
+        if price is None or float(price) <= 0:
+            return float("-inf")
+        try:
+            total += float(mark_position(position, float(price))["unrealized_pnl_usd"])
+        except (KeyError, TypeError, ValueError):
+            return float("-inf")
+    return total
+
+
+def consecutive_loss_streak(portfolio: dict) -> int:
+    """Count losses at the tail of the closed-trade ledger, ordered by close time."""
+    trades = sorted(
+        portfolio.get("closed_trades", []),
+        key=lambda trade: str(trade.get("closed_at", "")),
+    )
+    streak = 0
+    for trade in reversed(trades):
+        try:
+            pnl = float(trade["realized_pnl_usd"])
+        except (KeyError, TypeError, ValueError):
+            break
+        if pnl < 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def apply_paper_rules(candidates: list[dict], portfolio: dict) -> list[dict]:
     """Return approved candidates; callers pass them to the existing paper_entry engine."""
     if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
         return []
-    if daily_realized_pnl(portfolio) <= -MAX_DAILY_LOSS_USDT:
+    if daily_total_pnl(portfolio) <= -MAX_DAILY_LOSS_USDT:
+        return []
+    if consecutive_loss_streak(portfolio) >= 3:
         return []
     open_assets = {p["asset"].upper() for p in portfolio.get("open_positions", [])}
     approved = []

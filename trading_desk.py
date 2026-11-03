@@ -6,6 +6,7 @@ Deployment sync marker: position-id migration support is included in this module
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from math import floor
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -144,7 +145,8 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
     risk_limited_notional = risk_budget / net_loss_fraction
     per_position_cap = capital_usd * max_position_fraction
     total_room = max(0.0, capital_usd * max_total_exposure_fraction - open_exposure_usd)
-    return round(max(0.0, min(risk_limited_notional, per_position_cap, total_room)), 2)
+    # Floor to cents so rounding can never push modeled stop loss above the risk budget.
+    return floor(max(0.0, min(risk_limited_notional, per_position_cap, total_room)) * 100.0) / 100.0
 
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}

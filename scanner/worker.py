@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_mark, ensure_daily_equity_baseline, daily_equity_drawdown
+from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_from_candle, ensure_daily_equity_baseline, daily_equity_drawdown
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT, MAX_DAILY_LOSS_USDT,
 )
@@ -34,22 +34,37 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 
-        prices = client.prices()
         closed = []
+        unavailable_positions = []
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        # Use the latest fully closed 5m candle for every open position. A missing
+        # or stale candle makes portfolio risk unavailable and blocks new entries.
         for position in list(portfolio.get("open_positions", [])):
-            price = prices.get(position["asset"].upper())
-            if price:
-                try:
-                    trade = update_position_mark(portfolio, position["asset"], float(price), position_id=position.get("position_id"))
-                except (KeyError, TypeError, ValueError) as exc:
-                    # Do not let one unreconciled legacy position stop management of all others.
-                    log.error("Position %s requires manual risk reconciliation; no mark or exit was fabricated: %s",
-                              position.get("position_id") or position.get("asset"), exc)
-                    continue
+            asset = str(position.get("asset", "")).upper()
+            try:
+                raw = client.klines(asset + "USDT", "5m", 3)
+                if len(raw) < 2:
+                    raise ValueError("Insufficient 5m candles")
+                candle = raw[-2]  # Binance's final row is the still-forming candle.
+                candle_open_ms, candle_close_ms = int(candle[0]), int(candle[6])
+                if candle_close_ms > now_ms or now_ms - candle_close_ms > 600_000:
+                    raise ValueError("Latest closed 5m candle is stale or has an invalid close time")
+                trade = update_position_from_candle(
+                    portfolio, asset, high=float(candle[2]), low=float(candle[3]),
+                    close=float(candle[4]), open=float(candle[1]),
+                    position_id=position.get("position_id"),
+                )
+                position["last_market_candle_close_ms"] = candle_close_ms
+                position["last_market_candle_open_ms"] = candle_open_ms
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
+            except Exception as exc:
+                unavailable_positions.append(str(position.get("position_id") or asset or "unknown"))
+                log.error("Position %s is not safely supervised; new entries will be blocked: %s",
+                          position.get("position_id") or asset, exc)
+        portfolio["market_data_unavailable_positions"] = unavailable_positions
 
-        approved = apply_paper_rules(candidates, portfolio)
+        approved = [] if unavailable_positions else apply_paper_rules(candidates, portfolio)
         signals = []
         processed = set(portfolio["processed_signal_ids"])
         for row in approved:

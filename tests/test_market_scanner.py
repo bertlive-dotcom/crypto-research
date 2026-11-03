@@ -281,5 +281,104 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
         self.assertEqual(store.saved[3], [])
 
 
+    def test_worker_replays_every_missed_candle_before_scanning(self):
+        from datetime import datetime, timezone
+        from scanner.worker import run_once
+
+        class FakeStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.state["open_positions"] = [{
+                    "position_id": "position-1", "asset": "BTC", "market_symbol": "BTCUSDT",
+                    "direction": "long", "notional_usd": 5.0, "quantity": 0.05,
+                    "entry_fee_usd": 0.01, "entry_fill_price": 100.0,
+                    "stop_price": 95.0, "take_profit_price": 120.0,
+                    "stop_loss_pct": 5.0, "take_profit_pct": 20.0,
+                    "last_price_usd": 100.0,
+                }]
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_state(self, state): pass
+            def save_cycle(self, state, run, candidates, signals):
+                self.saved = (state, run, candidates, signals)
+            def release_lock(self, worker_id): pass
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        current_open_ms = (now_ms // 300_000) * 300_000
+        checkpoint = current_open_ms - 600_001
+        candle_1_close = current_open_ms - 300_001
+        candle_2_close = current_open_ms - 1
+        forming_close = current_open_ms + 299_999
+
+        class FakeClient:
+            def klines(self, symbol, interval, limit):
+                self.requested = (symbol, interval, limit)
+                return [
+                    [checkpoint - 299_999, "100", "101", "99", "100", "10", checkpoint],
+                    [candle_1_close - 299_999, "100", "102", "98", "101", "10", candle_1_close],
+                    [candle_2_close - 299_999, "101", "102", "94", "96", "10", candle_2_close],
+                    [current_open_ms, "96", "97", "95", "96", "10", forming_close],
+                ]
+
+        store, client = FakeStore(), FakeClient()
+        with patch("scanner.worker.scan_market", side_effect=RuntimeError("scanner offline")) as scan:
+            result = run_once(store, client=client)
+
+        self.assertEqual(client.requested, ("BTCUSDT", "5m", 1000))
+        self.assertEqual(len(store.saved[0]["open_positions"]), 0)
+        self.assertEqual(len(store.saved[0]["closed_trades"]), 1)
+        self.assertEqual(store.saved[0]["closed_trades"][0]["exit_reason"], "stop_loss")
+        self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
+        self.assertIn("scanner offline", result["scan_error"])
+        scan.assert_called_once()
+
+    def test_worker_supervises_positions_even_when_market_scan_fails(self):
+        from datetime import datetime, timezone
+        from scanner.worker import run_once
+
+        class FakeStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.state["open_positions"] = [{
+                    "position_id": "position-2", "asset": "ETH", "market_symbol": "ETHUSDT",
+                    "direction": "long", "notional_usd": 5.0, "quantity": 0.05,
+                    "entry_fee_usd": 0.01, "entry_fill_price": 100.0,
+                    "stop_price": 90.0, "take_profit_price": 120.0,
+                    "stop_loss_pct": 10.0, "take_profit_pct": 20.0,
+                    "last_price_usd": 100.0,
+                }]
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_state(self, state): pass
+            def save_cycle(self, state, run, candidates, signals):
+                self.saved = (state, run, candidates, signals)
+            def release_lock(self, worker_id): pass
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        current_open_ms = (now_ms // 300_000) * 300_000
+        checkpoint = current_open_ms - 300_001
+        candle_close = current_open_ms - 1
+        forming_close = current_open_ms + 299_999
+
+        class FakeClient:
+            def klines(self, symbol, interval, limit):
+                return [
+                    [checkpoint - 299_999, "100", "101", "99", "100", "10", checkpoint],
+                    [candle_close - 299_999, "100", "101", "99", "100", "10", candle_close],
+                    [current_open_ms, "100", "101", "99", "100", "10", forming_close],
+                ]
+
+        store = FakeStore()
+        with patch("scanner.worker.scan_market", side_effect=RuntimeError("scanner offline")):
+            result = run_once(store, client=FakeClient())
+
+        self.assertEqual(result["paper_entries"], 0)
+        self.assertEqual(store.saved[0]["market_data_unavailable_positions"], [])
+        self.assertEqual(store.saved[0]["open_positions"][0]["last_market_candle_close_ms"], candle_close)
+        self.assertIn("scanner offline", result["scan_error"])
+
+
 if __name__ == "__main__":
     unittest.main()

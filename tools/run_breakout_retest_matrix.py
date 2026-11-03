@@ -50,7 +50,7 @@ def _classify(candles: list[dict]) -> dict[str, str]:
             label = "bearish"
         else:
             label = "sideways_or_transition"
-        labels[candle.get("date")] = label
+        labels[candle.get("timestamp") or candle.get("date")] = label
     return labels
 
 
@@ -66,7 +66,7 @@ def summarize_matrix(candles: list[dict], evaluation: dict) -> dict:
             "long": _stats([t for t in split_trades if t["side"] == "long"]),
             "short": _stats([t for t in split_trades if t["side"] == "short"]),
             "by_regime": {
-                regime: _stats([t for t in split_trades if regimes.get(t["breakout_date"]) == regime])
+                regime: _stats([t for t in split_trades if regimes.get(t.get("breakout_timestamp") or t["breakout_date"]) == regime])
                 for regime in ("bullish", "bearish", "sideways_or_transition", "unclassified")
             },
         }

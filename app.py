@@ -10,7 +10,8 @@ from trading_desk import (
     portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, ensure_daily_equity_baseline, daily_equity_drawdown,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
-from scanner.store import ScannerStore, ScannerStoreError\nfrom scanner.config import MAX_DAILY_LOSS_USDT
+from scanner.store import ScannerStore, ScannerStoreError
+from scanner.config import MAX_DAILY_LOSS_USDT
 from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
 from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity

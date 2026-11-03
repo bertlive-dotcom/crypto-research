@@ -51,7 +51,7 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute("RESET ROLE")
             cur.execute(sql, params)
-            return cur.fetchone()
+            return cur.fetchone() if cur.description is not None else None
 
     def _as_service(self, sql, params=()):
         with self.conn.cursor() as cur:
@@ -121,7 +121,7 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(self._as_service("SELECT status FROM public.scanner_runs ORDER BY id DESC LIMIT 1")[0], "completed")
         self.assertEqual(self._as_service("SELECT symbol, score FROM public.market_candidates"), ("BTCUSDT", 87))
-        self.assertEqual(self._as_service("SELECT signal_id, direction FROM public.trading_signals")[0], ("integration-signal-1", "long"))
+        self.assertEqual(self._as_service("SELECT signal_id, direction FROM public.trading_signals"), ("integration-signal-1", "long"))
 
     def test_cycle_rpc_is_idempotent_for_candidate_and_signal_keys(self):
         now = datetime.now(timezone.utc).isoformat()

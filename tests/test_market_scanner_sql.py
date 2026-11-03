@@ -36,7 +36,9 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         with self.conn.cursor() as cur:
-            cur.execute("SET ROLE service_role")
+            # Reset to the database owner for fixture cleanup; production-facing
+            # assertions below explicitly assume service_role/anon/authenticated.
+            cur.execute("RESET ROLE")
             cur.execute("DELETE FROM public.trading_signals")
             cur.execute("DELETE FROM public.market_candidates")
             cur.execute("DELETE FROM public.scanner_runs")

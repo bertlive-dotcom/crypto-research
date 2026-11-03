@@ -170,5 +170,73 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(trade["exit_reference_price"], pos["stop_price"])
         self.assertEqual(len(p["open_positions"]), 0)
 
-if __name__ == "__main__":
+
+    def test_partial_close_reduces_remaining_quantity_and_allocates_entry_fee(self):
+        p = new_portfolio(80)
+        position = paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        original_qty = position["quantity"]
+        original_notional = position["notional_usd"]
+        original_entry_fee = position["entry_fee_usd"]
+        trade = paper_exit(p, "TEST", position["entry_fill_price"] * 1.10,
+                           fraction=0.5, reason="partial_take_profit",
+                           position_id=position["position_id"])
+        self.assertTrue(trade["is_partial"])
+        self.assertAlmostEqual(trade["closed_fraction"], 0.5)
+        self.assertAlmostEqual(position["quantity"], original_qty * 0.5)
+        self.assertAlmostEqual(position["notional_usd"], original_notional * 0.5)
+        self.assertAlmostEqual(position["entry_fee_usd"], original_entry_fee * 0.5)
+        self.assertEqual(len(p["open_positions"]), 1)
+        self.assertEqual(len(p["closed_trades"]), 1)
+        final = paper_exit(p, "TEST", position["entry_fill_price"] * 1.10,
+                           position_id=position["position_id"])
+        self.assertFalse(final["is_partial"])
+        self.assertEqual(len(p["open_positions"]), 0)
+        self.assertEqual(len(p["closed_trades"]), 2)
+        self.assertAlmostEqual(
+            sum(t["realized_pnl_usd"] for t in p["closed_trades"]),
+            portfolio_summary(p)["realized_pnl_usd"],
+        )
+
+    def test_partial_close_rejects_invalid_fraction(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        with self.assertRaises(ValueError):
+            paper_exit(p, "TEST", 0.01, fraction=0)
+        with self.assertRaises(ValueError):
+            paper_exit(p, "TEST", 0.01, fraction=1.1)
+
+    def test_short_round_trip_equity_includes_entry_fee_once(self):
+        p = new_portfolio(80)
+        position = paper_entry(p, self.valid_solana(), stop_loss_pct=10, direction="short")
+        trade = paper_exit(p, "TEST", position["entry_fill_price"] * 0.95,
+                           position_id=position["position_id"])
+        summary = portfolio_summary(p)
+        self.assertAlmostEqual(summary["equity_usd"], 80 + trade["realized_pnl_usd"], places=6)
+
+    def test_daily_equity_baseline_is_persisted_and_does_not_reset_intraday(self):
+        from datetime import datetime, timezone
+        from trading_desk import ensure_daily_equity_baseline, daily_equity_drawdown
+        p = new_portfolio(80)
+        start = datetime(2026, 11, 3, 8, 0, tzinfo=timezone.utc)
+        first = ensure_daily_equity_baseline(p, now=start)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        position = p["open_positions"][0]
+        position["last_price_usd"] = position["entry_fill_price"] * 0.80
+        risk = daily_equity_drawdown(p, now=start.replace(hour=9))
+        self.assertEqual(risk["start_equity_usd"], first["start_equity_usd"])
+        self.assertGreater(risk["loss_usd"], 0)
+        self.assertLess(risk["change_usd"], 0)
+
+    def test_daily_equity_baseline_resets_on_new_madrid_trading_day(self):
+        from datetime import datetime, timezone
+        from trading_desk import ensure_daily_equity_baseline
+        p = new_portfolio(80)
+        day_one = datetime(2026, 11, 3, 8, 0, tzinfo=timezone.utc)
+        day_two = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
+        first = ensure_daily_equity_baseline(p, now=day_one)
+        p["cash"] -= 3.0
+        second = ensure_daily_equity_baseline(p, now=day_two)
+        self.assertNotEqual(first["date"], second["date"])
+        self.assertAlmostEqual(second["start_equity_usd"], 77.0)
+\nif __name__ == "__main__":
     unittest.main()

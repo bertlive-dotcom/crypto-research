@@ -1,5 +1,5 @@
 import unittest
-from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, size_position, update_position_mark, update_position_from_candle
+from trading_desk import Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit, portfolio_summary, position_risk_at_stop, size_position, update_position_mark, update_position_from_candle
 
 class TradingDeskTests(unittest.TestCase):
     def valid_solana(self):
@@ -46,6 +46,44 @@ class TradingDeskTests(unittest.TestCase):
     def test_position_size_respects_risk_and_exposure(self):
         self.assertEqual(size_position(80,10),8.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
+
+    def test_position_size_accounts_for_both_side_costs_and_direction(self):
+        long_size = size_position(1000, 2, direction="long", max_position_fraction=1.0,
+                                  max_total_exposure_fraction=1.0)
+        short_size = size_position(1000, 2, direction="short", max_position_fraction=1.0,
+                                   max_total_exposure_fraction=1.0)
+        self.assertGreater(long_size, 0)
+        self.assertGreater(short_size, 0)
+        self.assertLess(long_size, 50.0)
+        self.assertLess(short_size, 50.0)
+
+    def test_position_net_risk_at_stop_includes_entry_and_exit_costs(self):
+        p = new_portfolio(1000)
+        position = paper_entry(p, self.valid_solana(), stop_loss_pct=2, take_profit_pct=4)
+        risk = position_risk_at_stop(position)
+        self.assertGreater(risk["risk_at_stop_usd"], position["notional_usd"] * 0.02)
+        self.assertAlmostEqual(position["risk_at_stop_usd"], risk["risk_at_stop_usd"])
+        self.assertGreater(position["risk_at_stop_pct_equity"], 0)
+
+    def test_portfolio_summary_reports_aggregate_stop_risk_and_exposure(self):
+        p = new_portfolio(1000)
+        first = paper_entry(p, self.valid_solana(), stop_loss_pct=2, take_profit_pct=4)
+        second_signal = self.valid_solana()
+        second_signal.asset = "TEST2"
+        second = paper_entry(p, second_signal, stop_loss_pct=3, take_profit_pct=6, direction="short")
+        summary = portfolio_summary(p)
+        expected = first["risk_at_stop_usd"] + second["risk_at_stop_usd"]
+        self.assertAlmostEqual(summary["risk_at_stops_usd"], expected)
+        self.assertGreater(summary["open_exposure_usd"], 0)
+        self.assertGreater(summary["risk_at_stops_pct_equity"], 0)
+
+    def test_portfolio_summary_flags_unknown_legacy_stop_risk(self):
+        p = new_portfolio(80)
+        p["open_positions"] = [{"asset": "OLD", "notional_usd": 5, "last_price_usd": 1,
+                                "quantity": 5, "entry_fee_usd": 0.005}]
+        summary = portfolio_summary(p)
+        self.assertIsNone(summary["risk_at_stops_usd"])
+        self.assertEqual(summary["risk_unknown_positions"], ["OLD"])
     def test_stop_loss_closes_paper_position(self):
         p=new_portfolio(80)
         paper_entry(p,self.valid_solana(),stop_loss_pct=10)

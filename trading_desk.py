@@ -22,6 +22,7 @@ DEFAULT_RISK_FRACTION = 0.01
 MAX_POSITION_FRACTION = 0.10
 MAX_TOTAL_EXPOSURE_FRACTION = 0.25
 MAX_TOTAL_RISK_FRACTION = 0.03
+MAX_OPEN_POSITIONS = 3
 DEFAULT_FEE_RATE = 0.001
 DEFAULT_SLIPPAGE_RATE = 0.003
 
@@ -202,6 +203,8 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
     direction = direction.lower()
     if direction not in ("long", "short"):
         raise ValueError("Direction must be long or short.")
+    if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
+        raise ValueError(f"Maximum of {MAX_OPEN_POSITIONS} concurrent paper positions reached.")
     exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
     open_risk = 0.0
     for existing in portfolio["open_positions"]:

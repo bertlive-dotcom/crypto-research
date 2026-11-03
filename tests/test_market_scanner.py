@@ -3,7 +3,7 @@ from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
 from scanner.market_scanner import apply_paper_rules, consecutive_loss_streak, daily_total_pnl, score_candidate, scan_market
 from scanner.store import enrich_candidate_diagnostics
-from trading_desk import new_portfolio
+from trading_desk import new_portfolio, Signal, paper_entry, paper_exit, ensure_daily_equity_baseline
 
 class IndicatorTests(unittest.TestCase):
     def test_ema_requires_enough_values(self):
@@ -162,6 +162,28 @@ class ScannerRuleTests(unittest.TestCase):
         ]
         self.assertEqual(consecutive_loss_streak(portfolio), 0)
         self.assertEqual(len(apply_paper_rules([self.candidate()], portfolio)), 1)
+
+
+    def test_daily_equity_loss_gate_includes_open_position_unrealized_loss(self):
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        signal = Signal(asset="BTC", market="major", price_usd=100.0,
+                        volume_24h_usd=20_000_000, gain_1h_pct=0)
+        position = paper_entry(portfolio, signal, stop_loss_pct=10)
+        position["last_price_usd"] = 50.0
+        self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
+        self.assertEqual(len(portfolio["open_positions"]), 1)
+
+    def test_daily_equity_loss_gate_counts_consecutive_realized_losses(self):
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        for index in range(6):
+            signal = Signal(asset=f"LOSS{index}", market="major", price_usd=100.0,
+                            volume_24h_usd=20_000_000, gain_1h_pct=0)
+            position = paper_entry(portfolio, signal, stop_loss_pct=10)
+            paper_exit(portfolio, position["asset"], position["stop_price"] * 0.99,
+                       position_id=position["position_id"], reason="stop_loss")
+        self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
 
 if __name__ == "__main__":
     unittest.main()

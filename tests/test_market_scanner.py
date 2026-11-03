@@ -126,7 +126,7 @@ class ScannerRuleTests(unittest.TestCase):
     def test_max_open_positions_blocks_new_entry(self):
         portfolio = new_portfolio(80)
         portfolio["open_positions"] = [{"asset": f"A{i}"} for i in range(3)]
-        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+        self.assertEqual(apply_paper_rules([ScannerRuleTests().candidate()], portfolio), [])
 
     def test_daily_loss_guard_includes_open_unrealized_pnl(self):
         portfolio = new_portfolio(200)

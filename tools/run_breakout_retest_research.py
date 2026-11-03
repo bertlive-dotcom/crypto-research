@@ -107,9 +107,13 @@ def evaluate(candles, *, min_sample=30, retest_window=3, fee_per_side_pct=0.10,
         gross = (exit_price / entry - 1) * 100 * side
         trades.append({
             "breakout_date": candles[i].get("date"),
+            "breakout_timestamp": candles[i].get("timestamp"),
             "retest_date": candles[found].get("date"),
+            "retest_timestamp": candles[found].get("timestamp"),
             "entry_date": candles[entry_i].get("date"),
+            "entry_timestamp": candles[entry_i].get("timestamp"),
             "exit_date": candles[exit_i].get("date"),
+            "exit_timestamp": candles[exit_i].get("timestamp"),
             "side": "long" if side > 0 else "short",
             "level": round(level, 8), "entry": round(entry, 8),
             "stop": round(stop, 8), "target": round(target, 8),

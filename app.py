@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, daily_equity_drawdown,
+    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError

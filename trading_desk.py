@@ -218,7 +218,7 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
         if mark is None or float(mark) <= 0:
             raise ValueError("An open position has no valid market mark; reconcile it before opening another trade.")
         current_equity += (
-            float(existing["notional_usd"]) + mark_position(existing, float(mark), fee_rate, slippage_rate)["unrealized_pnl_usd"] + float(existing.get("entry_fee_usd", 0.0))
+            float(existing["notional_usd"]) + mark_position(existing, float(mark), fee_rate, slippage_rate)["unrealized_pnl_usd"]
             if existing.get("direction", "long") == "short"
             else float(existing["quantity"]) * float(mark)
         )
@@ -287,7 +287,7 @@ def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "man
     return trade
 
 def portfolio_summary(portfolio: dict) -> dict:
-    open_value = sum((p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] + p["entry_fee_usd"]) if p.get("direction", "long") == "short" else p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
+    open_value = sum((p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"]) if p.get("direction", "long") == "short" else p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
     unrealized = sum(mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] for p in portfolio["open_positions"])
     realized = sum(t["realized_pnl_usd"] for t in portfolio["closed_trades"])
     equity = portfolio["cash"] + open_value

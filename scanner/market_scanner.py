@@ -7,7 +7,7 @@ from .config import (
 )
 from .indicators import atr_pct, candle_series, ema, macd_histogram, rsi, volume_ratio
 from .market_data import BinanceSpotClient
-from trading_desk import mark_position
+from trading_desk import mark_position, daily_equity_drawdown
 
 def _features(raw: list[list]) -> dict:
     c = candle_series(raw)
@@ -176,7 +176,8 @@ def apply_paper_rules(candidates: list[dict], portfolio: dict) -> list[dict]:
     """Return approved candidates; callers pass them to the existing paper_entry engine."""
     if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
         return []
-    if daily_total_pnl(portfolio) <= -MAX_DAILY_LOSS_USDT:
+    daily_risk = daily_equity_drawdown(portfolio)
+    if daily_risk["loss_usd"] >= MAX_DAILY_LOSS_USDT:
         return []
     if consecutive_loss_streak(portfolio) >= 3:
         return []

@@ -373,6 +373,7 @@ def portfolio_summary(portfolio: dict) -> dict:
         "remaining_aggregate_stop_risk_usd": max(0.0, equity * MAX_TOTAL_RISK_FRACTION - risk_total) if not risk_unknown and equity > 0 else None,
         "risk_unknown_positions": risk_unknown,
         "management_unknown_positions": management_unknown,
+        "market_data_unavailable_positions": list(portfolio.get("market_data_unavailable_positions", [])),
     }
 
 
@@ -408,8 +409,9 @@ def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
     risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
     try:
         summary = portfolio_summary(portfolio)
-        if summary.get("risk_unknown_positions") or summary.get("management_unknown_positions"):
-            raise ValueError("Open position stop or take-profit data is unavailable.")
+        if (summary.get("risk_unknown_positions") or summary.get("management_unknown_positions")
+                or summary.get("market_data_unavailable_positions")):
+            raise ValueError("Open position risk, management or market data is unavailable.")
         current_equity = float(summary["equity_usd"])
         start_equity = float(risk["start_equity_usd"])
         if not (current_equity >= 0 and start_equity > 0):

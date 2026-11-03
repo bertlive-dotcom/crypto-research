@@ -6,6 +6,7 @@ on:
       - main
       - feature/ai-crypto-trading-desk-simulation
       - feature/market-scanner-v1
+      - fix/trading-engine-entry-exits
   pull_request:
     branches:
       - main

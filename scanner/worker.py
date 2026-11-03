@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, new_portfolio, paper_entry, update_position_mark
+from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_mark
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
 )
@@ -24,6 +24,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
     try:
         portfolio = store.load_state() or new_portfolio(STARTING_CAPITAL_USD)
         portfolio.setdefault("processed_signal_ids", [])
+        ensure_position_ids(portfolio)
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 

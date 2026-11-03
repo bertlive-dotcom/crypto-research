@@ -100,7 +100,7 @@ $$;
 create or replace function public.save_market_scanner_state(p_state jsonb)
 returns void
 language plpgsql security definer set search_path = public
-as $
+as $$
 begin
     if p_state is null or jsonb_typeof(p_state) <> 'object' then
         raise exception 'p_state must be a non-null JSON object';
@@ -110,7 +110,7 @@ begin
     values ('default', p_state, now())
     on conflict (id) do update set state = excluded.state, updated_at = now();
 end;
-$;
+$$;
 
 create or replace function public.save_market_scanner_cycle(
     p_state jsonb, p_run jsonb, p_candidates jsonb, p_signals jsonb

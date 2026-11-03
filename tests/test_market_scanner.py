@@ -120,7 +120,7 @@ class ScannerRuleTests(unittest.TestCase):
     def test_open_asset_is_not_reentered(self):
         portfolio = new_portfolio(80)
         portfolio["open_positions"].append({"asset": "BTC"})
-        approved = apply_paper_rules([self.candidate()], portfolio)
+        approved = apply_paper_rules([ScannerRuleTests().candidate()], portfolio)
         self.assertEqual(approved, [])
 
     def test_max_open_positions_blocks_new_entry(self):
@@ -141,7 +141,7 @@ class ScannerRuleTests(unittest.TestCase):
     def test_daily_loss_guard_fails_closed_when_open_mark_is_missing(self):
         portfolio = new_portfolio(80)
         portfolio["open_positions"] = [{"asset": "BTC"}]
-        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+        self.assertEqual(apply_paper_rules([ScannerRuleTests().candidate()], portfolio), [])
 
     def test_three_consecutive_losses_pause_new_entries(self):
         portfolio = new_portfolio(80)
@@ -151,7 +151,7 @@ class ScannerRuleTests(unittest.TestCase):
             {"closed_at": "2026-11-03T10:00:00+00:00", "realized_pnl_usd": -0.2},
         ]
         self.assertEqual(consecutive_loss_streak(portfolio), 3)
-        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+        self.assertEqual(apply_paper_rules([ScannerRuleTests().candidate()], portfolio), [])
 
     def test_winning_trade_resets_consecutive_loss_streak(self):
         portfolio = new_portfolio(80)
@@ -161,7 +161,7 @@ class ScannerRuleTests(unittest.TestCase):
             {"closed_at": "2026-11-03T10:00:00+00:00", "realized_pnl_usd": 0.2},
         ]
         self.assertEqual(consecutive_loss_streak(portfolio), 0)
-        self.assertEqual(len(apply_paper_rules([self.candidate()], portfolio)), 1)
+        self.assertEqual(len(apply_paper_rules([ScannerRuleTests().candidate()], portfolio)), 1)
 
 
     def test_daily_equity_loss_gate_includes_open_position_unrealized_loss(self):
@@ -243,7 +243,7 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
         portfolio["market_data_unavailable_positions"] = ["legacy-1"]
         risk = daily_equity_drawdown(portfolio)
         self.assertEqual(risk["status"], "unavailable_fail_closed")
-        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+        self.assertEqual(apply_paper_rules([ScannerRuleTests().candidate()], portfolio), [])
 
     def test_worker_uses_last_closed_candle_and_blocks_entries_on_stale_data(self):
         from scanner.worker import run_once

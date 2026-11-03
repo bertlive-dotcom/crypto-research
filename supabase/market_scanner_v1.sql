@@ -102,6 +102,10 @@ returns void
 language plpgsql security definer set search_path = public
 as $
 begin
+    if p_state is null or jsonb_typeof(p_state) <> 'object' then
+        raise exception 'p_state must be a non-null JSON object';
+    end if;
+
     insert into public.scanner_paper_state (id, state, updated_at)
     values ('default', p_state, now())
     on conflict (id) do update set state = excluded.state, updated_at = now();
@@ -157,7 +161,9 @@ $$;
 
 revoke all on function public.acquire_market_scanner_lock(text, integer) from public, anon, authenticated;
 revoke all on function public.release_market_scanner_lock(text) from public, anon, authenticated;
+revoke all on function public.save_market_scanner_state(jsonb) from public, anon, authenticated;
 revoke all on function public.save_market_scanner_cycle(jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.acquire_market_scanner_lock(text, integer) to service_role;
 grant execute on function public.release_market_scanner_lock(text) to service_role;
+grant execute on function public.save_market_scanner_state(jsonb) to service_role;
 grant execute on function public.save_market_scanner_cycle(jsonb, jsonb, jsonb, jsonb) to service_role;

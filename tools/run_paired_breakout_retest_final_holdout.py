@@ -244,6 +244,46 @@ def _summarize_pairs(pairs):
     return result
 
 
+def _date_key(timestamp):
+    if timestamp is None:
+        return "unknown"
+    value = str(timestamp)
+    if value.isdigit():
+        return str(int(value) // 86400000)
+    return value[:10]
+
+
+def date_cluster_moving_block_bootstrap(events, *, iterations=5000, block_dates=5, seed=42):
+    """Resample contiguous calendar-date clusters; all assets on a date move together."""
+    grouped = {}
+    for event in events:
+        grouped.setdefault(_date_key(event["breakout_timestamp"]), []).append(event["paired_delta_net_r"])
+    dates = sorted(grouped)
+    if len(dates) < 20:
+        return {"date_clusters": len(dates), "events": len(events), "ci95_low": None,
+                "ci95_high": None, "prob_delta_positive": None,
+                "status": "insufficient_date_clusters"}
+    daily = [mean(grouped[d]) for d in dates]
+    rng = random.Random(seed)
+    n = len(daily)
+    count = (n + block_dates - 1) // block_dates
+    samples = []
+    for _ in range(iterations):
+        draw = []
+        for _b in range(count):
+            start = rng.randrange(n)
+            draw.extend(daily[(start + k) % n] for k in range(block_dates))
+        samples.append(mean(draw[:n]))
+    samples.sort()
+    return {
+        "date_clusters": n, "events": len(events), "block_length_dates": block_dates,
+        "iterations": iterations, "ci95_low": round(samples[int(iterations * .025)], 5),
+        "ci95_high": round(samples[min(iterations - 1, int(iterations * .975))], 5),
+        "prob_delta_positive": round(sum(x > 0 for x in samples) / iterations, 4),
+        "status": "cross_asset_date_cluster_moving_block_descriptive_interval",
+    }
+
+
 def _summarize_direct(trades):
     result = {}
     for split in ("exploration", "validation", "final_holdout"):
@@ -317,11 +357,17 @@ def run(symbols, limit):
                 for w, v in pooled.items() if v["pairs"] >= 30]
     selected = max(eligible)[1] if eligible else None
     assets = []
+    pooled_final_pairs, pooled_final_direct = [], []
     for a in raw_assets:
+        analysis = analyze_asset(a["candles"], selected)
+        if selected is not None:
+            selected_rows = a["per_window"][str(selected)]
+            pooled_final_pairs.extend([p for p in selected_rows["pairs"] if p["split"] == "final_holdout"])
+            pooled_final_direct.extend([p for p in selected_rows["direct_all"] if p["split"] == "final_holdout"])
         assets.append({
             "symbol": a["symbol"], "candles": len(a["candles"]),
             "first_date": a["candles"][0].get("date"), "last_date": a["candles"][-1].get("date"),
-            "analysis": analyze_asset(a["candles"], selected),
+            "analysis": analysis,
         })
     return {
         "report_type": "paired_breakout_retest_final_holdout_v1",
@@ -333,10 +379,19 @@ def run(symbols, limit):
             "exit_equivalence": "same 2R target, five-bar maximum holding period, stop-first OHLC convention, gap-through stop at open, and fixed round-trip costs",
             "stop_geometry": "strategy-specific structural stop: breakout candle extreme for direct, retest candle extreme for retest; compare risk-normalized net R and net percentage separately",
             "cost_scenarios_pct": list(COSTS),
-            "bootstrap": "circular moving-block bootstrap on chronological paired event deltas, block length 5, 5000 resamples; descriptive only",
+            "bootstrap": "per-asset moving-block intervals plus global cross-asset date-cluster moving-block bootstrap, block length 5 calendar dates, 5000 resamples; descriptive only",
             "selection": "one global window selected across pooled assets using exploration paired mean net-R only; validation assesses frozen selection; final period reports only that frozen window",
             "exploration_window_comparison": pooled,
             "frozen_global_window": selected,
+            "global_final_holdout": {
+                "paired_events": len(pooled_final_pairs),
+                "mean_paired_delta_net_r": round(mean([p["paired_delta_net_r"] for p in pooled_final_pairs]), 5) if pooled_final_pairs else None,
+                "date_cluster_moving_block_bootstrap": date_cluster_moving_block_bootstrap(pooled_final_pairs),
+                "unconditional_direct_breakout_count": len(pooled_final_direct),
+                "unconditional_direct_breakout_stats": _stats([p["direct"] for p in pooled_final_direct]),
+                "paired_direct_stats": _stats([p["direct"] for p in pooled_final_pairs]),
+                "paired_retest_stats": _stats([p["retest"] for p in pooled_final_pairs]),
+            },
             "subgroups": "long/short and EMA50/EMA200 regime at breakout close",
             "benchmark": "Unconditional direct-breakout benchmark includes every eligible direct breakout signal, whether or not a retest subsequently occurs; paired comparison is reported separately on the retest-eligible subset.",
             "partition_purge": "A trade is retained only when its entry and exit are inside the same chronological partition; boundary-crossing trades are excluded.",

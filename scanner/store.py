@@ -77,6 +77,10 @@ class ScannerStore:
         rows = self._request("GET", "scanner_paper_state", params={"id": "eq.default", "select": "state", "limit": "1"})
         return rows[0]["state"] if rows else None
 
+    def save_state(self, state: dict) -> None:
+        """Persist safety-critical portfolio metadata before market-data work begins."""
+        self.rpc("save_market_scanner_state", {"p_state": state})
+
     def save_cycle(self, state: dict, run: dict, candidates: list[dict], signals: list[dict]) -> None:
         self.rpc("save_market_scanner_cycle", {
             "p_state": state, "p_run": run, "p_candidates": candidates, "p_signals": signals

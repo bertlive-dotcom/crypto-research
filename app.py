@@ -421,7 +421,7 @@ with desk_tab:
         day_col3.metric("Daily loss guard", "ACTIVE" if daily_risk_ok else "NEW ENTRIES PAUSED")
     st.caption("Daily loss compares net-liquidation equity with the persisted Europe/Madrid opening snapshot. It includes realized and unrealized P&L and estimated exit costs. Existing positions remain manageable.")
     if daily_risk.get("status") == "unavailable_fail_closed":
-        st.error("Daily risk cannot be verified (missing equity or stop-risk data). New entries are paused; reconcile open positions. Existing positions remain visible for management.")
+        st.error("Daily risk cannot be verified (missing equity, stop-risk, or exit-level data). New entries are paused; reconcile open positions. Existing positions remain visible for management.")
     elif not daily_risk_ok:
         st.error("Daily loss limit reached. New paper entries are paused; open positions can still be managed.")
 

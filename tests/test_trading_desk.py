@@ -432,5 +432,17 @@ class TradingDeskTests(unittest.TestCase):
         self.assertNotEqual(first["date"], second["date"])
         self.assertAlmostEqual(second["start_equity_usd"], 77.0)
 
+
+    def test_daily_equity_guard_fails_closed_when_stop_risk_is_unknown(self):
+        from trading_desk import ensure_daily_equity_baseline, daily_equity_drawdown
+        p = new_portfolio(80)
+        ensure_daily_equity_baseline(p)
+        position = paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        position.pop("stop_price")
+        position.pop("stop_loss_pct")
+        risk = daily_equity_drawdown(p)
+        self.assertEqual(risk["status"], "unavailable_fail_closed")
+        self.assertGreater(risk["loss_usd"], 2.4)
+
 if __name__ == "__main__":
     unittest.main()

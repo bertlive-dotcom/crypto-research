@@ -56,7 +56,7 @@ class TradingDeskTests(unittest.TestCase):
         self.assertGreater(long_size, 0)
         self.assertGreater(short_size, 0)
         self.assertLessEqual(long_size * 0.0252, 10.0)
-        self.assertLessEqual(short_size * 0.0252, 10.0)
+        self.assertLessEqual(short_size * 0.0254, 10.0)
 
     def test_position_net_risk_at_stop_includes_entry_and_exit_costs(self):
         p = new_portfolio(1000)

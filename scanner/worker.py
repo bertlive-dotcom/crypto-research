@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_mark, ensure_daily_equity_baseline, daily_equity_drawdown
 from .config import (
-    SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
+    SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT, MAX_DAILY_LOSS_USDT,
 )
 from .market_data import BinanceSpotClient
 from .market_scanner import scan_market, apply_paper_rules
@@ -69,7 +69,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         daily_risk = daily_equity_drawdown(portfolio)
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
-            "daily_risk": daily_risk, "daily_loss_limit_usd": 2.4,
+            "daily_risk": daily_risk, "daily_loss_limit_usd": MAX_DAILY_LOSS_USDT,
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),
         })
         store.save_cycle(portfolio, run, candidates, signals)

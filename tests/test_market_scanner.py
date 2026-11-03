@@ -274,7 +274,7 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
                 ]
 
         store = FakeStore()
-        with patch("scanner.worker.scan_market", return_value=([self.candidate()], {"analysed_count": 1, "candidate_count": 1})):
+        with patch("scanner.worker.scan_market", return_value=([ScannerRuleTests().candidate()], {"analysed_count": 1, "candidate_count": 1})):
             result = run_once(store, client=FakeClient())
         self.assertEqual(result["paper_entries"], 0)
         self.assertIn("legacy-1", store.saved[0]["market_data_unavailable_positions"])

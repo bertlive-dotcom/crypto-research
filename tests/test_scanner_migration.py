@@ -14,7 +14,7 @@ class MarketScannerMigrationContractTests(unittest.TestCase):
 
     def function_body(self, name):
         match = re.search(
-            rf"create or replace function public\\.{name}\\b.*?as \\$\\$(.*?)\\$\\$;",
+            rf"create or replace function public\.{name}\b.*?as \$\$(.*?)\$\$;",
             self.sql,
             flags=re.IGNORECASE | re.DOTALL,
         )
@@ -24,7 +24,7 @@ class MarketScannerMigrationContractTests(unittest.TestCase):
     def test_table_privileges_revoke_public_and_api_roles(self):
         self.assertRegex(
             self.sql,
-            r"revoke all on public\\.scanner_paper_state.*?"
+            r"revoke all on public\.scanner_paper_state.*?"
             r"from public, anon, authenticated;",
         )
 
@@ -55,12 +55,12 @@ class MarketScannerMigrationContractTests(unittest.TestCase):
         ):
             self.assertRegex(
                 self.sql,
-                rf"revoke all on function public\\.{re.escape(signature)} "
+                rf"revoke all on function public\.{re.escape(signature)} "
                 r"from public, anon, authenticated;",
             )
             self.assertRegex(
                 self.sql,
-                rf"grant execute on function public\\.{re.escape(signature)} "
+                rf"grant execute on function public\.{re.escape(signature)} "
                 r"to service_role;",
             )
 

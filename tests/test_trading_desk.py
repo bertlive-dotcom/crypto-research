@@ -89,6 +89,30 @@ class TradingDeskTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Maximum of 3 concurrent"):
             paper_entry(p, signal, stop_loss_pct=2, take_profit_pct=4)
 
+
+    def test_equity_reconciles_before_and_after_closing_long_and_short(self):
+        for direction in ('long', 'short'):
+            with self.subTest(direction=direction):
+                p = new_portfolio(1000)
+                position = paper_entry(p, self.valid_solana(), stop_loss_pct=5, take_profit_pct=10, direction=direction)
+                mark = position['entry_reference_price'] * (1.02 if direction == 'long' else 0.98)
+                position['last_price_usd'] = mark
+                before = portfolio_summary(p)['equity_usd']
+                trade = paper_exit(p, 'TEST', mark, reason='reconciliation', position_id=position['position_id'])
+                after = portfolio_summary(p)['equity_usd']
+                self.assertAlmostEqual(before, after, places=7)
+                self.assertAlmostEqual(after, 1000.0 + trade['realized_pnl_usd'], places=7)
+
+    def test_stop_risk_matches_realized_loss_when_stop_executes(self):
+        for direction in ('long', 'short'):
+            with self.subTest(direction=direction):
+                p = new_portfolio(1000)
+                position = paper_entry(p, self.valid_solana(), stop_loss_pct=4, take_profit_pct=8, direction=direction)
+                modeled_risk = position_risk_at_stop(position)['risk_at_stop_usd']
+                trade = update_position_mark(p, 'TEST', position['stop_price'], position_id=position['position_id'])
+                self.assertEqual(trade['exit_reason'], 'stop_loss')
+                self.assertAlmostEqual(modeled_risk, max(0.0, -trade['realized_pnl_usd']), places=7)
+
     def test_paper_entry_blocks_when_existing_position_risk_is_unknown(self):
         p = new_portfolio(80)
         p["open_positions"] = [{

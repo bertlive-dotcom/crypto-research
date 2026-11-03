@@ -34,6 +34,7 @@ class Signal:
     volume_24h_usd: Optional[float] = None
     gain_1h_pct: Optional[float] = None
     source: str = "manual"
+    scanner_approved: bool = False
     observed_at: str = ""
 
     def __post_init__(self):
@@ -76,13 +77,22 @@ def evaluate_signal(signal: Signal) -> dict:
             reasons.append("Missing 24-hour volume; major-asset signal rejected.")
         elif signal.volume_24h_usd < MIN_MAJOR_VOLUME_24H_USD:
             reasons.append(f"24-hour volume below ${MIN_MAJOR_VOLUME_24H_USD:,.0f}.")
-        major_gain = signal.gain_1h_pct
-        # Backward compatibility for callers that still submit the old field.
-        if major_gain is None:
-            major_gain = signal.gain_45m_pct
-        if major_gain is None:
-            reasons.append("Missing 1-hour price change; major-asset signal rejected.")
-        elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+        # Only the internal Market Scanner source may use its separately validated
+        # multi-timeframe gates instead of the manual 1h-change field.
+        scanner_path = (
+            signal.scanner_approved is True
+            and signal.source == "Market Scanner v1 / Binance Spot"
+        )
+        if not scanner_path:
+            major_gain = signal.gain_1h_pct
+            # Backward compatibility for callers that still submit the old field.
+            if major_gain is None:
+                major_gain = signal.gain_45m_pct
+            if major_gain is None:
+                reasons.append("Missing 1-hour price change; major-asset signal rejected.")
+            elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+                reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
+        elif signal.gain_1h_pct is not None and signal.gain_1h_pct > MAX_MAJOR_GAIN_1H_PCT:
             reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
     else:
         reasons.append("Unknown market. Use 'solana' or 'major'.")

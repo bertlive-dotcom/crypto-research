@@ -70,6 +70,7 @@ def _simulate(candles, entry_i, side, stop, atr_value, max_hold=5, rr=2.0, cost=
     return {
         "entry_timestamp": candles[entry_i].get("timestamp"),
         "exit_timestamp": candles[exit_i].get("timestamp"),
+        "exit_index": exit_i,
         "entry": entry, "stop": stop, "target": target, "exit": exit_price,
         "exit_reason": reason, "gross_return_pct": gross_pct,
         "net_return_pct": net_pct, "risk_pct": risk / entry * 100.0,
@@ -120,8 +121,7 @@ def build_pairs(candles, retest_window):
         split = "exploration" if i < cut1 else ("validation" if i < cut2 else "final_holdout")
         split_end = split_bounds[split][1]
         # Keep each strategy's trade entirely inside its assigned chronological partition.
-        if i + 1 >= split_end or (direct.get("exit_timestamp") is not None
-                                  and int(direct["exit_timestamp"]) >= int(candles[split_end - 1]["timestamp"])):
+        if i + 1 >= split_end or direct["exit_index"] >= split_end:
             continue
         direct_all.append({
             "event_id": f"{candles[i].get('timestamp')}:{side}",
@@ -157,8 +157,7 @@ def build_pairs(candles, retest_window):
         if retest is None:
             continue
         # Retest must also enter and exit before the same split boundary.
-        if found + 1 >= split_end or (retest.get("exit_timestamp") is not None
-                                      and int(retest["exit_timestamp"]) >= int(candles[split_end - 1]["timestamp"])):
+        if found + 1 >= split_end or retest["exit_index"] >= split_end:
             continue
         pairs.append({
             "event_id": f"{candles[i].get('timestamp')}:{side}",

@@ -77,16 +77,15 @@ class TradingDeskTests(unittest.TestCase):
         self.assertGreater(trade["realized_pnl_usd"], 0)
         self.assertEqual(len(p["open_positions"]), 0)
 
-    def test_legacy_position_without_take_profit_fields_is_migrated(self):
+    def test_legacy_position_without_take_profit_source_fails_closed(self):
         p = new_portfolio(80)
         paper_entry(p, self.valid_solana(), stop_loss_pct=10)
         position = p["open_positions"][0]
         position.pop("take_profit_price", None)
         position.pop("take_profit_pct", None)
-        trade = update_position_mark(p, "TEST", position["entry_fill_price"] * 1.01)
-        self.assertIsNone(trade)
-        self.assertIn("take_profit_price", position)
-        self.assertEqual(position["take_profit_pct"], 20.0)
+        with self.assertRaisesRegex(ValueError, "refusing to invent target"):
+            update_position_mark(p, "TEST", position["entry_fill_price"] * 1.01)
+        self.assertNotIn("take_profit_price", position)
 
     def test_short_stop_loss_triggers_when_price_rises(self):
         p = new_portfolio(80)
@@ -121,7 +120,7 @@ class TradingDeskTests(unittest.TestCase):
         trade = update_position_from_candle(p, "TEST", pos["take_profit_price"] * 1.01, pos["stop_price"] * 0.99)
         self.assertEqual(trade["exit_reason"], "stop_loss")
 
-    def test_candle_migrates_legacy_position_before_tp_sl_check(self):
+    def test_candle_legacy_position_without_risk_sources_fails_closed(self):
         p = new_portfolio(80)
         paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
         position = p["open_positions"][0]
@@ -129,14 +128,14 @@ class TradingDeskTests(unittest.TestCase):
         position.pop("take_profit_price")
         position.pop("stop_loss_pct")
         position.pop("take_profit_pct")
-        trade = update_position_from_candle(
-            p, "TEST", high=position["entry_fill_price"] * 1.01,
-            low=position["entry_fill_price"] * 0.99,
-            close=position["entry_fill_price"],
-        )
-        self.assertIsNone(trade)
-        self.assertIn("stop_price", position)
-        self.assertIn("take_profit_price", position)
+        with self.assertRaisesRegex(ValueError, "refusing to invent risk"):
+            update_position_from_candle(
+                p, "TEST", high=position["entry_fill_price"] * 1.01,
+                low=position["entry_fill_price"] * 0.99,
+                close=position["entry_fill_price"],
+            )
+        self.assertNotIn("stop_price", position)
+        self.assertNotIn("take_profit_price", position)
 
     def test_long_stop_gap_uses_candle_open_not_stop_level(self):
         p = new_portfolio(80)

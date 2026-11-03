@@ -54,4 +54,4 @@ jobs:
       - name: Apply scanner SQL migration to disposable PostgreSQL
         run: psql -v ON_ERROR_STOP=1 -f supabase/market_scanner_v1.sql
       - name: Verify real SQL persistence, RPCs, locks and permissions
-        run: python -m unittest tests.test_market_scanner_sql -v
+        run: python -m unittest discover -s tests -p 'test_market_scanner_sql.py' -v

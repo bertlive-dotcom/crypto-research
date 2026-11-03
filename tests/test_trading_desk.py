@@ -53,7 +53,7 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(size_position(1000, 2, open_risk_usd=29.99), 0.0)
 
     def test_position_size_respects_available_cash_after_fees(self):
-        self.assertEqual(size_position(1000, 2, max_position_fraction=1.0,
+        self.assertEqual(size_position(1000, 0.1, max_position_fraction=1.0,
                                        max_total_exposure_fraction=1.0,
                                        max_notional_usd=50.0), 50.0)
 

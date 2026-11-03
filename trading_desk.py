@@ -101,15 +101,47 @@ def evaluate_signal(signal: Signal) -> dict:
         reasons.append("Unknown market. Use 'solana' or 'major'.")
     return {"approved": not reasons, "reasons": reasons, "checks_passed": 0 if reasons else (6 if signal.market == "solana" else 2)}
 
+def position_risk_at_stop(position: dict, fee_rate: float = DEFAULT_FEE_RATE,
+                           slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
+    """Estimate net USD loss if the stored stop executes, including both-side costs."""
+    stop = position.get("stop_price")
+    if stop is None or float(stop) <= 0:
+        raise ValueError("Position has no valid stop price; risk cannot be calculated.")
+    result = mark_position(position, float(stop), fee_rate=fee_rate, slippage_rate=slippage_rate)
+    risk_usd = max(0.0, -float(result["unrealized_pnl_usd"]))
+    notional = float(position.get("notional_usd", 0.0))
+    return {
+        "risk_at_stop_usd": risk_usd,
+        "risk_at_stop_pct_equity": None,
+        "risk_at_stop_pct_notional": (risk_usd / notional * 100.0) if notional > 0 else None,
+        "estimated_stop_exit_fill_usd": result["estimated_exit_fill_usd"],
+    }
+
+
 def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: float = 0.0,
                   risk_fraction: float = DEFAULT_RISK_FRACTION,
                   max_position_fraction: float = MAX_POSITION_FRACTION,
-                  max_total_exposure_fraction: float = MAX_TOTAL_EXPOSURE_FRACTION) -> float:
-    """Return position notional constrained by per-trade risk and exposure caps."""
-    if capital_usd <= 0 or stop_loss_pct <= 0:
+                  max_total_exposure_fraction: float = MAX_TOTAL_EXPOSURE_FRACTION,
+                  direction: str = "long", fee_rate: float = DEFAULT_FEE_RATE,
+                  slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> float:
+    """Return notional constrained by net loss-at-stop (including costs) and exposure caps."""
+    if (capital_usd <= 0 or stop_loss_pct <= 0 or risk_fraction <= 0
+            or max_position_fraction <= 0 or max_total_exposure_fraction <= 0
+            or direction not in ("long", "short") or fee_rate < 0 or slippage_rate < 0):
+        return 0.0
+    entry_fill = 1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate
+    stop_price = entry_fill * (1.0 - stop_loss_pct / 100.0 if direction == "long"
+                               else 1.0 + stop_loss_pct / 100.0)
+    exit_fill = stop_price * (1.0 - slippage_rate if direction == "long"
+                              else 1.0 + slippage_rate)
+    exit_fee_fraction = (exit_fill / entry_fill) * fee_rate
+    net_loss_fraction = ((1.0 - exit_fill / entry_fill + exit_fee_fraction + fee_rate)
+                         if direction == "long"
+                         else (exit_fill / entry_fill - 1.0 + exit_fee_fraction + fee_rate))
+    if net_loss_fraction <= 0:
         return 0.0
     risk_budget = capital_usd * risk_fraction
-    risk_limited_notional = risk_budget / (stop_loss_pct / 100.0)
+    risk_limited_notional = risk_budget / net_loss_fraction
     per_position_cap = capital_usd * max_position_fraction
     total_room = max(0.0, capital_usd * max_total_exposure_fraction - open_exposure_usd)
     return round(max(0.0, min(risk_limited_notional, per_position_cap, total_room)), 2)
@@ -161,7 +193,7 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
     if direction not in ("long", "short"):
         raise ValueError("Direction must be long or short.")
     exposure = sum(p["notional_usd"] for p in portfolio["open_positions"])
-    notional = size_position(portfolio["cash"], stop_loss_pct, exposure)
+    notional = size_position(portfolio["cash"], stop_loss_pct, exposure, direction=direction, fee_rate=fee_rate, slippage_rate=slippage_rate)
     if notional <= 0:
         raise ValueError("No available paper-trading risk budget or cash.")
     fill_price = signal.price_usd * (1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate)
@@ -181,6 +213,8 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
         "last_price_usd": signal.price_usd, "opened_at": datetime.now(timezone.utc).isoformat(),
         "source": signal.source,
     }
+    position.update(position_risk_at_stop(position, fee_rate=fee_rate, slippage_rate=slippage_rate))
+    position["risk_at_stop_pct_equity"] = position["risk_at_stop_usd"] / float(portfolio.get("starting_capital") or portfolio["cash"]) * 100.0
     portfolio["cash"] = round(portfolio["cash"] - notional - entry_fee, 8)
     portfolio["open_positions"].append(position)
     return position

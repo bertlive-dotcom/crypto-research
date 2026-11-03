@@ -21,6 +21,7 @@ MIN_MAJOR_VOLUME_24H_USD = 1_000_000.0
 DEFAULT_RISK_FRACTION = 0.01
 MAX_POSITION_FRACTION = 0.10
 MAX_TOTAL_EXPOSURE_FRACTION = 0.25
+MAX_TOTAL_RISK_FRACTION = 0.03
 DEFAULT_FEE_RATE = 0.001
 DEFAULT_SLIPPAGE_RATE = 0.003
 
@@ -124,10 +125,15 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
                   max_position_fraction: float = MAX_POSITION_FRACTION,
                   max_total_exposure_fraction: float = MAX_TOTAL_EXPOSURE_FRACTION,
                   direction: str = "long", fee_rate: float = DEFAULT_FEE_RATE,
-                  slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> float:
+                  slippage_rate: float = DEFAULT_SLIPPAGE_RATE,
+                  open_risk_usd: float = 0.0,
+                  max_total_risk_fraction: float = MAX_TOTAL_RISK_FRACTION,
+                  max_notional_usd: Optional[float] = None) -> float:
     """Return notional constrained by net loss-at-stop (including costs) and exposure caps."""
     if (capital_usd <= 0 or stop_loss_pct <= 0 or risk_fraction <= 0
             or max_position_fraction <= 0 or max_total_exposure_fraction <= 0
+            or max_total_risk_fraction <= 0 or open_risk_usd < 0
+            or (max_notional_usd is not None and max_notional_usd < 0)
             or direction not in ("long", "short") or fee_rate < 0 or slippage_rate < 0):
         return 0.0
     entry_fill = 1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate
@@ -142,11 +148,13 @@ def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: f
     if net_loss_fraction <= 0:
         return 0.0
     risk_budget = capital_usd * risk_fraction
-    risk_limited_notional = risk_budget / net_loss_fraction
+    remaining_portfolio_risk = max(0.0, capital_usd * max_total_risk_fraction - open_risk_usd)
+    risk_limited_notional = min(risk_budget, remaining_portfolio_risk) / net_loss_fraction
     per_position_cap = capital_usd * max_position_fraction
     total_room = max(0.0, capital_usd * max_total_exposure_fraction - open_exposure_usd)
-    # Floor to cents so rounding can never push modeled stop loss above the risk budget.
-    return floor(max(0.0, min(risk_limited_notional, per_position_cap, total_room)) * 100.0) / 100.0
+    cash_room = max_notional_usd if max_notional_usd is not None else float("inf")
+    # Floor to cents so rounding can never push modeled stop loss above either risk budget.
+    return floor(max(0.0, min(risk_limited_notional, per_position_cap, total_room, cash_room)) * 100.0) / 100.0
 
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}
@@ -194,8 +202,30 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
     direction = direction.lower()
     if direction not in ("long", "short"):
         raise ValueError("Direction must be long or short.")
-    exposure = sum(p["notional_usd"] for p in portfolio["open_positions"])
-    notional = size_position(portfolio["cash"], stop_loss_pct, exposure, direction=direction, fee_rate=fee_rate, slippage_rate=slippage_rate)
+    exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
+    open_risk = 0.0
+    for existing in portfolio["open_positions"]:
+        try:
+            open_risk += position_risk_at_stop(existing, fee_rate=fee_rate, slippage_rate=slippage_rate)["risk_at_stop_usd"]
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("An open position has unknown stop risk; reconcile it before opening another trade.")
+    current_equity = portfolio["cash"]
+    for existing in portfolio["open_positions"]:
+        mark = existing.get("last_price_usd")
+        if mark is None or float(mark) <= 0:
+            raise ValueError("An open position has no valid market mark; reconcile it before opening another trade.")
+        current_equity += (
+            float(existing["notional_usd"]) + mark_position(existing, float(mark), fee_rate, slippage_rate)["unrealized_pnl_usd"] + float(existing.get("entry_fee_usd", 0.0))
+            if existing.get("direction", "long") == "short"
+            else float(existing["quantity"]) * float(mark)
+        )
+    if current_equity <= 0:
+        raise ValueError("Portfolio equity is not positive; new paper entries are blocked.")
+    notional = size_position(
+        current_equity, stop_loss_pct, exposure, direction=direction,
+        fee_rate=fee_rate, slippage_rate=slippage_rate, open_risk_usd=open_risk,
+        max_notional_usd=portfolio["cash"] / (1.0 + fee_rate),
+    )
     if notional <= 0:
         raise ValueError("No available paper-trading risk budget or cash.")
     fill_price = signal.price_usd * (1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate)
@@ -216,7 +246,7 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
         "source": signal.source,
     }
     position.update(position_risk_at_stop(position, fee_rate=fee_rate, slippage_rate=slippage_rate))
-    position["risk_at_stop_pct_equity"] = position["risk_at_stop_usd"] / float(portfolio.get("starting_capital") or portfolio["cash"]) * 100.0
+    position["risk_at_stop_pct_equity"] = position["risk_at_stop_usd"] / current_equity * 100.0
     portfolio["cash"] = round(portfolio["cash"] - notional - entry_fee, 8)
     portfolio["open_positions"].append(position)
     return position
@@ -275,6 +305,9 @@ def portfolio_summary(portfolio: dict) -> dict:
         "open_exposure_pct_equity": open_exposure / equity * 100.0 if equity > 0 else None,
         "risk_at_stops_usd": None if risk_unknown else risk_total,
         "risk_at_stops_pct_equity": (risk_total / equity * 100.0) if not risk_unknown and equity > 0 else None,
+        "risk_budget_per_trade_usd": equity * DEFAULT_RISK_FRACTION if equity > 0 else None,
+        "max_aggregate_stop_risk_usd": equity * MAX_TOTAL_RISK_FRACTION if equity > 0 else None,
+        "remaining_aggregate_stop_risk_usd": max(0.0, equity * MAX_TOTAL_RISK_FRACTION - risk_total) if not risk_unknown and equity > 0 else None,
         "risk_unknown_positions": risk_unknown,
     }
 

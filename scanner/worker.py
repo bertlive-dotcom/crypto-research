@@ -5,7 +5,8 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import (Signal, new_portfolio, paper_entry, update_position_mark,\n                          ensure_daily_equity_baseline, daily_equity_drawdown)
+from trading_desk import (Signal, new_portfolio, paper_entry, update_position_mark,
+                          ensure_daily_equity_baseline, daily_equity_drawdown)
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
 )

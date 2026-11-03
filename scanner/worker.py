@@ -35,7 +35,13 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         for position in list(portfolio.get("open_positions", [])):
             price = prices.get(position["asset"].upper())
             if price:
-                trade = update_position_mark(portfolio, position["asset"], float(price), position_id=position.get("position_id"))
+                try:
+                    trade = update_position_mark(portfolio, position["asset"], float(price), position_id=position.get("position_id"))
+                except (KeyError, TypeError, ValueError) as exc:
+                    # Do not let one unreconciled legacy position stop management of all others.
+                    log.error("Position %s requires manual risk reconciliation; no mark or exit was fabricated: %s",
+                              position.get("position_id") or position.get("asset"), exc)
+                    continue
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 

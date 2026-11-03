@@ -37,6 +37,7 @@ class Signal:
     volume_24h_usd: Optional[float] = None
     gain_1h_pct: Optional[float] = None
     source: str = "manual"
+    scanner_approved: bool = False
     observed_at: str = ""
 
     def __post_init__(self):
@@ -79,13 +80,22 @@ def evaluate_signal(signal: Signal) -> dict:
             reasons.append("Missing 24-hour volume; major-asset signal rejected.")
         elif signal.volume_24h_usd < MIN_MAJOR_VOLUME_24H_USD:
             reasons.append(f"24-hour volume below ${MIN_MAJOR_VOLUME_24H_USD:,.0f}.")
-        major_gain = signal.gain_1h_pct
-        # Backward compatibility for callers that still submit the old field.
-        if major_gain is None:
-            major_gain = signal.gain_45m_pct
-        if major_gain is None:
-            reasons.append("Missing 1-hour price change; major-asset signal rejected.")
-        elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+        # The scanner has already applied its own closed-candle, multi-timeframe
+        # hard filters. Only its exact internal source may use this path.
+        scanner_path = (
+            signal.scanner_approved is True
+            and signal.source == "Market Scanner v1 / Binance Spot"
+        )
+        if not scanner_path:
+            major_gain = signal.gain_1h_pct
+            # Backward compatibility for callers that still submit the old field.
+            if major_gain is None:
+                major_gain = signal.gain_45m_pct
+            if major_gain is None:
+                reasons.append("Missing 1-hour price change; major-asset signal rejected.")
+            elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+                reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
+        elif signal.gain_1h_pct is not None and signal.gain_1h_pct > MAX_MAJOR_GAIN_1H_PCT:
             reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
     else:
         reasons.append("Unknown market. Use 'solana' or 'major'.")
@@ -234,14 +244,20 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float,
     position.setdefault("direction", direction)
     reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
                              or position.get("entry_price_usd") or position.get("last_price_usd") or price_usd)
-    stop_pct = float(position.get("stop_loss_pct", 10.0))
-    take_profit_pct = float(position.get("take_profit_pct", 20.0))
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if not position.get("stop_price") and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if not position.get("take_profit_price") and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
     if not position.get("stop_price"):
         position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if is_short else 1.0 - stop_pct / 100.0)
     if not position.get("take_profit_price"):
         position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if is_short else 1.0 + take_profit_pct / 100.0)
-    position.setdefault("take_profit_pct", take_profit_pct)
-    position.setdefault("stop_loss_pct", stop_pct)
 
     position["last_price_usd"] = price_usd
     stop_hit = price_usd >= position["stop_price"] if is_short else price_usd <= position["stop_price"]
@@ -255,20 +271,48 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float,
 
 def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float,
                                 close: Optional[float] = None,
-                                position_id: Optional[str] = None) -> Optional[dict]:
-    """Check candle extremes against one exact position; stop wins if both levels cross."""
+                                position_id: Optional[str] = None,
+                                open: Optional[float] = None) -> Optional[dict]:
+    """Check candle extremes; stop wins ambiguous bars and gaps fill at the open."""
     if high <= 0 or low <= 0 or high < low:
         raise ValueError("Invalid candle high/low.")
+    if open is not None and (open <= 0 or not low <= open <= high):
+        raise ValueError("Invalid candle open.")
     _, position = _find_open_position(portfolio, asset, position_id)
+    direction = str(position.get("direction", "long")).lower()
+    if direction not in ("long", "short"):
+        raise ValueError("Invalid paper position direction.")
+    short = direction == "short"
+    position.setdefault("direction", direction)
+    reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
+                            or position.get("entry_price_usd") or position.get("last_price_usd")
+                            or (close if close is not None else open if open is not None else high))
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if position.get("stop_price") is None and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if position.get("take_profit_price") is None and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
+    if position.get("stop_price") is None:
+        position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if short else 1.0 - stop_pct / 100.0)
+    if position.get("take_profit_price") is None:
+        position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if short else 1.0 + take_profit_pct / 100.0)
     if close is not None:
         if close <= 0:
             raise ValueError("Candle close must be positive.")
         position["last_price_usd"] = float(close)
-    short = position.get("direction", "long") == "short"
-    stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
-    tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
+    stop_price, target_price = float(position["stop_price"]), float(position["take_profit_price"])
+    stop_hit = high >= stop_price if short else low <= stop_price
+    tp_hit = low <= target_price if short else high >= target_price
     if stop_hit:
-        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss", position_id=position.get("position_id"))
+        stop_fill = (max(stop_price, float(open)) if short and open is not None
+                     else min(stop_price, float(open)) if not short and open is not None
+                     else stop_price)
+        return paper_exit(portfolio, asset, stop_fill, reason="stop_loss", position_id=position.get("position_id"))
     if tp_hit:
-        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit", position_id=position.get("position_id"))
+        return paper_exit(portfolio, asset, target_price, reason="take_profit", position_id=position.get("position_id"))
     return None

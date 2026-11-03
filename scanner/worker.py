@@ -23,10 +23,14 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         return {"status": "locked"}
     try:
         portfolio = store.load_state() or new_portfolio(STARTING_CAPITAL_USD)
-        # Persist opening equity before today's market marks are applied.
+        # Persist opening equity and stable legacy IDs before any fallible market-data work.
+        previous_daily_risk = dict(portfolio.get("daily_risk") or {})
+        ids_changed = ensure_position_ids(portfolio)
         ensure_daily_equity_baseline(portfolio)
         portfolio.setdefault("processed_signal_ids", [])
-        ensure_position_ids(portfolio)
+        if previous_daily_risk != portfolio.get("daily_risk", {}) or ids_changed:
+            # Fail the cycle closed if the baseline cannot be made durable.
+            store.save_state(portfolio)
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 

@@ -395,7 +395,10 @@ def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
     """Measure net-liquidation equity against the persisted local-day opening snapshot; fail closed."""
     risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
     try:
-        current_equity = float(portfolio_summary(portfolio)["equity_usd"])
+        summary = portfolio_summary(portfolio)
+        if summary.get("risk_unknown_positions"):
+            raise ValueError("Open position stop risk is unavailable.")
+        current_equity = float(summary["equity_usd"])
         start_equity = float(risk["start_equity_usd"])
         if not (current_equity >= 0 and start_equity > 0):
             raise ValueError("Equity snapshot is not valid.")

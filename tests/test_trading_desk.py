@@ -48,6 +48,40 @@ class TradingDeskTests(unittest.TestCase):
         self.assertGreater(size_position(80,10),7.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
 
+    def test_position_size_respects_remaining_aggregate_risk_budget(self):
+        self.assertGreater(size_position(1000, 2, open_risk_usd=20.0), 0)
+        self.assertEqual(size_position(1000, 2, open_risk_usd=29.99), 0.0)
+
+    def test_position_size_respects_available_cash_after_fees(self):
+        self.assertEqual(size_position(1000, 2, max_position_fraction=1.0,
+                                       max_total_exposure_fraction=1.0,
+                                       max_notional_usd=50.0), 50.0)
+
+    def test_paper_entry_caps_aggregate_stop_risk_and_uses_current_equity(self):
+        p = new_portfolio(1000)
+        first = paper_entry(p, self.valid_solana(), stop_loss_pct=2, take_profit_pct=4)
+        second_signal = self.valid_solana()
+        second_signal.asset = "TEST2"
+        second = paper_entry(p, second_signal, stop_loss_pct=2, take_profit_pct=4)
+        summary = portfolio_summary(p)
+        self.assertLessEqual(summary["risk_at_stops_usd"], summary["max_aggregate_stop_risk_usd"] + 0.01)
+        self.assertAlmostEqual(
+            first["risk_at_stop_pct_equity"],
+            first["risk_at_stop_usd"] / 1000.0 * 100.0,
+            places=3,
+        )
+        self.assertGreaterEqual(summary["remaining_aggregate_stop_risk_usd"], 0.0)
+        self.assertGreater(second["risk_at_stop_usd"], 0.0)
+
+    def test_paper_entry_blocks_when_existing_position_risk_is_unknown(self):
+        p = new_portfolio(80)
+        p["open_positions"] = [{
+            "asset": "OLD", "notional_usd": 5, "last_price_usd": 1,
+            "quantity": 5, "entry_fee_usd": 0.005,
+        }]
+        with self.assertRaisesRegex(ValueError, "unknown stop risk"):
+            paper_entry(p, self.valid_solana(), stop_loss_pct=3)
+
     def test_position_size_accounts_for_both_side_costs_and_direction(self):
         long_size = size_position(1000, 2, direction="long", max_position_fraction=1.0,
                                   max_total_exposure_fraction=1.0)

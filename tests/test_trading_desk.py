@@ -55,8 +55,16 @@ class TradingDeskTests(unittest.TestCase):
                                    max_total_exposure_fraction=1.0)
         self.assertGreater(long_size, 0)
         self.assertGreater(short_size, 0)
-        self.assertLessEqual(long_size * 0.0256, 10.0)
-        self.assertLessEqual(short_size * 0.0256, 10.0)
+        for direction, size in (("long", long_size), ("short", short_size)):
+            entry_fill = 1.003 if direction == "long" else 0.997
+            stop_price = entry_fill * (0.98 if direction == "long" else 1.02)
+            unit_position = {
+                "direction": direction, "notional_usd": 1.0,
+                "quantity": 1.0 / entry_fill, "entry_fee_usd": 0.001,
+                "entry_fill_price": entry_fill, "stop_price": stop_price,
+            }
+            unit_risk = position_risk_at_stop(unit_position)["risk_at_stop_usd"]
+            self.assertLessEqual(size * unit_risk, 10.0)
 
     def test_position_net_risk_at_stop_includes_entry_and_exit_costs(self):
         p = new_portfolio(1000)

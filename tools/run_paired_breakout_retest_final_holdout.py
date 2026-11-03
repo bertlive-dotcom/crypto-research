@@ -152,12 +152,12 @@ def build_pairs(candles, retest_window):
     return pairs, unmatched
 
 
-def _stats(trades):
+def _stats(trades, cost=0.30):
     if not trades:
         return {"n": 0, "win_rate_pct": None, "mean_net_pct": None, "median_net_pct": None,
                 "mean_net_r": None, "profit_factor": None}
-    rets = [t["net_return_pct"] for t in trades]
-    rs = [t["net_r"] for t in trades]
+    rets = [t["gross_return_pct"] - cost for t in trades]
+    rs = [(t["gross_return_pct"] - cost) / t["risk_pct"] for t in trades if t["risk_pct"] > 0]
     gp = sum(x for x in rets if x > 0)
     gl = abs(sum(x for x in rets if x < 0))
     return {
@@ -205,17 +205,24 @@ def _summarize_pairs(pairs):
             direct = [p["direct"] for p in group]
             retest = [p["retest"] for p in group]
             result[split][label] = {
-                "direct": _stats(direct), "retest": _stats(retest),
-                "mean_paired_delta_net_r": round(mean([p["paired_delta_net_r"] for p in group]), 5) if group else None,
-                "mean_paired_delta_net_pct": round(mean([p["paired_delta_net_pct"] for p in group]), 5) if group else None,
-                "bootstrap_delta_net_r": moving_block_bootstrap(
+                "cost_sensitivity": {
+                    str(cost): {
+                        "direct": _stats(direct, cost), "retest": _stats(retest, cost),
+                        "mean_paired_delta_net_r": round(mean([
+                            (p["retest"]["gross_return_pct"] - cost) / p["retest"]["risk_pct"]
+                            - (p["direct"]["gross_return_pct"] - cost) / p["direct"]["risk_pct"]
+                            for p in group if p["direct"]["risk_pct"] > 0 and p["retest"]["risk_pct"] > 0
+                        ]), 5) if group else None,
+                    } for cost in COSTS
+                },
+                "bootstrap_delta_net_r_at_0_30": moving_block_bootstrap(
                     [p["paired_delta_net_r"] for p in group]
                 ),
             }
     return result
 
 
-def analyze_asset(candles):
+def analyze_asset(candles, selected_window):
     variants = {}
     for w in WINDOWS:
         pairs, unmatched = build_pairs(candles, w)
@@ -225,37 +232,19 @@ def analyze_asset(candles):
             "breakouts_without_valid_retest": len(unmatched),
             "unmatched_breakout_examples": unmatched[:20],
         }
-    # Freeze the single configuration using exploration only.
-    candidates = []
-    for w in WINDOWS:
-        rows = variants[str(w)]["matched_pairs"]
-        exp = [p for p in rows if p["split"] == "exploration"]
-        delta = mean([p["paired_delta_net_r"] for p in exp]) if len(exp) >= 20 else float("-inf")
-        candidates.append((delta, w, len(exp)))
-    _, selected, exp_n = max(candidates)
-    selected_pairs = variants[str(selected)]["matched_pairs"]
+    if selected_window is None:
+        return {"frozen_window": None, "status": "insufficient_exploration_sample",
+                "full_diagnostics": variants}
+    selected_pairs = variants[str(selected_window)]["matched_pairs"]
     validation = [p for p in selected_pairs if p["split"] == "validation"]
     final = [p for p in selected_pairs if p["split"] == "final_holdout"]
-    # Final period is evaluated only for the frozen exploration-selected window.
     return {
-        "selected_window_from_exploration_only": selected if exp_n >= 20 else None,
-        "selection_exploration_pair_count": exp_n,
-        "variants_exploration_and_validation": {
-            w: {
-                split: variants[str(w)]["summary"][split]["all"]
-                for split in ("exploration", "validation")
-            } for w in WINDOWS
-        },
-        "frozen_validation": {
-            "window": selected if exp_n >= 20 else None,
-            "matched_pairs": len(validation),
-            "summary": variants[str(selected)]["summary"]["validation"]["all"] if exp_n >= 20 else None,
-        },
+        "frozen_window_selected_globally_from_exploration": selected_window,
+        "validation": variants[str(selected_window)]["summary"]["validation"],
         "untouched_final_holdout": {
-            "window": selected if exp_n >= 20 else None,
-            "matched_pairs": len(final) if exp_n >= 20 else 0,
-            "summary": variants[str(selected)]["summary"]["final_holdout"]["all"] if exp_n >= 20 else None,
-            "notice": "Only the single exploration-selected window is evaluated here; final results must not be used to retune.",
+            "window": selected_window, "matched_pairs": len(final),
+            "summary": variants[str(selected_window)]["summary"]["final_holdout"],
+            "notice": "Single globally selected window only; do not retune using this period.",
         },
         "full_diagnostics": variants,
     }
@@ -263,20 +252,39 @@ def analyze_asset(candles):
 
 def run(symbols, limit):
     client = BinanceMarketDataClient()
-    assets, unavailable = [], []
+    raw_assets, unavailable = [], []
     for symbol in symbols:
         try:
             candles = closed_candles(client.get_klines_history(symbol, interval="1d", total_limit=limit))
             if len(candles) < 500:
                 unavailable.append({"symbol": symbol, "reason": f"only {len(candles)} closed daily candles"})
                 continue
-            assets.append({
-                "symbol": symbol, "candles": len(candles),
-                "first_date": candles[0].get("date"), "last_date": candles[-1].get("date"),
-                "analysis": analyze_asset(candles),
-            })
+            per_window = {}
+            for w in WINDOWS:
+                pairs, unmatched = build_pairs(candles, w)
+                per_window[str(w)] = {"pairs": pairs, "unmatched": unmatched}
+            raw_assets.append({"symbol": symbol, "candles": candles, "per_window": per_window})
         except (BinanceMarketDataError, ValueError) as exc:
             unavailable.append({"symbol": symbol, "reason": str(exc)})
+    # One global window is frozen using pooled exploration data only, not per-asset tuning.
+    pooled = {}
+    for w in WINDOWS:
+        rows = [p for a in raw_assets for p in a["per_window"][str(w)]["pairs"]
+                if p["split"] == "exploration"]
+        pooled[str(w)] = {
+            "pairs": len(rows),
+            "mean_paired_delta_net_r": mean([p["paired_delta_net_r"] for p in rows]) if rows else None,
+        }
+    eligible = [(v["mean_paired_delta_net_r"], int(w), v["pairs"])
+                for w, v in pooled.items() if v["pairs"] >= 30]
+    selected = max(eligible)[1] if eligible else None
+    assets = []
+    for a in raw_assets:
+        assets.append({
+            "symbol": a["symbol"], "candles": len(a["candles"]),
+            "first_date": a["candles"][0].get("date"), "last_date": a["candles"][-1].get("date"),
+            "analysis": analyze_asset(a["candles"], selected),
+        })
     return {
         "report_type": "paired_breakout_retest_final_holdout_v1",
         "methodology": {
@@ -288,7 +296,9 @@ def run(symbols, limit):
             "stop_geometry": "strategy-specific structural stop: breakout candle extreme for direct, retest candle extreme for retest; compare risk-normalized net R and net percentage separately",
             "cost_scenarios_pct": list(COSTS),
             "bootstrap": "circular moving-block bootstrap on chronological paired event deltas, block length 5, 5000 resamples; descriptive only",
-            "selection": "window selected per asset using exploration paired mean net-R only; validation assesses frozen selection; final period reports only that frozen window",
+            "selection": "one global window selected across pooled assets using exploration paired mean net-R only; validation assesses frozen selection; final period reports only that frozen window",
+            "exploration_window_comparison": pooled,
+            "frozen_global_window": selected,
             "subgroups": "long/short and EMA50/EMA200 regime at breakout close",
             "warning": "Events are matched within asset; cross-asset correlation is not jointly resampled. Block bootstrap is descriptive and does not cure multiple-testing or sparse-sample risks.",
         },

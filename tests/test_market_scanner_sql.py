@@ -25,6 +25,7 @@ def connect():
     )
 
 
+@unittest.skipUnless(os.environ.get("PGHOST"), "requires the disposable PostgreSQL service")
 class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -44,6 +45,13 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
             cur.execute("DELETE FROM public.scanner_runs")
             cur.execute("DELETE FROM public.scanner_paper_state")
             cur.execute("DELETE FROM public.market_scanner_lock")
+
+    def _as_owner(self, sql, params=()):
+        """Create fixtures as the database owner, never by weakening service_role."""
+        with self.conn.cursor() as cur:
+            cur.execute("RESET ROLE")
+            cur.execute(sql, params)
+            return cur.fetchone()
 
     def _as_service(self, sql, params=()):
         with self.conn.cursor() as cur:
@@ -112,7 +120,7 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
             state,
         )
         self.assertEqual(self._as_service("SELECT status FROM public.scanner_runs ORDER BY id DESC LIMIT 1")[0], "completed")
-        self.assertEqual(self._as_service("SELECT symbol, score FROM public.market_candidates")[0], ("BTCUSDT", 87))
+        self.assertEqual(self._as_service("SELECT symbol, score FROM public.market_candidates"), ("BTCUSDT", 87))
         self.assertEqual(self._as_service("SELECT signal_id, direction FROM public.trading_signals")[0], ("integration-signal-1", "long"))
 
     def test_cycle_rpc_is_idempotent_for_candidate_and_signal_keys(self):
@@ -161,7 +169,7 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
         self.assertTrue(reacquire)
 
     def test_expired_lock_can_be_taken_over(self):
-        self._as_service(
+        self._as_owner(
             "INSERT INTO public.market_scanner_lock(id, worker_id, lease_until) VALUES ('singleton','old-worker',now()-interval '1 second')"
         )
         self.assertTrue(self._as_service(
@@ -187,11 +195,11 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
 
     def test_cycle_rpc_removes_records_older_than_30_days(self):
         old = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
-        self._as_service(
+        self._as_owner(
             "INSERT INTO public.scanner_runs(status,payload,created_at) VALUES ('old','{}'::jsonb,%s::timestamptz)",
             (old,),
         )
-        self._as_service(
+        self._as_owner(
             """INSERT INTO public.market_candidates
             (symbol,score,eligible,auto_entry_eligible,price_usdt,quote_volume_24h,
              change_24h_pct,features,reasons,scanned_at)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD,
+    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, position_risk_at_stop,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
@@ -377,11 +377,18 @@ with desk_tab:
             st.warning("Automatic {} triggered for {} at simulated level.".format(stopped_trade["exit_reason"].replace("_", " "), asset))
 
     summary = portfolio_summary(portfolio)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Virtual equity", "USD {:.2f}".format(summary["equity_usd"]))
     col2.metric("Cash available", "USD {:.2f}".format(summary["cash_usd"]))
-    col3.metric("Realized P&L", "USD {:.2f}".format(summary["realized_pnl_usd"]))
-    col4.metric("Unrealized P&L", "USD {:.2f}".format(summary["unrealized_pnl_usd"]))
+    col3.metric("Unrealized P&L", "USD {:.2f}".format(summary["unrealized_pnl_usd"]))
+    risk_col, exposure_col, pnl_col = st.columns(3)
+    risk_col.metric("Net risk at stops", "USD {:.2f}".format(summary["risk_at_stops_usd"]) if summary["risk_at_stops_usd"] is not None else "Unknown")
+    exposure_col.metric("Open exposure", "USD {:.2f} ({:.1f}%)".format(summary["open_exposure_usd"], summary["open_exposure_pct_equity"] or 0.0))
+    pnl_col.metric("Realized P&L", "USD {:.2f}".format(summary["realized_pnl_usd"]))
+    if summary["risk_unknown_positions"]:
+        st.error("Risk unavailable for positions: {}. Reconcile stop data before opening new trades.".format(", ".join(summary["risk_unknown_positions"])))
+    else:
+        st.caption("Aggregate stop risk: {:.2f}% of current equity. Stop-risk estimates include entry/exit fees and adverse slippage.".format(summary["risk_at_stops_pct_equity"] or 0.0))
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
@@ -495,8 +502,9 @@ with desk_tab:
                 position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct), direction=direction)
                 if paper_store:
                     paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
-                st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}; take-profit price {:.8f}.".format(
-                    position["notional_usd"], position["stop_price"], position["take_profit_price"]))
+                st.success("Signal approved. Paper notional: USD {:.2f}; net loss at stop: USD {:.2f} ({:.2f}% of starting capital); stop: {:.8f}; take-profit: {:.8f}.".format(
+                    position["notional_usd"], position["risk_at_stop_usd"], position["risk_at_stop_pct_equity"],
+                    position["stop_price"], position["take_profit_price"]))
             except ValueError as error:
                 st.error(str(error))
         else:
@@ -514,7 +522,16 @@ with desk_tab:
 
     st.markdown("#### Open paper positions")
     if portfolio["open_positions"]:
-        st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
+        position_rows = []
+        for position in portfolio["open_positions"]:
+            row = dict(position)
+            try:
+                row.update(position_risk_at_stop(position))
+            except (KeyError, TypeError, ValueError):
+                row["risk_at_stop_usd"] = None
+                row["risk_at_stop_pct_notional"] = None
+            position_rows.append(row)
+        st.dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
         with st.form("position_update_form"):
             position_by_id = {position["position_id"]: position for position in portfolio["open_positions"]}
             selected_id = st.selectbox(

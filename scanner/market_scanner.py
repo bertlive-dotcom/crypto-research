@@ -1,6 +1,7 @@
 """Candidate discovery, technical scoring and deterministic paper-entry decisions."""
 from __future__ import annotations
 from datetime import datetime, timezone
+from trading_desk import daily_equity_drawdown
 from .config import (
     AUTO_ENTRY_SCORE, MAX_CANDIDATES, MIN_SCORE, WATCHLIST,
     STOP_LOSS_PCT, TAKE_PROFIT_PCT, MAX_OPEN_POSITIONS, MAX_DAILY_LOSS_USDT,
@@ -139,10 +140,11 @@ def daily_realized_pnl(portfolio: dict) -> float:
     return total
 
 def apply_paper_rules(candidates: list[dict], portfolio: dict) -> list[dict]:
-    """Return approved candidates; callers pass them to the existing paper_entry engine."""
+    """Gate new entries using persisted start-of-day net equity; never blocks position management."""
     if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
         return []
-    if daily_realized_pnl(portfolio) <= -MAX_DAILY_LOSS_USDT:
+    daily_risk = daily_equity_drawdown(portfolio)
+    if daily_risk["loss_usd"] >= MAX_DAILY_LOSS_USDT:
         return []
     open_assets = {p["asset"].upper() for p in portfolio.get("open_positions", [])}
     approved = []

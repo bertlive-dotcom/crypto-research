@@ -444,5 +444,16 @@ class TradingDeskTests(unittest.TestCase):
         self.assertEqual(risk["status"], "unavailable_fail_closed")
         self.assertGreater(risk["loss_usd"], 2.4)
 
+    def test_daily_equity_guard_fails_closed_when_take_profit_is_unknown(self):
+        from trading_desk import ensure_daily_equity_baseline, daily_equity_drawdown
+        p = new_portfolio(80)
+        ensure_daily_equity_baseline(p)
+        position = paper_entry(p, self.valid_solana(), stop_loss_pct=10)
+        position.pop("take_profit_price")
+        position.pop("take_profit_pct")
+        risk = daily_equity_drawdown(p)
+        self.assertEqual(risk["status"], "unavailable_fail_closed")
+        self.assertGreater(risk["loss_usd"], 2.4)
+
 if __name__ == "__main__":
     unittest.main()

@@ -388,7 +388,10 @@ with desk_tab:
     if summary["risk_unknown_positions"]:
         st.error("Risk unavailable for positions: {}. Reconcile stop data before opening new trades.".format(", ".join(summary["risk_unknown_positions"])))
     else:
-        st.caption("Aggregate stop risk: {:.2f}% of current equity. Stop-risk estimates include entry/exit fees and adverse slippage.".format(summary["risk_at_stops_pct_equity"] or 0.0))
+        st.caption("Aggregate stop risk: {:.2f}% of current equity (maximum {:.2f}%). Remaining risk budget: USD {:.2f}. Estimates include entry/exit fees and adverse slippage.".format(
+            summary["risk_at_stops_pct_equity"] or 0.0,
+            (summary["max_aggregate_stop_risk_usd"] / summary["equity_usd"] * 100.0) if summary["equity_usd"] > 0 else 0.0,
+            summary["remaining_aggregate_stop_risk_usd"] or 0.0))
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
@@ -502,7 +505,7 @@ with desk_tab:
                 position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct), direction=direction)
                 if paper_store:
                     paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
-                st.success("Signal approved. Paper notional: USD {:.2f}; net loss at stop: USD {:.2f} ({:.2f}% of starting capital); stop: {:.8f}; take-profit: {:.8f}.".format(
+                st.success("Signal approved. Paper notional: USD {:.2f}; net loss at stop: USD {:.2f} ({:.3f}% of equity at entry); stop: {:.8f}; take-profit: {:.8f}.".format(
                     position["notional_usd"], position["risk_at_stop_usd"], position["risk_at_stop_pct_equity"],
                     position["stop_price"], position["take_profit_price"]))
             except ValueError as error:
@@ -527,6 +530,10 @@ with desk_tab:
             row = dict(position)
             try:
                 row.update(position_risk_at_stop(position))
+                row["risk_at_stop_pct_equity"] = (
+                    row["risk_at_stop_usd"] / summary["equity_usd"] * 100.0
+                    if summary["equity_usd"] > 0 else None
+                )
             except (KeyError, TypeError, ValueError):
                 row["risk_at_stop_usd"] = None
                 row["risk_at_stop_pct_notional"] = None

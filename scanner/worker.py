@@ -38,7 +38,6 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 
-        daily_risk = daily_equity_drawdown(portfolio)
         approved = apply_paper_rules(candidates, portfolio)
         signals = []
         processed = set(portfolio["processed_signal_ids"])
@@ -66,6 +65,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         portfolio["processed_signal_ids"] = sorted(processed)[-1000:]
+        daily_risk = daily_equity_drawdown(portfolio)
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
             "daily_risk": daily_risk,

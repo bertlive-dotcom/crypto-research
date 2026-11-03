@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
-from scanner.market_scanner import apply_paper_rules, consecutive_loss_streak, daily_total_pnl, score_candidate, scan_market
+from scanner.market_scanner import apply_paper_rules, consecutive_loss_streak, score_candidate, scan_market
 from scanner.store import enrich_candidate_diagnostics
 from trading_desk import new_portfolio, Signal, paper_entry, paper_exit, ensure_daily_equity_baseline
 
@@ -136,13 +136,11 @@ class ScannerRuleTests(unittest.TestCase):
             "asset": "BTC", "direction": "long", "notional_usd": 100.0,
             "quantity": 1.0, "entry_fee_usd": 0.1, "last_price_usd": 97.0,
         }]
-        self.assertLessEqual(daily_total_pnl(portfolio), -2.4)
         self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
 
     def test_daily_loss_guard_fails_closed_when_open_mark_is_missing(self):
         portfolio = new_portfolio(80)
         portfolio["open_positions"] = [{"asset": "BTC"}]
-        self.assertEqual(daily_total_pnl(portfolio), float("-inf"))
         self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
 
     def test_three_consecutive_losses_pause_new_entries(self):
@@ -237,6 +235,51 @@ class ScannerWorkerPersistenceTests(unittest.TestCase):
         self.assertEqual(result["paper_entries"], 0)
         self.assertEqual(store.calls[0][0], "save_state")
         self.assertEqual(store.calls[1][0], "save_cycle")
+
+    def test_daily_equity_guard_fails_closed_for_stale_market_data(self):
+        from trading_desk import daily_equity_drawdown
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        portfolio["market_data_unavailable_positions"] = ["legacy-1"]
+        risk = daily_equity_drawdown(portfolio)
+        self.assertEqual(risk["status"], "unavailable_fail_closed")
+        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+
+    def test_worker_uses_last_closed_candle_and_blocks_entries_on_stale_data(self):
+        from scanner.worker import run_once
+        from unittest.mock import patch
+
+        class FakeStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.state["open_positions"] = [{
+                    "position_id": "legacy-1", "asset": "BTC", "direction": "long",
+                    "notional_usd": 5.0, "quantity": 0.05, "entry_fee_usd": 0.01,
+                    "entry_fill_price": 100.0, "stop_price": 90.0,
+                    "take_profit_price": 120.0, "stop_loss_pct": 10.0,
+                    "take_profit_pct": 20.0, "last_price_usd": 100.0,
+                }]
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_state(self, state): pass
+            def save_cycle(self, state, run, candidates, signals): self.saved = (state, run, candidates, signals)
+            def release_lock(self, worker_id): pass
+
+        class FakeClient:
+            def klines(self, symbol, interval, limit):
+                return [
+                    [0, "100", "101", "99", "100", "10", 1000],
+                    [1001, "100", "101", "99", "100", "10", 2000],
+                ]
+
+        store = FakeStore()
+        with patch("scanner.worker.scan_market", return_value=([self.candidate()], {"analysed_count": 1, "candidate_count": 1})):
+            result = run_once(store, client=FakeClient())
+        self.assertEqual(result["paper_entries"], 0)
+        self.assertIn("legacy-1", store.saved[0]["market_data_unavailable_positions"])
+        self.assertEqual(store.saved[3], [])
+
 
 if __name__ == "__main__":
     unittest.main()

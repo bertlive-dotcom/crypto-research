@@ -276,7 +276,12 @@ def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "man
     proceeds = position["quantity"] * exit_fill
     exit_fee = proceeds * fee_rate
     realized_pnl = (position["notional_usd"] - proceeds - exit_fee - position["entry_fee_usd"]) if is_short else (proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"])
-    portfolio["cash"] = round(portfolio["cash"] + (position["notional_usd"] + realized_pnl if is_short else proceeds - exit_fee), 8)
+    portfolio["cash"] = round(
+        portfolio["cash"] + (
+            position["notional_usd"] + realized_pnl + position["entry_fee_usd"]
+            if is_short else proceeds - exit_fee
+        ), 8,
+    )
     trade = {
         **position, "exit_reference_price": price_usd, "exit_fill_price": exit_fill,
         "exit_fee_usd": exit_fee,

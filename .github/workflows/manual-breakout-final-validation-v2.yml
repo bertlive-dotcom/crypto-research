@@ -1,6 +1,9 @@
 name: Final breakout robustness validation v2
 
 on:
+  push:
+    branches:
+      - feature/breakout-final-validation-v2
   workflow_dispatch:
     inputs:
       candle_limit:
@@ -47,7 +50,7 @@ jobs:
       - name: Run final validation on public Binance Spot data
         run: |
           PYTHONPATH=. python tools/run_breakout_final_validation_v2.py \
-            --limit "${{ inputs.candle_limit }}" \
+            --limit "${{ inputs.candle_limit || '10000' }}" \
             --output reports/breakout_final_validation_v2.json
 
       - name: Upload final validation report

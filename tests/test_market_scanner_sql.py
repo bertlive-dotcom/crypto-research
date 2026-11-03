@@ -175,7 +175,7 @@ class ScannerSqlPersistenceIntegrationTests(unittest.TestCase):
         self.assertTrue(self._as_service(
             "SELECT public.acquire_market_scanner_lock(%s, %s)", ("new-worker", 240)
         )[0])
-        self.assertEqual(self._as_service("SELECT worker_id FROM public.market_scanner_lock")[0], "new-worker")
+        self.assertEqual(self._as_owner("SELECT worker_id FROM public.market_scanner_lock")[0], "new-worker")
 
     def test_rpc_rejects_invalid_payloads_without_partial_writes(self):
         with self.assertRaises(RaiseException):

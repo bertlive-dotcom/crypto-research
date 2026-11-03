@@ -187,5 +187,19 @@ class ScannerRuleTests(unittest.TestCase):
                        position_id=position["position_id"], reason="stop_loss")
         self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
 
+
+    def test_three_live_positions_still_count_after_partial_close(self):
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        positions = []
+        for asset in ("BTC", "ETH", "SOL"):
+            signal = Signal(asset=asset, market="major", price_usd=100.0,
+                            volume_24h_usd=20_000_000, gain_1h_pct=0)
+            positions.append(paper_entry(portfolio, signal, stop_loss_pct=10))
+        self.assertEqual(len(portfolio["open_positions"]), 3)
+        paper_exit(portfolio, "BTC", 105.0, position_id=positions[0]["position_id"], fraction=0.5)
+        self.assertEqual(len(portfolio["open_positions"]), 3)
+        self.assertEqual(apply_paper_rules([self.candidate("XRPUSDT")], portfolio), [])
+
 if __name__ == "__main__":
     unittest.main()

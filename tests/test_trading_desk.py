@@ -73,6 +73,22 @@ class TradingDeskTests(unittest.TestCase):
         self.assertGreaterEqual(summary["remaining_aggregate_stop_risk_usd"], 0.0)
         self.assertGreater(second["risk_at_stop_usd"], 0.0)
 
+    def test_paper_entry_enforces_three_position_limit_with_different_stops(self):
+        p = new_portfolio(1000)
+        opened = []
+        for index, stop in enumerate((1, 2, 3)):
+            signal = self.valid_solana()
+            signal.asset = f"TEST{index}"
+            opened.append(paper_entry(p, signal, stop_loss_pct=stop, take_profit_pct=stop * 2))
+        summary = portfolio_summary(p)
+        self.assertEqual(len(opened), 3)
+        self.assertEqual(summary["open_positions"], 3)
+        self.assertLessEqual(summary["risk_at_stops_usd"], summary["max_aggregate_stop_risk_usd"] + 0.01)
+        signal = self.valid_solana()
+        signal.asset = "TEST4"
+        with self.assertRaisesRegex(ValueError, "Maximum of 3 concurrent"):
+            paper_entry(p, signal, stop_loss_pct=2, take_profit_pct=4)
+
     def test_paper_entry_blocks_when_existing_position_risk_is_unknown(self):
         p = new_portfolio(80)
         p["open_positions"] = [{

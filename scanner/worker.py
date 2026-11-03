@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, new_portfolio, paper_entry, update_position_mark
+from trading_desk import (Signal, new_portfolio, paper_entry, update_position_mark,\n                          ensure_daily_equity_baseline, daily_equity_drawdown)
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
 )
@@ -23,6 +23,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         return {"status": "locked"}
     try:
         portfolio = store.load_state() or new_portfolio(STARTING_CAPITAL_USD)
+        # Capture the local trading-day opening equity before applying today's price marks.
+        ensure_daily_equity_baseline(portfolio)
         portfolio.setdefault("processed_signal_ids", [])
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
@@ -36,6 +38,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 
+        daily_risk = daily_equity_drawdown(portfolio)
         approved = apply_paper_rules(candidates, portfolio)
         signals = []
         processed = set(portfolio["processed_signal_ids"])
@@ -65,6 +68,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         portfolio["processed_signal_ids"] = sorted(processed)[-1000:]
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
+            "daily_risk": daily_risk,
+            "daily_loss_limit_usd": float(os.getenv("SCANNER_MAX_DAILY_LOSS_USDT", "2.4")),
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),
         })
         store.save_cycle(portfolio, run, candidates, signals)

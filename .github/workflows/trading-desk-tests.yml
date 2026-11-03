@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/ai-crypto-trading-desk-simulation
+      - fix/trading-engine-entry-exits
   pull_request:
     branches:
       - main

@@ -256,11 +256,24 @@ def portfolio_summary(portfolio: dict) -> dict:
     unrealized = sum(mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] for p in portfolio["open_positions"])
     realized = sum(t["realized_pnl_usd"] for t in portfolio["closed_trades"])
     equity = portfolio["cash"] + open_value
+    open_exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
+    risk_total = 0.0
+    risk_unknown = []
+    for position in portfolio["open_positions"]:
+        try:
+            risk_total += position_risk_at_stop(position)["risk_at_stop_usd"]
+        except (KeyError, TypeError, ValueError):
+            risk_unknown.append(str(position.get("position_id") or position.get("asset") or "unknown"))
     return {
         "cash_usd": portfolio["cash"], "open_value_usd": open_value, "equity_usd": equity,
         "realized_pnl_usd": realized, "unrealized_pnl_usd": unrealized,
         "total_return_pct": (equity / portfolio["starting_capital"] - 1.0) * 100.0 if portfolio["starting_capital"] else 0.0,
         "open_positions": len(portfolio["open_positions"]), "closed_trades": len(portfolio["closed_trades"]),
+        "open_exposure_usd": open_exposure,
+        "open_exposure_pct_equity": open_exposure / equity * 100.0 if equity > 0 else None,
+        "risk_at_stops_usd": None if risk_unknown else risk_total,
+        "risk_at_stops_pct_equity": (risk_total / equity * 100.0) if not risk_unknown and equity > 0 else None,
+        "risk_unknown_positions": risk_unknown,
     }
 
 

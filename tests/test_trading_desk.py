@@ -426,7 +426,7 @@ class TradingDeskTests(unittest.TestCase):
         from datetime import datetime, timezone
         from trading_desk import ensure_daily_equity_baseline
         p = new_portfolio(80)
-        first = ensure_daily_equity_baseline(p, now=datetime(2026, 11, 3, 8, tzinfo=timezone.utc))
+        first = dict(ensure_daily_equity_baseline(p, now=datetime(2026, 11, 3, 8, tzinfo=timezone.utc)))
         p["cash"] -= 3
         second = ensure_daily_equity_baseline(p, now=datetime(2026, 11, 4, 8, tzinfo=timezone.utc))
         self.assertNotEqual(first["date"], second["date"])

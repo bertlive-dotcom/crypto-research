@@ -91,9 +91,15 @@ def build_pairs(candles, retest_window):
     macd = [e12[i] - e26[i] if e12[i] is not None and e26[i] is not None else None for i in range(n)]
     signal = _ema([x if x is not None else 0.0 for x in macd], 9)
     rsi, atr, vavg = _rsi(close), _atr(candles), _sma(volume, 20)
-    pairs, unmatched = [], []
-    # Split by breakout timestamp, not by trade exit, so a trade cannot migrate between partitions.
+    pairs, unmatched, direct_all = [], [], []
+    # Partition boundaries are candle-index based; trades are purged if either leg exits
+    # beyond the partition's end, preventing outcome leakage across split boundaries.
     cut1, cut2 = int(n * 0.60), int(n * 0.80)
+    split_bounds = {
+        "exploration": (0, cut1),
+        "validation": (cut1, cut2),
+        "final_holdout": (cut2, n),
+    }
     for i in range(200, n - 7):
         vals = (e50[i], e200[i], rsi[i], atr[i], vavg[i], macd[i], signal[i])
         if any(v is None for v in vals) or atr[i] <= 0 or not vavg[i]:
@@ -111,6 +117,19 @@ def build_pairs(candles, retest_window):
         direct = _simulate(candles, i + 1, side, direct_stop, atr[i], cost=0.30)
         if direct is None:
             continue
+        split = "exploration" if i < cut1 else ("validation" if i < cut2 else "final_holdout")
+        split_end = split_bounds[split][1]
+        # Keep each strategy's trade entirely inside its assigned chronological partition.
+        if i + 1 >= split_end or (direct.get("exit_timestamp") is not None
+                                  and int(direct["exit_timestamp"]) >= int(candles[split_end - 1]["timestamp"])):
+            continue
+        direct_all.append({
+            "event_id": f"{candles[i].get('timestamp')}:{side}",
+            "breakout_timestamp": candles[i].get("timestamp"),
+            "side": "long" if side == 1 else "short",
+            "regime": _regime(close, e50, e200, i),
+            "split": split, "direct": direct,
+        })
         found = None
         for j in range(i + 1, min(i + retest_window, n - 2) + 1):
             tol = atr[i] * 0.25
@@ -137,7 +156,10 @@ def build_pairs(candles, retest_window):
         retest = _simulate(candles, found + 1, side, retest_stop, atr[found], cost=0.30)
         if retest is None:
             continue
-        split = "exploration" if i < cut1 else ("validation" if i < cut2 else "final_holdout")
+        # Retest must also enter and exit before the same split boundary.
+        if found + 1 >= split_end or (retest.get("exit_timestamp") is not None
+                                      and int(retest["exit_timestamp"]) >= int(candles[split_end - 1]["timestamp"])):
+            continue
         pairs.append({
             "event_id": f"{candles[i].get('timestamp')}:{side}",
             "breakout_timestamp": candles[i].get("timestamp"),
@@ -149,7 +171,7 @@ def build_pairs(candles, retest_window):
             "paired_delta_net_r": retest["net_r"] - direct["net_r"],
             "paired_delta_net_pct": retest["net_return_pct"] - direct["net_return_pct"],
         })
-    return pairs, unmatched
+    return pairs, unmatched, direct_all
 
 
 def _stats(trades, cost=0.30):
@@ -222,11 +244,20 @@ def _summarize_pairs(pairs):
     return result
 
 
+def _summarize_direct(trades):
+    result = {}
+    for split in ("exploration", "validation", "final_holdout"):
+        rows = [p["direct"] for p in trades if p["split"] == split]
+        result[split] = _stats(rows)
+    return result
+
+
 def analyze_asset(candles, selected_window):
     variants = {}
     selected_pairs = []
+    selected_direct = []
     for w in WINDOWS:
-        pairs, unmatched = build_pairs(candles, w)
+        pairs, unmatched, direct_all = build_pairs(candles, w)
         summary = _summarize_pairs(pairs)
         variants[str(w)] = {
             "exploration": summary["exploration"],
@@ -235,15 +266,20 @@ def analyze_asset(candles, selected_window):
         }
         if selected_window == w:
             selected_pairs = pairs
+            selected_direct = direct_all
     if selected_window is None:
         return {"frozen_window": None, "status": "insufficient_exploration_sample",
                 "window_diagnostics_exploration_validation_only": variants}
     final = [p for p in selected_pairs if p["split"] == "final_holdout"]
     validation = [p for p in selected_pairs if p["split"] == "validation"]
+    direct_final = [p for p in selected_direct if p["split"] == "final_holdout"]
+    direct_validation = [p for p in selected_direct if p["split"] == "validation"]
     return {
         "frozen_window_selected_globally_from_exploration": selected_window,
         "window_diagnostics_exploration_validation_only": variants,
+        "all_breakout_direct_benchmark_validation": _summarize_direct(direct_validation),
         "validation_frozen_window": _summarize_pairs(validation)["validation"],
+        "all_breakout_direct_benchmark_final": _summarize_direct(direct_final),
         "untouched_final_holdout": {
             "window": selected_window, "matched_pairs": len(final),
             "summary": _summarize_pairs(final)["final_holdout"],
@@ -263,8 +299,8 @@ def run(symbols, limit):
                 continue
             per_window = {}
             for w in WINDOWS:
-                pairs, unmatched = build_pairs(candles, w)
-                per_window[str(w)] = {"pairs": pairs, "unmatched": unmatched}
+                pairs, unmatched, direct_all = build_pairs(candles, w)
+                per_window[str(w)] = {"pairs": pairs, "unmatched": unmatched, "direct_all": direct_all}
             raw_assets.append({"symbol": symbol, "candles": candles, "per_window": per_window})
         except (BinanceMarketDataError, ValueError) as exc:
             unavailable.append({"symbol": symbol, "reason": str(exc)})
@@ -302,7 +338,10 @@ def run(symbols, limit):
             "exploration_window_comparison": pooled,
             "frozen_global_window": selected,
             "subgroups": "long/short and EMA50/EMA200 regime at breakout close",
-            "warning": "Events are matched within asset; cross-asset correlation is not jointly resampled. Block bootstrap is descriptive and does not cure multiple-testing or sparse-sample risks.",
+            "benchmark": "Unconditional direct-breakout benchmark includes every eligible direct breakout signal, whether or not a retest subsequently occurs; paired comparison is reported separately on the retest-eligible subset.",
+            "partition_purge": "A trade is retained only when its entry and exit are inside the same chronological partition; boundary-crossing trades are excluded.",
+            "regime_definition": "Bullish/bearish require price and EMA50/EMA200 alignment; all other EMA states are classified as sideways_or_transition. This is descriptive, not a strategy entry filter.",
+            "warning": "Paired sample remains conditional on a subsequent valid retest; compare against the all-breakout direct benchmark as well. Asset-level block intervals are descriptive; global date-cluster bootstrap is reported separately.",
         },
         "assets": assets, "unavailable": unavailable,
         "safety": "Read-only public Binance Spot data. No exchange credentials, order APIs, scanner, paper ledger, positions or production settings touched.",

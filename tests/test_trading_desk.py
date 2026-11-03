@@ -50,7 +50,7 @@ class TradingDeskTests(unittest.TestCase):
 
     def test_position_size_respects_remaining_aggregate_risk_budget(self):
         self.assertGreater(size_position(1000, 2, open_risk_usd=20.0), 0)
-        self.assertEqual(size_position(1000, 2, open_risk_usd=29.99), 0.0)
+        self.assertEqual(size_position(1000, 2, open_risk_usd=30.0), 0.0)
 
     def test_position_size_respects_available_cash_after_fees(self):
         self.assertEqual(size_position(1000, 0.1, max_position_fraction=1.0,

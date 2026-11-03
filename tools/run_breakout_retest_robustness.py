@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from statistics import median
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -28,7 +29,7 @@ def _stats(trades: list[dict], cost: float) -> dict:
         "trades": len(returns),
         "win_rate_pct": round(len(wins) / len(returns) * 100, 1) if returns else None,
         "mean_net_return_pct": round(sum(returns) / len(returns), 3) if returns else None,
-        "median_net_return_pct": round(sorted(returns)[len(returns)//2], 3) if returns else None,
+        "median_net_return_pct": round(median(returns), 3) if returns else None,
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not returns else 0.0),
         "sample_status": "descriptive_only" if len(returns) < 30 else "exploration_floor_met_not_proof",
     }

@@ -1211,6 +1211,15 @@ with scanner_tab:
                 c4.metric("Closed trades", scanner_summary["closed_trades"])
                 st.caption("Scanner realized P&L: USD {:.2f} | Unrealized P&L: USD {:.2f}".format(
                     scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
+                if scanner_summary["risk_unknown_positions"]:
+                    st.error("Scanner stop risk unavailable for: {}. New entries should remain blocked until reconciled.".format(
+                        ", ".join(scanner_summary["risk_unknown_positions"])))
+                else:
+                    st.caption("Scanner net risk at stops: USD {:.2f} ({:.2f}% equity) | Open exposure: USD {:.2f} ({:.1f}% equity)".format(
+                        scanner_summary["risk_at_stops_usd"] or 0.0,
+                        scanner_summary["risk_at_stops_pct_equity"] or 0.0,
+                        scanner_summary["open_exposure_usd"],
+                        scanner_summary["open_exposure_pct_equity"] or 0.0))
                 if scanner_state.get("open_positions"):
                     st.markdown("#### Scanner open paper positions")
                     st.dataframe(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)

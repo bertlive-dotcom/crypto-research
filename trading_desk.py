@@ -374,10 +374,17 @@ def ensure_daily_equity_baseline(portfolio: dict, now: Optional[datetime] = None
     day_key = local_now.date().isoformat()
     risk = portfolio.setdefault("daily_risk", {})
     if risk.get("date") != day_key or risk.get("timezone") != timezone_name or "start_equity_usd" not in risk:
+        try:
+            opening_equity = round(float(portfolio_summary(portfolio)["equity_usd"]), 8)
+            baseline_status = "ok"
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            opening_equity = None
+            baseline_status = "unavailable"
         risk.update({
             "date": day_key,
             "timezone": timezone_name,
-            "start_equity_usd": round(float(portfolio_summary(portfolio)["equity_usd"]), 8),
+            "start_equity_usd": opening_equity,
+            "baseline_status": baseline_status,
             "baseline_at": local_now.isoformat(),
         })
     return risk
@@ -385,17 +392,29 @@ def ensure_daily_equity_baseline(portfolio: dict, now: Optional[datetime] = None
 
 def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
                           timezone_name: str = "Europe/Madrid") -> dict:
-    """Measure current net-liquidation equity against the persisted local-day opening snapshot."""
+    """Measure net-liquidation equity against the persisted local-day opening snapshot; fail closed."""
     risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
-    current_equity = float(portfolio_summary(portfolio)["equity_usd"])
-    start_equity = float(risk["start_equity_usd"])
+    try:
+        current_equity = float(portfolio_summary(portfolio)["equity_usd"])
+        start_equity = float(risk["start_equity_usd"])
+        if not (current_equity >= 0 and start_equity > 0):
+            raise ValueError("Equity snapshot is not valid.")
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return {
+            "date": risk["date"], "timezone": risk["timezone"],
+            "start_equity_usd": risk.get("start_equity_usd"),
+            "current_equity_usd": None, "change_usd": None,
+            "loss_usd": 1_000_000_000.0, "loss_pct": None,
+            "status": "unavailable_fail_closed",
+        }
     change = current_equity - start_equity
     loss = max(0.0, -change)
     return {
         "date": risk["date"], "timezone": risk["timezone"],
         "start_equity_usd": start_equity, "current_equity_usd": current_equity,
         "change_usd": change, "loss_usd": loss,
-        "loss_pct": loss / start_equity * 100.0 if start_equity > 0 else 0.0,
+        "loss_pct": loss / start_equity * 100.0,
+        "status": "ok",
     }
 
 

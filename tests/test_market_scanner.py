@@ -130,6 +130,8 @@ class ScannerRuleTests(unittest.TestCase):
 
     def test_daily_loss_guard_includes_open_unrealized_pnl(self):
         portfolio = new_portfolio(200)
+        ensure_daily_equity_baseline(portfolio)
+        portfolio["cash"] = 99.9
         portfolio["open_positions"] = [{
             "asset": "BTC", "direction": "long", "notional_usd": 100.0,
             "quantity": 1.0, "entry_fee_usd": 0.1, "last_price_usd": 97.0,

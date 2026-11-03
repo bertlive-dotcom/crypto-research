@@ -343,11 +343,22 @@ def portfolio_summary(portfolio: dict) -> dict:
     open_exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
     risk_total = 0.0
     risk_unknown = []
+    management_unknown = []
     for position in portfolio["open_positions"]:
         try:
             risk_total += position_risk_at_stop(position)["risk_at_stop_usd"]
         except (KeyError, TypeError, ValueError):
             risk_unknown.append(str(position.get("position_id") or position.get("asset") or "unknown"))
+        try:
+            target = position.get("take_profit_price")
+            target_pct = position.get("take_profit_pct")
+            if target is not None:
+                if float(target) <= 0:
+                    raise ValueError("Invalid take-profit price.")
+            elif target_pct is None or float(target_pct) <= 0:
+                raise ValueError("Take-profit data unavailable.")
+        except (TypeError, ValueError):
+            management_unknown.append(str(position.get("position_id") or position.get("asset") or "unknown"))
     return {
         "cash_usd": portfolio["cash"], "open_value_usd": open_value, "equity_usd": equity,
         "realized_pnl_usd": realized, "unrealized_pnl_usd": unrealized,
@@ -361,6 +372,7 @@ def portfolio_summary(portfolio: dict) -> dict:
         "max_aggregate_stop_risk_usd": equity * MAX_TOTAL_RISK_FRACTION if equity > 0 else None,
         "remaining_aggregate_stop_risk_usd": max(0.0, equity * MAX_TOTAL_RISK_FRACTION - risk_total) if not risk_unknown and equity > 0 else None,
         "risk_unknown_positions": risk_unknown,
+        "management_unknown_positions": management_unknown,
     }
 
 
@@ -396,8 +408,8 @@ def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
     risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
     try:
         summary = portfolio_summary(portfolio)
-        if summary.get("risk_unknown_positions"):
-            raise ValueError("Open position stop risk is unavailable.")
+        if summary.get("risk_unknown_positions") or summary.get("management_unknown_positions"):
+            raise ValueError("Open position stop or take-profit data is unavailable.")
         current_equity = float(summary["equity_usd"])
         start_equity = float(risk["start_equity_usd"])
         if not (current_equity >= 0 and start_equity > 0):

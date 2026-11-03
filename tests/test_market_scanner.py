@@ -201,5 +201,42 @@ class ScannerRuleTests(unittest.TestCase):
         self.assertEqual(len(portfolio["open_positions"]), 3)
         self.assertEqual(apply_paper_rules([self.candidate("XRPUSDT")], portfolio), [])
 
+
+class ScannerWorkerPersistenceTests(unittest.TestCase):
+    def test_worker_persists_new_daily_baseline_before_market_scan(self):
+        from scanner.worker import run_once
+
+        class FakeStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.calls = []
+            def acquire_lock(self, worker_id):
+                return True
+            def load_state(self):
+                return self.state
+            def save_state(self, state):
+                self.calls.append(("save_state", dict(state.get("daily_risk", {}))))
+            def save_cycle(self, state, run, candidates, signals):
+                self.calls.append(("save_cycle", dict(state.get("daily_risk", {}))))
+            def release_lock(self, worker_id):
+                self.calls.append(("release_lock", worker_id))
+
+        class FakeClient:
+            def prices(self):
+                return {}
+
+        store = FakeStore()
+        def fake_scan(client):
+            self.assertEqual(store.calls[0][0], "save_state")
+            self.assertTrue(store.calls[0][1].get("start_equity_usd"))
+            return [], {"analysed_count": 0, "candidate_count": 0}
+
+        with patch("scanner.worker.scan_market", side_effect=fake_scan):
+            result = run_once(store, client=FakeClient())
+
+        self.assertEqual(result["paper_entries"], 0)
+        self.assertEqual(store.calls[0][0], "save_state")
+        self.assertEqual(store.calls[1][0], "save_cycle")
+
 if __name__ == "__main__":
     unittest.main()

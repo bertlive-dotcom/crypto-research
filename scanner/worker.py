@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_mark
+from trading_desk import Signal, ensure_position_ids, new_portfolio, paper_entry, update_position_mark, ensure_daily_equity_baseline, daily_equity_drawdown
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
 )
@@ -23,6 +23,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         return {"status": "locked"}
     try:
         portfolio = store.load_state() or new_portfolio(STARTING_CAPITAL_USD)
+        # Persist opening equity before today's market marks are applied.
+        ensure_daily_equity_baseline(portfolio)
         portfolio.setdefault("processed_signal_ids", [])
         ensure_position_ids(portfolio)
         client = client or BinanceSpotClient()
@@ -64,8 +66,10 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         portfolio["processed_signal_ids"] = sorted(processed)[-1000:]
+        daily_risk = daily_equity_drawdown(portfolio)
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
+            "daily_risk": daily_risk, "daily_loss_limit_usd": 2.4,
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),
         })
         store.save_cycle(portfolio, run, candidates, signals)

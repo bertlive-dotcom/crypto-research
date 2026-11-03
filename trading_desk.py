@@ -210,14 +210,23 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float) -> Optio
     position.setdefault("direction", direction)
     reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
                              or position.get("entry_price_usd") or position.get("last_price_usd") or price_usd)
-    stop_pct = float(position.get("stop_loss_pct", 10.0))
-    take_profit_pct = float(position.get("take_profit_pct", 20.0))
+    # Never invent missing risk levels for a persisted position. Recover a
+    # missing price only when its original percentage is stored; otherwise fail
+    # closed and require an explicit, reviewed migration.
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if not position.get("stop_price") and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if not position.get("take_profit_price") and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
     if not position.get("stop_price"):
         position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if is_short else 1.0 - stop_pct / 100.0)
     if not position.get("take_profit_price"):
         position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if is_short else 1.0 + take_profit_pct / 100.0)
-    position.setdefault("take_profit_pct", take_profit_pct)
-    position.setdefault("stop_loss_pct", stop_pct)
 
     position["last_price_usd"] = price_usd
     stop_hit = price_usd >= position["stop_price"] if is_short else price_usd <= position["stop_price"]
@@ -263,16 +272,22 @@ def update_position_from_candle(
         or position.get("last_price_usd")
         or (close if close is not None else open if open is not None else high)
     )
-    stop_pct = float(position.get("stop_loss_pct", 10.0))
-    take_profit_pct = float(position.get("take_profit_pct", 20.0))
-    if stop_pct <= 0 or take_profit_pct <= 0:
+    # Recover missing levels only from persisted original percentages. If
+    # both the price and its source percentage are absent, do not guess.
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if position.get("stop_price") is None and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if position.get("take_profit_price") is None and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
         raise ValueError("Legacy position has invalid stop/take-profit percentages.")
     if position.get("stop_price") is None:
         position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if short else 1.0 - stop_pct / 100.0)
     if position.get("take_profit_price") is None:
         position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if short else 1.0 + take_profit_pct / 100.0)
-    position.setdefault("stop_loss_pct", stop_pct)
-    position.setdefault("take_profit_pct", take_profit_pct)
 
     if close is not None:
         if close <= 0:

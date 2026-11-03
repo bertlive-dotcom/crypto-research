@@ -24,7 +24,7 @@ class MarketScannerMigrationContractTests(unittest.TestCase):
     def test_table_privileges_revoke_public_and_api_roles(self):
         self.assertRegex(
             self.sql,
-            r"revoke all on public\.scanner_paper_state.*?"
+            r"(?is)revoke all on public\.scanner_paper_state.*?"
             r"from public, anon, authenticated;",
         )
 

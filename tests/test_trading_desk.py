@@ -87,6 +87,21 @@ class TradingDeskTests(unittest.TestCase):
             update_position_mark(p, "TEST", position["entry_fill_price"] * 1.01)
         self.assertNotIn("take_profit_price", position)
 
+
+    def test_candle_legacy_position_without_take_profit_source_fails_closed(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        position = p["open_positions"][0]
+        position.pop("take_profit_price")
+        position.pop("take_profit_pct")
+        with self.assertRaisesRegex(ValueError, "refusing to invent target"):
+            update_position_from_candle(
+                p, "TEST", high=position["entry_fill_price"] * 1.01,
+                low=position["entry_fill_price"] * 0.99,
+                close=position["entry_fill_price"],
+            )
+        self.assertNotIn("take_profit_price", position)
+
     def test_short_stop_loss_triggers_when_price_rises(self):
         p = new_portfolio(80)
         paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")

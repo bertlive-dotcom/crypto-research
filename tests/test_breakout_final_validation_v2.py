@@ -1,7 +1,7 @@
 import unittest
 
 from tools.run_breakout_final_validation_v2 import (
-    _simulate, _date_cluster_bootstrap, _metrics, _trend_regime,
+    _simulate, _date_cluster_bootstrap, _metrics, _trend_regime, _split, FREEZE_DATE,
 )
 
 
@@ -49,6 +49,15 @@ class FinalValidationV2Tests(unittest.TestCase):
         result = _date_cluster_bootstrap(pairs, iterations=300, block=5, seed=5)
         self.assertEqual(result["date_clusters"], 30)
         self.assertEqual(result["status"], "descriptive_cross_asset_date_cluster_bootstrap")
+
+    def test_holdout_is_strictly_after_frozen_protocol_date(self):
+        self.assertEqual(FREEZE_DATE, "2026-11-03")
+        split, boundary = _split(100, 150, 100)
+        self.assertEqual(split, "prospective_forward_holdout")
+        self.assertEqual(boundary, 150)
+        historical_split, historical_boundary = _split(20, 150, 100)
+        self.assertEqual(historical_split, "exploration")
+        self.assertEqual(historical_boundary, 70)
 
     def test_trend_regime_is_independent_of_trade_side(self):
         close = [100.0 + i for i in range(70)]

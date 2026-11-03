@@ -224,29 +224,31 @@ def _summarize_pairs(pairs):
 
 def analyze_asset(candles, selected_window):
     variants = {}
+    selected_pairs = []
     for w in WINDOWS:
         pairs, unmatched = build_pairs(candles, w)
+        summary = _summarize_pairs(pairs)
         variants[str(w)] = {
-            "summary": _summarize_pairs(pairs),
-            "matched_pairs": pairs,
+            "exploration": summary["exploration"],
+            "validation": summary["validation"],
             "breakouts_without_valid_retest": len(unmatched),
-            "unmatched_breakout_examples": unmatched[:20],
         }
+        if selected_window == w:
+            selected_pairs = pairs
     if selected_window is None:
         return {"frozen_window": None, "status": "insufficient_exploration_sample",
-                "full_diagnostics": variants}
-    selected_pairs = variants[str(selected_window)]["matched_pairs"]
-    validation = [p for p in selected_pairs if p["split"] == "validation"]
+                "window_diagnostics_exploration_validation_only": variants}
     final = [p for p in selected_pairs if p["split"] == "final_holdout"]
+    validation = [p for p in selected_pairs if p["split"] == "validation"]
     return {
         "frozen_window_selected_globally_from_exploration": selected_window,
-        "validation": variants[str(selected_window)]["summary"]["validation"],
+        "window_diagnostics_exploration_validation_only": variants,
+        "validation_frozen_window": _summarize_pairs(validation)["validation"],
         "untouched_final_holdout": {
             "window": selected_window, "matched_pairs": len(final),
-            "summary": variants[str(selected_window)]["summary"]["final_holdout"],
-            "notice": "Single globally selected window only; do not retune using this period.",
+            "summary": _summarize_pairs(final)["final_holdout"],
+            "notice": "Only the single globally selected window is evaluated; final data is excluded from all window diagnostics and must not be used to retune.",
         },
-        "full_diagnostics": variants,
     }
 
 

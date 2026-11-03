@@ -332,8 +332,14 @@ with desk_tab:
         if market_event is None and not stopped_trade:
             current_price = latest_crypto_prices.get(asset)
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
-                stopped_trade = update_position_mark(portfolio, asset, float(current_price))
-                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "price_usd": float(current_price), "trade": stopped_trade}
+                try:
+                    stopped_trade = update_position_mark(portfolio, asset, float(current_price))
+                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "price_usd": float(current_price), "trade": stopped_trade}
+                except ValueError as error:
+                    # A legacy position with unknown risk must not be silently
+                    # repriced or crash the dashboard. Keep it visible for
+                    # explicit reconciliation and skip the fallback mark.
+                    st.error("Paper position {} needs manual risk-level reconciliation; no fallback mark was applied: {}".format(asset, error))
         if market_event and paper_store:
             try:
                 paper_store.save_state(portfolio, market_event)

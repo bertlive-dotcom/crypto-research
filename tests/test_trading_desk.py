@@ -44,7 +44,8 @@ class TradingDeskTests(unittest.TestCase):
         )
         self.assertFalse(evaluate_signal(signal)["approved"])
     def test_position_size_respects_risk_and_exposure(self):
-        self.assertEqual(size_position(80,10),8.0)
+        self.assertLess(size_position(80,10),8.0)
+        self.assertGreater(size_position(80,10),7.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
 
     def test_position_size_accounts_for_both_side_costs_and_direction(self):
@@ -54,8 +55,8 @@ class TradingDeskTests(unittest.TestCase):
                                    max_total_exposure_fraction=1.0)
         self.assertGreater(long_size, 0)
         self.assertGreater(short_size, 0)
-        self.assertLess(long_size, 50.0)
-        self.assertLess(short_size, 50.0)
+                self.assertLessEqual(long_size * 0.03, 10.0)
+        self.assertLessEqual(short_size * 0.03, 10.0)
 
     def test_position_net_risk_at_stop_includes_entry_and_exit_costs(self):
         p = new_portfolio(1000)

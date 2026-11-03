@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
-from scanner.market_scanner import apply_paper_rules, score_candidate, scan_market
+from scanner.market_scanner import apply_paper_rules, consecutive_loss_streak, daily_total_pnl, score_candidate, scan_market
 from scanner.store import enrich_candidate_diagnostics
 from trading_desk import new_portfolio
 
@@ -127,6 +127,41 @@ class ScannerRuleTests(unittest.TestCase):
         portfolio = new_portfolio(80)
         portfolio["open_positions"] = [{"asset": f"A{i}"} for i in range(3)]
         self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+
+    def test_daily_loss_guard_includes_open_unrealized_pnl(self):
+        portfolio = new_portfolio(200)
+        portfolio["open_positions"] = [{
+            "asset": "BTC", "direction": "long", "notional_usd": 100.0,
+            "quantity": 1.0, "entry_fee_usd": 0.1, "last_price_usd": 97.0,
+        }]
+        self.assertLessEqual(daily_total_pnl(portfolio), -2.4)
+        self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
+
+    def test_daily_loss_guard_fails_closed_when_open_mark_is_missing(self):
+        portfolio = new_portfolio(80)
+        portfolio["open_positions"] = [{"asset": "BTC"}]
+        self.assertEqual(daily_total_pnl(portfolio), float("-inf"))
+        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+
+    def test_three_consecutive_losses_pause_new_entries(self):
+        portfolio = new_portfolio(80)
+        portfolio["closed_trades"] = [
+            {"closed_at": "2026-11-01T10:00:00+00:00", "realized_pnl_usd": -1.0},
+            {"closed_at": "2026-11-02T10:00:00+00:00", "realized_pnl_usd": -0.5},
+            {"closed_at": "2026-11-03T10:00:00+00:00", "realized_pnl_usd": -0.2},
+        ]
+        self.assertEqual(consecutive_loss_streak(portfolio), 3)
+        self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
+
+    def test_winning_trade_resets_consecutive_loss_streak(self):
+        portfolio = new_portfolio(80)
+        portfolio["closed_trades"] = [
+            {"closed_at": "2026-11-01T10:00:00+00:00", "realized_pnl_usd": -1.0},
+            {"closed_at": "2026-11-02T10:00:00+00:00", "realized_pnl_usd": -0.5},
+            {"closed_at": "2026-11-03T10:00:00+00:00", "realized_pnl_usd": 0.2},
+        ]
+        self.assertEqual(consecutive_loss_streak(portfolio), 0)
+        self.assertEqual(len(apply_paper_rules([self.candidate()], portfolio)), 1)
 
 if __name__ == "__main__":
     unittest.main()

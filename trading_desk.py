@@ -7,6 +7,7 @@ Deployment sync marker: position-id migration support is included in this module
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from uuid import uuid4
 
@@ -188,35 +189,129 @@ def mark_position(position: dict, price_usd: float, fee_rate: float = DEFAULT_FE
 
 def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "manual",
                fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE,
-               position_id: Optional[str] = None) -> dict:
-    """Close one exact paper position using conservative slippage and fees."""
+               position_id: Optional[str] = None, quantity: Optional[float] = None,
+               fraction: Optional[float] = None) -> dict:
+    """Close all or part of one exact paper position; fees and entry basis are allocated pro rata."""
     idx, position = _find_open_position(portfolio, asset, position_id)
-    portfolio["open_positions"].pop(idx)
+    if price_usd <= 0:
+        raise ValueError("Exit price must be greater than zero.")
+    if quantity is not None and fraction is not None:
+        raise ValueError("Specify quantity or fraction, not both.")
+    original_quantity = float(position["quantity"])
+    if fraction is not None:
+        if not 0 < float(fraction) <= 1:
+            raise ValueError("Close fraction must be greater than zero and at most one.")
+        close_quantity = original_quantity * float(fraction)
+    elif quantity is not None:
+        close_quantity = float(quantity)
+        if close_quantity <= 0 or close_quantity > original_quantity:
+            raise ValueError("Close quantity must be greater than zero and no greater than the open quantity.")
+    else:
+        close_quantity = original_quantity
+
+    close_ratio = close_quantity / original_quantity
+    closed_notional = float(position["notional_usd"]) * close_ratio
+    allocated_entry_fee = float(position.get("entry_fee_usd", 0.0)) * close_ratio
     is_short = position.get("direction", "long") == "short"
     exit_fill = price_usd * (1.0 + slippage_rate if is_short else 1.0 - slippage_rate)
-    proceeds = position["quantity"] * exit_fill
+    proceeds = close_quantity * exit_fill
     exit_fee = proceeds * fee_rate
-    realized_pnl = (position["notional_usd"] - proceeds - exit_fee - position["entry_fee_usd"]) if is_short else (proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"])
-    portfolio["cash"] = round(portfolio["cash"] + (position["notional_usd"] + realized_pnl if is_short else proceeds - exit_fee), 8)
+    realized_pnl = (
+        closed_notional - proceeds - exit_fee - allocated_entry_fee
+        if is_short else proceeds - exit_fee - closed_notional - allocated_entry_fee
+    )
+
+    # Short collateral is released together with P&L and the already-paid entry fee.
+    cash_credit = closed_notional + realized_pnl + allocated_entry_fee if is_short else proceeds - exit_fee
+    portfolio["cash"] = round(portfolio["cash"] + cash_credit, 8)
+
+    remaining_quantity = original_quantity - close_quantity
+    fully_closed = remaining_quantity <= max(1e-12, original_quantity * 1e-12)
     trade = {
-        **position, "exit_reference_price": price_usd, "exit_fill_price": exit_fill,
+        **position,
+        "quantity": close_quantity,
+        "notional_usd": closed_notional,
+        "entry_fee_usd": allocated_entry_fee,
+        "exit_reference_price": price_usd,
+        "exit_fill_price": exit_fill,
         "exit_fee_usd": exit_fee,
         "realized_pnl_usd": realized_pnl,
-        "closed_at": datetime.now(timezone.utc).isoformat(), "exit_reason": reason,
+        "closed_quantity": close_quantity,
+        "remaining_quantity": 0.0 if fully_closed else remaining_quantity,
+        "closed_fraction": close_ratio,
+        "is_partial": not fully_closed,
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+        "exit_reason": reason,
     }
     portfolio["closed_trades"].append(trade)
+
+    if fully_closed:
+        portfolio["open_positions"].pop(idx)
+    else:
+        position["quantity"] = remaining_quantity
+        position["notional_usd"] = round(float(position["notional_usd"]) - closed_notional, 12)
+        position["entry_fee_usd"] = round(float(position.get("entry_fee_usd", 0.0)) - allocated_entry_fee, 12)
     return trade
 
 def portfolio_summary(portfolio: dict) -> dict:
-    open_value = sum((p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] + p["entry_fee_usd"]) if p.get("direction", "long") == "short" else p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
-    unrealized = sum(mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] for p in portfolio["open_positions"])
-    realized = sum(t["realized_pnl_usd"] for t in portfolio["closed_trades"])
-    equity = portfolio["cash"] + open_value
+    """Mark portfolio to conservative net liquidation value, including estimated exit costs."""
+    open_value = 0.0
+    unrealized = 0.0
+    for position in portfolio.get("open_positions", []):
+        mark = mark_position(position, float(position.get("last_price_usd") or position["entry_fill_price"]))
+        unrealized += mark["unrealized_pnl_usd"]
+        if position.get("direction", "long") == "short":
+            open_value += float(position["notional_usd"]) + mark["unrealized_pnl_usd"] + float(position.get("entry_fee_usd", 0.0))
+        else:
+            open_value += float(position["quantity"]) * float(mark["estimated_exit_fill_usd"]) - (
+                float(position["quantity"]) * float(mark["estimated_exit_fill_usd"]) * DEFAULT_FEE_RATE
+            )
+    realized = sum(float(t.get("realized_pnl_usd", 0.0)) for t in portfolio.get("closed_trades", []))
+    equity = float(portfolio["cash"]) + open_value
     return {
         "cash_usd": portfolio["cash"], "open_value_usd": open_value, "equity_usd": equity,
         "realized_pnl_usd": realized, "unrealized_pnl_usd": unrealized,
         "total_return_pct": (equity / portfolio["starting_capital"] - 1.0) * 100.0 if portfolio["starting_capital"] else 0.0,
-        "open_positions": len(portfolio["open_positions"]), "closed_trades": len(portfolio["closed_trades"]),
+        "open_positions": len(portfolio.get("open_positions", [])), "closed_trades": len(portfolio.get("closed_trades", [])),
+    }
+
+
+def ensure_daily_equity_baseline(portfolio: dict, now: Optional[datetime] = None,
+                                 timezone_name: str = "Europe/Madrid") -> dict:
+    """Persist the start-of-day equity snapshot; reset only when the local trading date changes."""
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    local_now = reference.astimezone(ZoneInfo(timezone_name))
+    day_key = local_now.date().isoformat()
+    risk = portfolio.setdefault("daily_risk", {})
+    if risk.get("date") != day_key or risk.get("timezone") != timezone_name or not risk.get("start_equity_usd"):
+        equity = portfolio_summary(portfolio)["equity_usd"]
+        risk.update({
+            "date": day_key,
+            "timezone": timezone_name,
+            "start_equity_usd": round(float(equity), 8),
+            "baseline_at": local_now.isoformat(),
+        })
+    return risk
+
+
+def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
+                          timezone_name: str = "Europe/Madrid") -> dict:
+    """Return daily equity change from the persisted local-day opening snapshot."""
+    risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
+    current_equity = float(portfolio_summary(portfolio)["equity_usd"])
+    start_equity = float(risk["start_equity_usd"])
+    change = current_equity - start_equity
+    loss = max(0.0, -change)
+    return {
+        "date": risk["date"],
+        "timezone": risk["timezone"],
+        "start_equity_usd": start_equity,
+        "current_equity_usd": current_equity,
+        "change_usd": change,
+        "loss_usd": loss,
+        "loss_pct": (loss / start_equity * 100.0) if start_equity > 0 else 0.0,
     }
 
 

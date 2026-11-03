@@ -164,7 +164,7 @@ def consecutive_loss_streak(portfolio: dict) -> int:
         try:
             pnl = float(trade["realized_pnl_usd"])
         except (KeyError, TypeError, ValueError):
-            break
+            return 3
         if pnl < 0:
             streak += 1
         else:

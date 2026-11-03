@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, position_risk_at_stop,
+    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, position_risk_at_stop, ensure_daily_equity_baseline, daily_equity_drawdown,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
+from scanner.config import MAX_DAILY_LOSS_USDT
 from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
 from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
@@ -335,6 +336,18 @@ with desk_tab:
         st.warning("Supabase is not configured: this session is temporary and will not provide a durable 30-day journal. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Streamlit Secrets.")
     else:
         st.caption("Persistent paper ledger connected to Supabase.")
+
+    # Save the start-of-day equity before refreshing any market marks.
+    previous_daily_risk = dict(portfolio.get("daily_risk", {}))
+    ensure_daily_equity_baseline(portfolio)
+    if paper_store and previous_daily_risk != portfolio.get("daily_risk", {}):
+        try:
+            paper_store.save_state(portfolio, {"event_type": "daily_equity_baseline",
+                "asset": "", "daily_risk": portfolio.get("daily_risk")})
+        except SupabaseStoreError as error:
+            st.error("Could not persist daily equity baseline: " + str(error))
+            st.stop()
+
     # Runs every 60 seconds; candle extremes detect TP/SL touches between quote updates.
     candle_client = BinanceMarketDataClient()
     for open_position in list(portfolio["open_positions"]):
@@ -377,6 +390,8 @@ with desk_tab:
             st.warning("Automatic {} triggered for {} at simulated level.".format(stopped_trade["exit_reason"].replace("_", " "), asset))
 
     summary = portfolio_summary(portfolio)
+    daily_risk = daily_equity_drawdown(portfolio)
+    daily_risk_ok = daily_risk["loss_usd"] < MAX_DAILY_LOSS_USDT
     col1, col2, col3 = st.columns(3)
     col1.metric("Virtual equity", "USD {:.2f}".format(summary["equity_usd"]))
     col2.metric("Cash available", "USD {:.2f}".format(summary["cash_usd"]))
@@ -395,6 +410,13 @@ with desk_tab:
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
+    day_col1, day_col2, day_col3 = st.columns(3)
+    day_col1.metric("Daily equity change", "USD {:+.2f}".format(daily_risk["change_usd"]))
+    day_col2.metric("Daily loss", "USD {:.2f} / {:.2f}".format(daily_risk["loss_usd"], MAX_DAILY_LOSS_USDT))
+    day_col3.metric("Daily loss guard", "ACTIVE" if daily_risk_ok else "NEW ENTRIES PAUSED")
+    st.caption("Daily loss compares net-liquidation equity with the persisted Europe/Madrid opening snapshot. It includes realized and unrealized P&L and estimated exit costs. Existing positions remain manageable.")
+    if not daily_risk_ok:
+        st.error("Daily loss limit reached. New paper entries are paused; open positions can still be managed.")
 
     st.markdown("#### Five-agent pipeline")
     st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")
@@ -483,7 +505,7 @@ with desk_tab:
             ))
             and bool(solana_metrics_source.strip()) and bool(solana_metrics_as_of.strip())
         )
-    submitted = st.button("Run filters and simulate entry", disabled=not entry_inputs_ready)
+    submitted = st.button("Run filters and simulate entry", disabled=(not entry_inputs_ready) or (not daily_risk_ok))
     if submitted:
         if market == "major":
             signal = Signal(asset=asset, market=market, price_usd=float(price),
@@ -554,8 +576,9 @@ with desk_tab:
             selected_asset = selected_position["asset"]
             default_price = selected_position["last_price_usd"]
             mark_price = st.number_input("Latest/reference price (USD)", min_value=0.00000001, value=float(default_price), format="%.8f")
+            close_fraction_pct = st.slider("Percentage of position to close", min_value=5, max_value=100, value=100, step=5)
             update_mark = st.form_submit_button("Update simulated market price")
-            close_position = st.form_submit_button("Close paper position at this price")
+            close_position = st.form_submit_button("Close selected percentage at this price")
         if update_mark:
             stopped_trade = update_position_mark(portfolio, selected_asset, mark_price, position_id=selected_id)
             if paper_store:
@@ -565,10 +588,16 @@ with desk_tab:
             else:
                 st.success("Paper mark price updated.")
         if close_position:
-            trade = paper_exit(portfolio, selected_asset, mark_price, position_id=selected_id)
+            trade = paper_exit(portfolio, selected_asset, mark_price, position_id=selected_id,
+                               fraction=close_fraction_pct / 100.0)
             if paper_store:
-                paper_store.save_state(portfolio, {"event_type": "manual_exit", "asset": selected_asset, "position_id": selected_id, "trade": trade})
-            st.success("Paper position closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
+                paper_store.save_state(portfolio, {"event_type": "partial_exit" if trade["is_partial"] else "manual_exit",
+                    "asset": selected_asset, "position_id": selected_id, "trade": trade})
+            if trade["is_partial"]:
+                st.success("Partial close: {:.0f}% closed; {:.8f} units remain. Realized P&L: USD {:.2f}".format(
+                    close_fraction_pct, trade["remaining_quantity"], trade["realized_pnl_usd"]))
+            else:
+                st.success("Paper position fully closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
     else:
         st.info("No open paper positions.")
 

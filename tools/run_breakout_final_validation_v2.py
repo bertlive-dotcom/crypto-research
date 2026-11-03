@@ -152,17 +152,24 @@ def _find_retest(candles, event, window, high, low, opn):
     return None
 
 
-def _split(index, n):
-    first, second = int(n * .60), int(n * .80)
-    return ("exploration", first) if index < first else (("validation", second) if index < second else ("final_holdout", n))
+FREEZE_DATE = "2026-11-03"
+
+
+def _split(index, n, historical_count):
+    """Use pre-freeze history for exploration/validation; later candles are prospective."""
+    if index >= historical_count:
+        return "prospective_forward_holdout", n
+    exploration_end = int(historical_count * .70)
+    return ("exploration", exploration_end) if index < exploration_end else ("validation", historical_count)
 
 
 def build_asset(candles, window):
     events, close, high, low, opn, atr = _signals(candles)
     output = {mode: {"pairs": [], "direct_all": []} for mode in STOP_MODES}
+    historical_count = sum(1 for candle in candles if str(candle.get("date", "")) <= FREEZE_DATE)
     for event in events:
         i, side = event["index"], event["side"]
-        split, boundary = _split(i, len(candles))
+        split, boundary = _split(i, len(candles), historical_count)
         retest_index = _find_retest(candles, event, window, high, low, opn)
         for mode in STOP_MODES:
             direct_entry = i + 1
@@ -282,7 +289,7 @@ def _summarize_mode(asset_data, mode):
     all_pairs = [p for a in asset_data for p in a[mode]["pairs"]]
     all_direct = [p for a in asset_data for p in a[mode]["direct_all"]]
     result = {}
-    for split in ("exploration", "validation", "final_holdout"):
+    for split in ("exploration", "validation", "prospective_forward_holdout"):
         pairs = [p for p in all_pairs if p["split"] == split]
         direct_all = [p for p in all_direct if p["split"] == split]
         paired_direct = [p["direct"] for p in pairs]
@@ -293,7 +300,13 @@ def _summarize_mode(asset_data, mode):
             "paired_direct": _metrics(paired_direct),
             "paired_retest": _metrics(retest),
             "paired_delta_mean_r": round(mean(delta), 5) if delta else None,
-            "date_cluster_bootstrap": _date_cluster_bootstrap(pairs) if split == "final_holdout" else None,
+            "date_cluster_bootstrap": _date_cluster_bootstrap(pairs) if split == "prospective_forward_holdout" else None,
+            "interpretation_status": (
+                "insufficient_prospective_sample"
+                if split == "prospective_forward_holdout" and (
+                    len(pairs) < 60 or len({_date_key(p['timestamp']) for p in pairs}) < 30
+                ) else "descriptive_only"
+            ),
             "subgroups": _regime_summary([
                 {**p, "direct": p["direct"], "retest": p["retest"],
                  "side": p["side"], "regime": p["regime"]} for p in pairs
@@ -339,7 +352,10 @@ def run(limit, symbols):
         "methodology": {
             "universe": symbols, "timeframe": "1d", "requested_history": limit,
             "available_assets": len(candles_by_asset), "unavailable": unavailable,
-            "partition": "60% exploration / 20% validation / 20% final untouched holdout; breakout index assigns partition; entry and exit must remain inside it",
+            "partition": "Historical candles through 2026-11-03 are split 70% exploration / 30% validation. The final holdout is strictly prospective: only candles after 2026-11-03. Entry and exit must remain inside their partition.",
+        "freeze_date": FREEZE_DATE,
+        "historical_holdout_status": "The previously inspected historical final segment is not reused as a fresh holdout. A new forward period is reserved after the frozen date.",
+        "prospective_minimum": "Do not interpret the forward holdout until at least 60 paired events across at least 30 distinct dates; otherwise report insufficient prospective sample.",
             "frozen_window": selected, "window_selection": "selected only on pooled exploration mean paired delta under equal-distance 1.5 ATR stop; same frozen window applied to both stop models",
             "stop_tests": {
                 "equal_distance_1_5_atr": "Both entries use the same absolute stop distance: 1.5 x ATR known at breakout close. This isolates entry timing while preserving same 2R target and 5-bar holding limit.",

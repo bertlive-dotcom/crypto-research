@@ -88,6 +88,12 @@ def run_agent_pipeline(candidates: list[dict], portfolio: dict, mode: str = "pap
             ),
         })
 
+    if not filtered:
+        audit.append({
+            "symbol": "*", "agent": "ANALYST", "status": "SKIPPED",
+            "detail": "No candidates passed FILTER; no technical review was required.",
+        })
+
     # 4. RISK_MANAGER — existing rules are the single source of truth.
     risk_approved = apply_paper_rules(filtered, portfolio)
     approved_symbols = {row["symbol"] for row in risk_approved}
@@ -104,6 +110,12 @@ def run_agent_pipeline(candidates: list[dict], portfolio: dict, mode: str = "pap
             ),
         })
 
+    if not filtered:
+        audit.append({
+            "symbol": "*", "agent": "RISK_MANAGER", "status": "SKIPPED",
+            "detail": "No candidates passed FILTER; portfolio risk approval was not required.",
+        })
+
     # 5. EXECUTOR — this stage only authorizes the existing paper_entry function.
     executor_enabled = mode == "paper"
     executable = risk_approved if executor_enabled else []
@@ -115,6 +127,15 @@ def run_agent_pipeline(candidates: list[dict], portfolio: dict, mode: str = "pap
                 "Authorized for existing simulated paper_entry only; no exchange API."
                 if executor_enabled else
                 "Execution blocked: pipeline mode is not explicitly 'paper'."
+            ),
+        })
+
+    if not risk_approved:
+        audit.append({
+            "symbol": "*", "agent": "EXECUTOR", "status": "SKIPPED",
+            "detail": (
+                "No risk-approved candidates; no paper entry was attempted. "
+                "No live exchange orders are available in this worker."
             ),
         })
 

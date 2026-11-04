@@ -8,6 +8,8 @@ services:
     plan: starter
     numInstances: 1
     envVars:
+      - key: SCANNER_ALLOWED_SUPABASE_PROJECT_REF
+        value: "jgxrtvqxjtoxmdrpltng"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

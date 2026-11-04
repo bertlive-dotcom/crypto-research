@@ -1,6 +1,7 @@
 """Environment-backed configuration for Market Scanner v1."""
 from __future__ import annotations
 import os
+from urllib.parse import urlparse
 
 WATCHLIST = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "XLMUSDT", "SUIUSDT", "HYPEUSDT")
 QUOTE_ASSET = "USDT"
@@ -20,3 +21,15 @@ BINANCE_BASE_URL = os.getenv("BINANCE_BASE_URL", "https://api.binance.com").rstr
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 HTTP_TIMEOUT_SECONDS = int(os.getenv("SCANNER_HTTP_TIMEOUT_SECONDS", "15"))
+ALLOWED_SUPABASE_PROJECT_REF = os.getenv("SCANNER_ALLOWED_SUPABASE_PROJECT_REF", "").strip()
+
+
+def validate_staging_target(url: str = SUPABASE_URL, allowed_ref: str = ALLOWED_SUPABASE_PROJECT_REF) -> None:
+    """Fail closed unless the worker is explicitly pinned to its staging project."""
+    host = urlparse(url).hostname or ""
+    expected_host = f"{allowed_ref}.supabase.co" if allowed_ref else ""
+    if not allowed_ref or host != expected_host:
+        raise RuntimeError(
+            "Scanner startup blocked: set SCANNER_ALLOWED_SUPABASE_PROJECT_REF and "
+            "point SUPABASE_URL to that exact Supabase staging project."
+        )

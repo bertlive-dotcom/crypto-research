@@ -1,6 +1,7 @@
 import unittest
 from scanner.agents import AGENT_NAMES, run_agent_pipeline
 from trading_desk import new_portfolio
+from scanner.config import validate_staging_target
 
 
 def candidate(symbol="BTCUSDT", score=85, eligible=True):
@@ -28,6 +29,23 @@ def candidate(symbol="BTCUSDT", score=85, eligible=True):
 
 
 class SixAgentPipelineTests(unittest.TestCase):
+    def test_staging_target_accepts_only_the_explicit_staging_project(self):
+        validate_staging_target(
+            "https://jgxrtvqxjtoxmdrpltng.supabase.co",
+            "jgxrtvqxjtoxmdrpltng",
+        )
+
+    def test_staging_target_rejects_production_or_missing_allowlist(self):
+        with self.assertRaises(RuntimeError):
+            validate_staging_target(
+                "https://bcwiihozbjworhkbufyf.supabase.co",
+                "jgxrtvqxjtoxmdrpltng",
+            )
+        with self.assertRaises(RuntimeError):
+            validate_staging_target(
+                "https://jgxrtvqxjtoxmdrpltng.supabase.co", ""
+            )
+
     def test_pipeline_runs_six_stages_and_authorizes_paper_candidate(self):
         result = run_agent_pipeline([candidate()], new_portfolio(80), mode="paper")
         self.assertEqual(result["agents"], list(AGENT_NAMES))

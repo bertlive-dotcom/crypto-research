@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from trading_desk import Signal, new_portfolio, paper_entry, update_position_mark
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
+    validate_staging_target,
 )
 from .agents import run_agent_pipeline
 from .market_data import BinanceSpotClient
@@ -97,6 +98,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
 
 
 def main():
+    validate_staging_target()
     store = ScannerStore()
     client = BinanceSpotClient()
     log.info("Market Scanner v1 with six-agent paper pipeline started; interval=%ss; paper-only mode.", SCAN_INTERVAL_SECONDS)

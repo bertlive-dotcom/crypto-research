@@ -13,7 +13,7 @@ from .config import MAX_OPEN_POSITIONS
 from .market_scanner import apply_paper_rules
 
 
-AGENT_NAMES = ("SCOUT", "FILTER", "ANALYST", "EXECUTOR", "RISK_MANAGER", "LOGGER")
+AGENT_NAMES = ("SCOUT", "FILTER", "ANALYST", "RISK_MANAGER", "EXECUTOR", "LOGGER")
 
 
 def _valid_candidate(row: dict[str, Any]) -> tuple[bool, str]:

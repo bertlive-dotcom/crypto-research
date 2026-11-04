@@ -90,6 +90,21 @@ class SixAgentPipelineTests(unittest.TestCase):
         self.assertEqual(result["authorized_count"], 0)
         self.assertFalse(result["approved_candidates"])
 
+    def test_empty_filter_records_remaining_stages_as_skipped(self):
+        row = candidate(eligible=False)
+        row["hard_gate_failures"] = ["Trend confirmation missing"]
+        result = run_agent_pipeline([row], new_portfolio(80))
+        statuses = {
+            item["agent"]: item["status"]
+            for item in result["audit"]
+            if item["symbol"] == "*"
+        }
+        self.assertEqual(statuses["ANALYST"], "SKIPPED")
+        self.assertEqual(statuses["RISK_MANAGER"], "SKIPPED")
+        self.assertEqual(statuses["EXECUTOR"], "SKIPPED")
+        self.assertEqual(statuses["LOGGER"], "RECORDED")
+        self.assertEqual(result["authorized_count"], 0)
+
     def test_scout_rejects_missing_closed_candle_timestamp(self):
         row = candidate()
         row["features"]["1h"].pop("candle_close_time")

@@ -2,6 +2,7 @@ import unittest
 from scanner.agents import AGENT_NAMES, run_agent_pipeline
 from trading_desk import new_portfolio
 from scanner.config import validate_staging_target
+from scanner.store import ScannerStore
 
 
 def candidate(symbol="BTCUSDT", score=85, eligible=True):
@@ -26,6 +27,31 @@ def candidate(symbol="BTCUSDT", score=85, eligible=True):
             "1d": {},
         },
     }
+
+
+class SupabaseScannerAuthTests(unittest.TestCase):
+    def test_new_secret_key_uses_apikey_without_bearer(self):
+        store = ScannerStore(
+            url="https://jgxrtvqxjtoxmdrpltng.supabase.co",
+            key="sb_secret_test_placeholder",
+        )
+        self.assertEqual(store.headers["apikey"], "sb_secret_test_placeholder")
+        self.assertNotIn("Authorization", store.headers)
+
+    def test_legacy_service_role_jwt_uses_apikey_and_bearer(self):
+        token = "eyJ_test_legacy_service_role"
+        store = ScannerStore(
+            url="https://jgxrtvqxjtoxmdrpltng.supabase.co", key=token
+        )
+        self.assertEqual(store.headers["apikey"], token)
+        self.assertEqual(store.headers["Authorization"], "Bearer " + token)
+
+    def test_publishable_key_is_rejected_for_worker(self):
+        with self.assertRaisesRegex(ValueError, "not a publishable key"):
+            ScannerStore(
+                url="https://jgxrtvqxjtoxmdrpltng.supabase.co",
+                key="sb_publishable_test_placeholder",
+            )
 
 
 class SixAgentPipelineTests(unittest.TestCase):

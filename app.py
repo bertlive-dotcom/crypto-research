@@ -17,6 +17,7 @@ from global_markets.market_analysis import analyze_feed, analyze_candles, classi
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from global_markets.equity_research import analyse_equity_universe
 
 
 
@@ -265,8 +266,8 @@ def get_global_fx_analysis(api_key):
 
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab = st.tabs([
-    "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner"
+market_tab, desk_tab, global_tab, scanner_tab, equities_tab = st.tabs([
+    "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner", "Equity Research"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -1234,3 +1235,78 @@ with scanner_tab:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:
             st.error("Could not load Market Scanner data: " + str(error))
+
+@st.cache_data(ttl=900)
+def get_equity_research_report(api_key):
+    client = FinancialDataClient(api_key, max_retries=1, max_pages=2)
+    return analyse_equity_universe(client, limit=120)
+
+
+with equities_tab:
+    st.subheader("Equity Research - 8-company universe")
+    st.caption("FinancialData.Net · daily closed candles · RSI, MACD, SMA20/SMA50 and risk metrics · read-only.")
+    st.warning("Technical screening only. No orders, portfolio changes or investment recommendations are generated.")
+    equity_key = secret("FINANCIALDATA_API_KEY")
+    if not equity_key:
+        st.info("Add FINANCIALDATA_API_KEY to Streamlit Secrets to activate this analysis. The key is never displayed.")
+    else:
+        if st.button("Fetch and analyse 8 equities", key="run_equity_research"):
+            get_equity_research_report.clear()
+            st.session_state["equity_research_requested"] = True
+        if st.session_state.get("equity_research_requested"):
+            try:
+                with st.spinner("Fetching up to 120 daily observations for each company..."):
+                    equity_report = get_equity_research_report(equity_key)
+                valid = [row for row in equity_report["analyses"] if row.get("eligible")]
+                rejected = [row for row in equity_report["analyses"] if not row.get("eligible")]
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Companies with valid data", len(valid))
+                m2.metric("Rejected histories", len(rejected))
+                m3.metric("Unavailable requests", len(equity_report["unavailable"]))
+                st.caption("Source: {} | Observed: {}".format(
+                    equity_report["source"], equity_report["observed_at"]))
+                if valid:
+                    display_rows = []
+                    for item in valid:
+                        indicators = item.get("indicators", {})
+                        risk = item.get("risk_metrics", {})
+                        display_rows.append({
+                            "Company": item.get("name"),
+                            "Symbol": item.get("symbol"),
+                            "Last close": item.get("latest_close"),
+                            "RSI 14": indicators.get("rsi_14"),
+                            "MACD histogram": indicators.get("macd_histogram"),
+                            "SMA 20": indicators.get("sma_20"),
+                            "SMA 50": indicators.get("sma_50"),
+                            "20d return %": risk.get("return_20d_pct"),
+                            "20d volatility %": risk.get("realized_volatility_20d_pct_annualized"),
+                            "120d max drawdown %": risk.get("max_drawdown_120d_pct"),
+                            "Technical score": item.get("technical_screen_score"),
+                            "Bars": item.get("bars"),
+                            "Data age (days)": round(item.get("age_seconds", 0) / 86400, 2),
+                        })
+                    display_rows.sort(
+                        key=lambda row: row["Technical score"] if row["Technical score"] is not None else -1,
+                        reverse=True,
+                    )
+                    st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+                if rejected:
+                    st.markdown("#### Histories rejected by freshness or data validation")
+                    st.dataframe(pd.DataFrame([{
+                        "Company": item.get("name"),
+                        "Symbol": item.get("symbol"),
+                        "Bars": item.get("bars"),
+                        "Reasons": ", ".join(item.get("reasons", [])),
+                    } for item in rejected]), width="stretch", hide_index=True)
+                if equity_report["quality"]:
+                    with st.expander("Source records excluded from indicators", expanded=False):
+                        st.dataframe(pd.DataFrame(equity_report["quality"]), width="stretch", hide_index=True)
+                if equity_report["unavailable"]:
+                    st.markdown("#### Provider / symbol coverage issues")
+                    st.dataframe(pd.DataFrame(equity_report["unavailable"]), width="stretch", hide_index=True)
+                st.caption("The technical score is a descriptive screen, not a probability or expected return. Historical daily data may be delayed; symbol coverage and plan entitlement are verified per request.")
+            except Exception as error:
+                st.error("Equity research scan failed: " + str(error))
+        else:
+            st.info("Start the scan to request the eight-company universe. Results are cached for 15 minutes.")
+

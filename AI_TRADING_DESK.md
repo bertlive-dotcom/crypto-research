@@ -50,3 +50,22 @@ For major assets, wallet/holder checks are not applicable. The MVP automatically
 
 ## Security
 Never put API keys, passwords, wallet seed phrases, private keys, or .streamlit/secrets.toml in Git.
+
+
+## Six-agent paper pipeline (experimental branch)
+The standalone Market Scanner now routes eligible candidates through six deterministic, auditable stages:
+1. Scout validates candidate identity, positive price and a closed 1h candle timestamp.
+2. Filter enforces the existing hard gates and auto-entry eligibility.
+3. Analyst records the technical score, RSI, MACD histogram and relative volume; it cannot override a failed gate.
+4. Risk Manager delegates to the existing `apply_paper_rules` controls, including duplicate-asset prevention, maximum open positions and daily loss limit.
+5. Executor authorizes only the existing simulated `paper_entry` path. Any mode other than the literal `paper` fails closed.
+6. Logger persists per-stage audit events in the existing scanner run JSON through Supabase; no new table or credentials are required.
+
+These are software stages, not six independent AI models or LLM agents. They do not broaden the market universe, change entry thresholds, increase risk, or send exchange orders. The pipeline is introduced on branch `feature/six-agent-paper-pipeline` and is not deployed until reviewed and merged. New unit coverage is in `tests/test_six_agent_pipeline.py`.
+
+Validation before deployment:
+- Run `python -m unittest discover -s tests -v`.
+- Run `python -m py_compile scanner/agents.py scanner/worker.py`.
+- Inspect a completed scanner cycle in Supabase and confirm all six agent audit stages are present.
+- Confirm paper entries, exits, fees, slippage, daily loss controls and duplicate-signal protection remain unchanged.
+- Keep the existing 30-day forward-simulation gate; this feature is not evidence of profitability.

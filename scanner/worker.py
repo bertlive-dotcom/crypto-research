@@ -9,12 +9,14 @@ from trading_desk import Signal, new_portfolio, paper_entry, update_position_mar
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
 )
+from .agents import run_agent_pipeline
 from .market_data import BinanceSpotClient
-from .market_scanner import scan_market, apply_paper_rules
+from .market_scanner import scan_market
 from .store import ScannerStore
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("market-scanner")
+
 
 def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> dict:
     worker_id = str(uuid.uuid4())
@@ -36,7 +38,9 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 
-        approved = apply_paper_rules(candidates, portfolio)
+        # Six deterministic stages; existing Market Scanner risk rules remain authoritative.
+        pipeline = run_agent_pipeline(candidates, portfolio, mode="paper")
+        approved = pipeline["approved_candidates"]
         signals = []
         processed = set(portfolio["processed_signal_ids"])
         for row in approved:
@@ -46,7 +50,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
             signal = Signal(
                 asset=row["base_asset"], market="major", price_usd=float(row["price_usdt"]),
                 volume_24h_usd=float(row["quote_volume_24h"]),
-                gain_45m_pct=None, source="Market Scanner v1 / Binance Spot",
+                gain_45m_pct=None, source="Market Scanner v1 / Binance Spot / six-agent pipeline",
             )
             try:
                 position = paper_entry(portfolio, signal, stop_loss_pct=STOP_LOSS_PCT,
@@ -60,16 +64,30 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
                 "score": row["score"], "status": "paper_opened", "price_usdt": row["price_usdt"],
                 "stop_price": position["stop_price"], "take_profit_price": position["take_profit_price"],
                 "position": position, "reasons": row["reasons"],
+                "agent_pipeline": pipeline["agents"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         portfolio["processed_signal_ids"] = sorted(processed)[-1000:]
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),
+            "agent_pipeline": {
+                "mode": pipeline["mode"],
+                "agents": pipeline["agents"],
+                "candidate_count": pipeline["candidate_count"],
+                "scouted_count": pipeline["scouted_count"],
+                "filtered_count": pipeline["filtered_count"],
+                "risk_approved_count": pipeline["risk_approved_count"],
+                "authorized_count": pipeline["authorized_count"],
+                "audit": pipeline["audit"],
+            },
         })
         store.save_cycle(portfolio, run, candidates, signals)
-        log.info("Cycle complete: analysed=%s candidates=%s entries=%s exits=%s",
-            run["analysed_count"], run["candidate_count"], len(signals), len(closed))
+        log.info(
+            "Cycle complete: analysed=%s candidates=%s six_agent_authorized=%s entries=%s exits=%s",
+            run["analysed_count"], run["candidate_count"],
+            pipeline["authorized_count"], len(signals), len(closed),
+        )
         return run
     finally:
         try:
@@ -77,10 +95,11 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         except Exception:
             log.exception("Could not release scanner lease; it will expire automatically.")
 
+
 def main():
     store = ScannerStore()
     client = BinanceSpotClient()
-    log.info("Market Scanner v1 started; interval=%ss; paper-only mode.", SCAN_INTERVAL_SECONDS)
+    log.info("Market Scanner v1 with six-agent paper pipeline started; interval=%ss; paper-only mode.", SCAN_INTERVAL_SECONDS)
     while True:
         started = time.monotonic()
         try:
@@ -89,6 +108,7 @@ def main():
             log.exception("Scanner cycle failed; no live orders were sent.")
         elapsed = time.monotonic() - started
         time.sleep(max(5, SCAN_INTERVAL_SECONDS - elapsed))
+
 
 if __name__ == "__main__":
     main()

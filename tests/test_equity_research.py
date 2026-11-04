@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from global_markets.equity_research import EQUITY_UNIVERSE, analyse_equity_universe
+from global_markets.providers.financialdata import FinancialDataError
 
 
 class FakeClient:
@@ -11,7 +12,7 @@ class FakeClient:
     def fetch_daily_prices_with_quality(self, symbol, asset_class, *, international, limit):
         self.calls.append((symbol, asset_class, international, limit))
         if symbol == "TSM":
-            raise RuntimeError("provider failure")
+            raise FinancialDataError("provider failure")
         now = datetime(2026, 11, 4, tzinfo=timezone.utc)
         candles = []
         for index in range(80):

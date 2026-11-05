@@ -50,8 +50,17 @@ class ScannerStore:
     def __init__(self, url: str = SUPABASE_URL, key: str = SUPABASE_SERVICE_ROLE_KEY, timeout: int = 15):
         if not url.startswith("https://") or not key:
             raise ValueError("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for the scanner service.")
+        if key.startswith("sb_publishable_"):
+            raise ValueError(
+                "SUPABASE_SERVICE_ROLE_KEY must be a Supabase secret key (sb_secret_) "
+                "or legacy service_role JWT, not a publishable key."
+            )
         self.url, self.key, self.timeout = url.rstrip("/"), key, timeout
-        self.headers = {"apikey": key, "Authorization": "Bearer " + key, "Content-Type": "application/json"}
+        self.headers = {"apikey": key, "Content-Type": "application/json"}
+        # New sb_secret_ keys are opaque API keys, not JWTs: send them only
+        # through apikey. Legacy service_role keys are JWTs and need Bearer.
+        if not key.startswith("sb_secret_"):
+            self.headers["Authorization"] = "Bearer " + key
 
     def _request(self, method: str, path: str, **kwargs):
         try:

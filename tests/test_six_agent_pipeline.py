@@ -1,8 +1,11 @@
 import unittest
+from unittest.mock import patch
 from scanner.agents import AGENT_NAMES, run_agent_pipeline
 from trading_desk import new_portfolio
 from scanner.config import validate_staging_target
+from scanner.market_scanner import _features
 from scanner.store import ScannerStore
+from scanner import worker
 
 
 def candidate(symbol="BTCUSDT", score=85, eligible=True):
@@ -22,6 +25,7 @@ def candidate(symbol="BTCUSDT", score=85, eligible=True):
                 "rsi14": 55.0,
                 "macd_hist": 0.2,
                 "volume_ratio": 1.5,
+                "change_pct": 2.0,
             },
             "4h": {},
             "1d": {},
@@ -137,6 +141,57 @@ class SixAgentPipelineTests(unittest.TestCase):
         row["price_usdt"] = 0
         result = run_agent_pipeline([row], new_portfolio(80))
         self.assertEqual(result["scouted_count"], 0)
+
+
+class PaperCycleIntegrationTests(unittest.TestCase):
+    def test_features_calculate_change_from_closed_candles(self):
+        closes = [100.0] * 60 + [102.0]
+        raw = [
+            [index, close, close + 1, close - 1, close, 100.0]
+            for index, close in enumerate(closes)
+        ]
+        # This still-forming candle must not affect the computed return.
+        raw.append([61, 102.0, 1100.0, 1.0, 1000.0, 1000.0])
+
+        result = _features(raw)
+
+        self.assertAlmostEqual(result["change_pct"], 2.0)
+        self.assertEqual(result["close"], 102.0)
+
+    def test_worker_opens_and_persists_a_mocked_paper_entry(self):
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+                self.locked = False
+
+            def acquire_lock(self, worker_id):
+                self.locked = True
+                return True
+
+            def load_state(self):
+                return self.state
+
+            def save_cycle(self, state, run, candidates, signals):
+                self.saved = {"state": state, "run": run, "candidates": candidates, "signals": signals}
+
+            def release_lock(self, worker_id):
+                self.locked = False
+
+        class FixedClient:
+            def prices(self):
+                return {}
+
+        store = MemoryStore()
+        scan_run = {"analysed_count": 1, "candidate_count": 1}
+        with patch.object(worker, "scan_market", return_value=([candidate()], scan_run)):
+            result = worker.run_once(store, FixedClient())
+
+        self.assertEqual(result["agent_pipeline"]["authorized_count"], 1)
+        self.assertEqual(result["paper_entries"], 1)
+        self.assertEqual(len(store.saved["signals"]), 1)
+        self.assertEqual(len(store.saved["state"]["open_positions"]), 1)
+        self.assertFalse(store.locked)
 
 
 if __name__ == "__main__":

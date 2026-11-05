@@ -51,7 +51,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
             signal = Signal(
                 asset=row["base_asset"], market="major", price_usd=float(row["price_usdt"]),
                 volume_24h_usd=float(row["quote_volume_24h"]),
-                gain_45m_pct=None, source="Market Scanner v1 / Binance Spot / six-agent pipeline",
+                gain_1h_pct=row.get("features", {}).get("1h", {}).get("change_pct"),
+                source="Market Scanner v1 / Binance Spot / six-agent pipeline",
             )
             try:
                 position = paper_entry(portfolio, signal, stop_loss_pct=STOP_LOSS_PCT,

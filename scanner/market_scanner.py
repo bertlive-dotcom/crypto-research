@@ -14,11 +14,14 @@ def _features(raw: list[list]) -> dict:
     if len(closes) < 60:
         raise ValueError("Insufficient closed candles")
     e20, e50 = ema(closes, 20), ema(closes, 50)
+    previous_close = closes[-2]
+    change_pct = ((closes[-1] / previous_close) - 1.0) * 100.0 if previous_close > 0 else None
     return {
         "close": closes[-1], "ema20": e20[-1] if e20 else None,
         "ema50": e50[-1] if e50 else None, "rsi14": rsi(closes),
         "macd_hist": macd_histogram(closes), "atr_pct": atr_pct(highs, lows, closes),
         "volume_ratio": volume_ratio(volumes),
+        "change_pct": change_pct,
         "candle_close_time": c["open_time"][-1],
     }
 

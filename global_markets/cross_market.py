@@ -106,10 +106,11 @@ def _closed_rows(rows: list[dict[str, Any]], now: datetime) -> list[dict[str, An
     result = []
     for row in rows:
         try:
+            timestamp = _parse_utc(row.get("timestamp"))
             close_time = _parse_utc(row.get("close_timestamp"))
             price = float(row.get("close"))
             if close_time <= now and math.isfinite(price) and price > 0:
-                result.append({"timestamp": _parse_utc(row.get("timestamp")), "close": price})
+                result.append({"timestamp": timestamp, "close_timestamp": close_time, "close": price})
         except (TypeError, ValueError, OverflowError):
             continue
     return sorted(result, key=lambda item: item["timestamp"])
@@ -157,18 +158,17 @@ def analyze_cross_market(
             "observed_at": reference.isoformat(),
         }
 
-    latest_times = {symbol: rows[-1]["timestamp"] for symbol, rows in series.items()}
-    newest = min(latest_times.values())
-    oldest_latest = min(latest_times.values())
-    newest_latest = max(latest_times.values())
-    age_minutes = (reference - newest).total_seconds() / 60.0
-    sync_minutes = (newest_latest - oldest_latest).total_seconds() / 60.0
+    latest_close_times = {symbol: rows[-1]["close_timestamp"] for symbol, rows in series.items()}
+    oldest_latest_close = min(latest_close_times.values())
+    newest_latest_close = max(latest_close_times.values())
+    age_minutes = (reference - oldest_latest_close).total_seconds() / 60.0
+    sync_minutes = (newest_latest_close - oldest_latest_close).total_seconds() / 60.0
     if age_minutes > max_age_minutes or sync_minutes > 30:
         return {
             "status": "stale_or_unsynchronized", "label": "Dades antigues o desalineades",
             "reason": "Les últimes espelmes tancades no són prou recents o no estan sincronitzades.",
             "unavailable": [], "assets": {}, "correlations": {},
-            "latest_candle_utc": newest.isoformat(), "age_minutes": round(age_minutes, 1),
+            "latest_candle_close_utc": oldest_latest_close.isoformat(), "age_minutes": round(age_minutes, 1),
             "sync_difference_minutes": round(sync_minutes, 1), "observed_at": reference.isoformat(),
         }
 
@@ -187,24 +187,34 @@ def analyze_cross_market(
         for symbol in required
     }
     common = common[-100:]
+    interval = timedelta(minutes=15)
     returns = {symbol: [] for symbol in required}
+    valid_return_times = []
     for index in range(1, len(common)):
+        current_time = common[index]
+        previous_time = common[index - 1]
+        # Do not treat overnight, weekend, holiday or missing-bar gaps as 15m returns.
+        if current_time - previous_time != interval:
+            continue
+        valid_return_times.append(current_time)
         for symbol in required:
-            change = _pct_change(lookup[symbol][common[index]], lookup[symbol][common[index - 1]])
-            returns[symbol].append(change if change is not None else 0.0)
+            change = _pct_change(lookup[symbol][current_time], lookup[symbol][previous_time])
+            returns[symbol].append(change)
 
     latest = common[-1]
-    previous = common[-2]
-    hourly_base = common[-5] if len(common) >= 5 else None
+    previous_15m = latest - interval
+    hourly_base = latest - timedelta(hours=1)
+    hourly_path = [hourly_base + interval * step for step in range(5)]
+    has_contiguous_hour = all(timestamp in lookup["BTCUSDT"] for timestamp in hourly_path)
     assets = {}
     for symbol in required:
         close = lookup[symbol][latest]
-        prior = lookup[symbol][previous]
-        one_hour = _pct_change(close, lookup[symbol][hourly_base]) if hourly_base else None
+        prior = lookup[symbol].get(previous_15m)
+        base = lookup[symbol].get(hourly_base) if has_contiguous_hour else None
         assets[symbol] = {
             "price": close,
-            "return_15m_pct": _pct_change(close, prior),
-            "return_1h_pct": one_hour,
+            "return_15m_pct": _pct_change(close, prior) if prior is not None else None,
+            "return_1h_pct": _pct_change(close, base) if base is not None else None,
             "latest_candle_utc": latest,
             "bars": len(common),
         }

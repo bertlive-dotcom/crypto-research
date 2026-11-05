@@ -17,9 +17,9 @@ services:
       - key: SCANNER_INTERVAL_SECONDS
         value: "300"
       - key: SCANNER_TOP_UNIVERSE_SIZE
-        value: "30"
+        value: "50"
       - key: SCANNER_MAX_CANDIDATES
-        value: "20"
+        value: "50"
       - key: SCANNER_MIN_QUOTE_VOLUME_USDT
         value: "10000000"
       - key: SCANNER_MIN_SCORE

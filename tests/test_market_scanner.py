@@ -3,7 +3,7 @@ from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
 from scanner.market_scanner import apply_paper_rules, score_candidate, scan_market
 from scanner.store import enrich_candidate_diagnostics
-from trading_desk import new_portfolio
+from trading_desk import new_portfolio, Signal, paper_entry, ensure_daily_equity_baseline
 
 class IndicatorTests(unittest.TestCase):
     def test_ema_requires_enough_values(self):
@@ -119,7 +119,9 @@ class ScannerRuleTests(unittest.TestCase):
 
     def test_open_asset_is_not_reentered(self):
         portfolio = new_portfolio(80)
-        portfolio["open_positions"].append({"asset": "BTC"})
+        signal = Signal(asset="BTC", market="major", price_usd=100.0,
+                        volume_24h_usd=20_000_000, gain_1h_pct=0)
+        paper_entry(portfolio, signal, stop_loss_pct=10)
         approved = apply_paper_rules([self.candidate()], portfolio)
         self.assertEqual(approved, [])
 
@@ -128,5 +130,26 @@ class ScannerRuleTests(unittest.TestCase):
         portfolio["open_positions"] = [{"asset": f"A{i}"} for i in range(3)]
         self.assertEqual(apply_paper_rules([self.candidate()], portfolio), [])
 
+
+    def test_daily_equity_loss_gate_includes_open_position_unrealized_loss(self):
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        signal = Signal(asset="BTC", market="major", price_usd=100.0,
+                        volume_24h_usd=20_000_000, gain_1h_pct=0)
+        position = paper_entry(portfolio, signal, stop_loss_pct=10)
+        position["last_price_usd"] = 50.0
+        approved = apply_paper_rules([self.candidate("ETHUSDT")], portfolio)
+        self.assertEqual(approved, [])
+        self.assertEqual(len(portfolio["open_positions"]), 1)
+
+    def test_daily_loss_gate_does_not_depend_only_on_realized_trades(self):
+        portfolio = new_portfolio(80)
+        ensure_daily_equity_baseline(portfolio)
+        signal = Signal(asset="BTC", market="major", price_usd=100.0,
+                        volume_24h_usd=20_000_000, gain_1h_pct=0)
+        position = paper_entry(portfolio, signal, stop_loss_pct=10)
+        position["last_price_usd"] = 50.0
+        self.assertEqual(portfolio["closed_trades"], [])
+        self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
 if __name__ == "__main__":
     unittest.main()

@@ -275,9 +275,9 @@ def get_cross_market_report(api_key):
 
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab = st.tabs([
+market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab = st.tabs([
     "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner",
-    "Cross-market risk"
+    "Cross-market risk", "Bitunix (read-only)"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -1296,3 +1296,68 @@ with cross_market_tab:
                         cross_report["age_minutes"], cross_report.get("sync_difference_minutes", "—")))
         except Exception as error:
             st.error("Cross-market scan failed: " + str(error))
+
+
+
+with bitunix_tab:
+    st.subheader("Bitunix account connection")
+    st.caption("Private account data · signed REST requests · read-only endpoints only.")
+    st.warning("Read-only integration. This screen contains no order placement, transfer, withdrawal, or account-mutation functionality.")
+    bitunix_api_key = secret("BITUNIX_API_KEY")
+    bitunix_api_secret = secret("BITUNIX_API_SECRET")
+    if not bitunix_api_key or not bitunix_api_secret:
+        st.info("Add BITUNIX_API_KEY and BITUNIX_API_SECRET to Streamlit Community Cloud → App settings → Secrets.")
+    else:
+        st.success("Bitunix credentials detected in hosting Secrets. Credential values are never displayed.")
+        if st.button("Read Bitunix account", key="read_bitunix_account"):
+            from bitunix.client import BitunixAPIError, BitunixReadOnlyClient
+            client = BitunixReadOnlyClient(bitunix_api_key, bitunix_api_secret)
+            snapshot = {"spot_error": None, "futures_account_error": None, "positions_error": None}
+            try:
+                snapshot["spot_balances"] = client.get_spot_balances()
+            except BitunixAPIError as error:
+                snapshot["spot_error"] = str(error)
+            try:
+                snapshot["futures_account"] = client.get_futures_account("USDT")
+            except BitunixAPIError as error:
+                snapshot["futures_account_error"] = str(error)
+            try:
+                snapshot["futures_positions"] = client.get_futures_positions()
+            except BitunixAPIError as error:
+                snapshot["positions_error"] = str(error)
+            st.session_state["bitunix_readonly_snapshot"] = snapshot
+
+        snapshot = st.session_state.get("bitunix_readonly_snapshot")
+        if snapshot:
+            st.markdown("#### Spot balances")
+            if snapshot.get("spot_error"):
+                st.error("Spot: " + snapshot["spot_error"])
+            else:
+                spot_rows = [{
+                    "Asset": row.get("coin"),
+                    "Balance": row.get("balance"),
+                    "Locked": row.get("balanceLocked"),
+                } for row in snapshot.get("spot_balances", [])]
+                if spot_rows:
+                    st.dataframe(pd.DataFrame(spot_rows), width="stretch", hide_index=True)
+                else:
+                    st.info("Bitunix returned no Spot balances.")
+            st.markdown("#### Futures account (USDT)")
+            if snapshot.get("futures_account_error"):
+                st.error("Futures account: " + snapshot["futures_account_error"])
+            else:
+                futures_rows = snapshot.get("futures_account", [])
+                if futures_rows:
+                    st.dataframe(pd.DataFrame(futures_rows), width="stretch", hide_index=True)
+                else:
+                    st.info("Bitunix returned no USDT Futures account data.")
+            st.markdown("#### Open Futures positions")
+            if snapshot.get("positions_error"):
+                st.error("Positions: " + snapshot["positions_error"])
+            else:
+                position_rows = snapshot.get("futures_positions", [])
+                if position_rows:
+                    st.dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
+                else:
+                    st.info("No open Futures positions returned.")
+            st.caption("Read-only snapshot. Data is requested only when you press the button; no trading action is available.")

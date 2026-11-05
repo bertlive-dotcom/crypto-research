@@ -188,15 +188,14 @@ def analyze_cross_market(
     }
     common = common[-100:]
     interval = timedelta(minutes=15)
+    common_set = set(common)
     returns = {symbol: [] for symbol in required}
-    valid_return_times = []
     for index in range(1, len(common)):
         current_time = common[index]
         previous_time = common[index - 1]
         # Do not treat overnight, weekend, holiday or missing-bar gaps as 15m returns.
         if current_time - previous_time != interval:
             continue
-        valid_return_times.append(current_time)
         for symbol in required:
             change = _pct_change(lookup[symbol][current_time], lookup[symbol][previous_time])
             returns[symbol].append(change)
@@ -205,7 +204,7 @@ def analyze_cross_market(
     previous_15m = latest - interval
     hourly_base = latest - timedelta(hours=1)
     hourly_path = [hourly_base + interval * step for step in range(5)]
-    has_contiguous_hour = all(timestamp in lookup["BTCUSDT"] for timestamp in hourly_path)
+    has_contiguous_hour = all(timestamp in common_set for timestamp in hourly_path)
     assets = {}
     for symbol in required:
         close = lookup[symbol][latest]

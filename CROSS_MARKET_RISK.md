@@ -14,7 +14,9 @@
 - The scan is user-triggered and cached for five minutes. It makes one Binance request and two Twelve Data requests.
 
 ## Quality gates
-- Only closed candles are included.
+- Only closed candles are included; freshness and source synchronization are measured using candle close timestamps.
+- Returns and correlations only use adjacent, contiguous 15-minute bars. Overnight, weekend, holiday and missing-bar gaps are excluded rather than treated as 15-minute moves.
+- A 1-hour return is shown only when all five synchronized 15-minute candle timestamps spanning that hour are present.
 - At least five closed observations per market are required for returns.
 - At least eight synchronized observations are required for correlation.
 - Latest observations must be no more than 35 minutes old and no more than 30 minutes apart across sources.

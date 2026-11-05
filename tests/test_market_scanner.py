@@ -149,5 +149,5 @@ class ScannerRuleTests(unittest.TestCase):
         position["last_price_usd"] = 50.0
         self.assertEqual(portfolio["closed_trades"], [])
         self.assertEqual(apply_paper_rules([self.candidate("ETHUSDT")], portfolio), [])
-\nif __name__ == "__main__":
+if __name__ == "__main__":
     unittest.main()

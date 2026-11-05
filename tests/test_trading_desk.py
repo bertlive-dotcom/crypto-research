@@ -238,5 +238,5 @@ class TradingDeskTests(unittest.TestCase):
         second = ensure_daily_equity_baseline(p, now=day_two)
         self.assertNotEqual(first["date"], second["date"])
         self.assertAlmostEqual(second["start_equity_usd"], 77.0)
-\nif __name__ == "__main__":
+if __name__ == "__main__":
     unittest.main()

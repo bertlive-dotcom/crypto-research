@@ -5,6 +5,7 @@ from bitunix.client import (
     BitunixReadOnlyClient,
     FUTURES_ACCOUNT_PATH,
     FUTURES_BASE_URL,
+    FUTURES_POSITIONS_PATH,
     SPOT_BALANCE_PATH,
     SPOT_BASE_URL,
     build_signature,
@@ -78,6 +79,21 @@ class BitunixReadOnlyTests(unittest.TestCase):
         self.assertEqual(rows[0]["marginCoin"], "USDT")
         self.assertEqual(session.calls[0]["url"], FUTURES_BASE_URL + FUTURES_ACCOUNT_PATH)
         self.assertEqual(session.calls[0]["params"], {"marginCoin": "USDT"})
+
+    def test_futures_positions_uses_fixed_get_endpoint(self):
+        session = FakeSession([FakeResponse({
+            "code": 0, "data": [{"symbol": "BTCUSDT", "positionId": "position-1"}]
+        })])
+        client = BitunixReadOnlyClient("key", "secret", session=session)
+
+        rows = client.get_futures_positions()
+
+        self.assertEqual(rows, [{"symbol": "BTCUSDT", "positionId": "position-1"}])
+        self.assertEqual(
+            session.calls[0]["url"],
+            FUTURES_BASE_URL + FUTURES_POSITIONS_PATH,
+        )
+        self.assertEqual(session.calls[0]["params"], None)
 
     def test_api_error_is_reported_without_exposing_credentials(self):
         session = FakeSession([FakeResponse({"code": 10001, "msg": "permission denied"})])

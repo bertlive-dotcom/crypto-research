@@ -234,9 +234,10 @@ class TradingDeskTests(unittest.TestCase):
         day_one = datetime(2026, 11, 3, 8, 0, tzinfo=timezone.utc)
         day_two = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
         first = ensure_daily_equity_baseline(p, now=day_one)
+        first_date = first["date"]
         p["cash"] -= 3.0
         second = ensure_daily_equity_baseline(p, now=day_two)
-        self.assertNotEqual(first["date"], second["date"])
+        self.assertNotEqual(first_date, second["date"])
         self.assertAlmostEqual(second["start_equity_usd"], 77.0)
 if __name__ == "__main__":
     unittest.main()

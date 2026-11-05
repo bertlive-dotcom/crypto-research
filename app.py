@@ -263,10 +263,21 @@ def get_global_fx_analysis(api_key):
     }
 
 
+@st.cache_data(ttl=300)
+def get_cross_market_report(api_key):
+    from global_markets.cross_market import analyze_cross_market, fetch_cross_market_candles
+    feed = fetch_cross_market_candles(api_key)
+    report = analyze_cross_market(feed["candles"])
+    report["provider_unavailable"] = feed["unavailable"]
+    report["feed_observed_at"] = feed["observed_at"]
+    return report
+
+
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab = st.tabs([
-    "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner"
+market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab = st.tabs([
+    "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner",
+    "Cross-market risk"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -1234,3 +1245,54 @@ with scanner_tab:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:
             st.error("Could not load Market Scanner data: " + str(error))
+
+
+with cross_market_tab:
+    st.subheader("Cross-market risk monitor")
+    st.caption("BTC versus S&P 500 (SPY) and Nasdaq 100 (QQQ) · synchronized 15-minute candles · read-only.")
+    st.warning("Research only. This monitor does not create signals for entry, modify the Market Scanner, or change either paper portfolio.")
+    st.write("The detector compares the latest closed 15-minute and 1-hour returns, checks whether the three series are synchronized, and calculates rolling 15-minute return correlations.")
+    if st.button("Fetch BTC, S&P 500 and Nasdaq data", key="run_cross_market_scan"):
+        get_cross_market_report.clear()
+        st.session_state["cross_market_scan_requested"] = True
+    if not st.session_state.get("cross_market_scan_requested"):
+        st.info("Start the scan to request fresh public market data. No intraday market request is made until you press the button.")
+    else:
+        try:
+            with st.spinner("Fetching synchronized 15-minute candles from Binance and Twelve Data..."):
+                cross_report = get_cross_market_report(twelve_key)
+            if cross_report.get("provider_unavailable"):
+                st.markdown("#### Provider availability")
+                st.dataframe(pd.DataFrame(cross_report["provider_unavailable"]), width="stretch", hide_index=True)
+            if cross_report.get("status") == "ok":
+                st.markdown("#### Current market regime")
+                st.metric("Cross-market reading", cross_report["label"])
+                st.caption(cross_report["reason"])
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Latest closed candle age", "{} min".format(cross_report["age_minutes"]))
+                c2.metric("Timestamp difference", "{} min".format(cross_report["sync_difference_minutes"]))
+                c3.metric("Common 15m candles", cross_report["common_bars"])
+                asset_labels = {"BTCUSDT": "BTC / USD", "SPY": "S&P 500 (SPY)", "QQQ": "Nasdaq 100 (QQQ)"}
+                asset_rows = [{
+                    "Market": asset_labels[symbol],
+                    "Latest close": values["price"],
+                    "Return 15m %": values["return_15m_pct"],
+                    "Return 1h %": values["return_1h_pct"],
+                    "Latest closed candle UTC": values["latest_candle_utc"],
+                } for symbol, values in cross_report["assets"].items()]
+                st.dataframe(pd.DataFrame(asset_rows).round(4), width="stretch", hide_index=True)
+                correlation_rows = [{
+                    "Pair": label.replace("_15m", "").replace("_", " / "),
+                    "Correlation (15m returns)": value,
+                } for label, value in cross_report["correlations"].items()]
+                st.markdown("#### Rolling correlations")
+                st.dataframe(pd.DataFrame(correlation_rows).round(3), width="stretch", hide_index=True)
+                st.caption("Correlations are descriptive, not causal. They are calculated over up to the latest 24 synchronized 15-minute returns. Correlation can change quickly and is not a standalone trading signal.")
+            else:
+                st.warning(cross_report.get("label", "Cross-market data unavailable"))
+                st.write(cross_report.get("reason", "No valid synchronized market data was returned."))
+                if cross_report.get("age_minutes") is not None:
+                    st.caption("Latest candle age: {} minutes · timestamp difference: {} minutes".format(
+                        cross_report["age_minutes"], cross_report.get("sync_difference_minutes", "—")))
+        except Exception as error:
+            st.error("Cross-market scan failed: " + str(error))

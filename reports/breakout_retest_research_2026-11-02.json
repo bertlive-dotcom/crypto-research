@@ -1,0 +1,244 @@
+{
+  "report_type": "read_only_breakout_retest_research",
+  "generated_at": "2026-11-02T21:26:11.548Z",
+  "source": "Binance Spot daily klines",
+  "rules": {
+    "breakout": "Close beyond prior daily high/low; EMA50/EMA200 alignment; RSI 50-70 long / 30-50 short; MACD line vs signal; volume >=1.2x SMA20.",
+    "retest": "Within next 3 candles; touch within 0.25 ATR; close back through level with directional body.",
+    "entry": "Next daily open after retest confirmation.",
+    "stop": "Beyond retest extreme and 0.5 ATR from breakout level.",
+    "target": "2R; maximum 5 daily candles.",
+    "costs": "0.10% fee + 0.05% slippage per side; 0.30% round trip.",
+    "split": "First 70% exploration; final 30% chronological holdout."
+  },
+  "assets": [
+    {
+      "symbol": "BTCUSDT",
+      "candles": 999,
+      "first_date": "2024-02-07",
+      "last_date": "2026-11-01",
+      "exploration": {
+        "trades": 2,
+        "wins": 1,
+        "win_rate_pct": 50,
+        "mean_net_return_pct": 0.144,
+        "profit_factor": 1.098,
+        "exit_reasons": {
+          "stop_loss": 1,
+          "stop_gap": 0,
+          "take_profit": 1,
+          "time_exit": 0
+        }
+      },
+      "holdout": {
+        "trades": 1,
+        "wins": 0,
+        "win_rate_pct": 0,
+        "mean_net_return_pct": -1.658,
+        "profit_factor": 0,
+        "exit_reasons": {
+          "stop_loss": 1,
+          "stop_gap": 0,
+          "take_profit": 0,
+          "time_exit": 0
+        }
+      },
+      "trades": [
+        {
+          "breakout_date": "2025-07-02",
+          "retest_date": "2025-07-05",
+          "entry_date": "2025-07-06",
+          "exit_date": "2025-07-10",
+          "side": "long",
+          "exit_reason": "take_profit",
+          "net_return_pct": 3.2289,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2025-10-05",
+          "retest_date": "2025-10-06",
+          "entry_date": "2025-10-07",
+          "exit_date": "2025-10-07",
+          "side": "long",
+          "exit_reason": "stop_loss",
+          "net_return_pct": -2.9413,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2026-07-31",
+          "retest_date": "2026-08-03",
+          "entry_date": "2026-08-04",
+          "exit_date": "2026-08-04",
+          "side": "short",
+          "exit_reason": "stop_loss",
+          "net_return_pct": -1.6583,
+          "holdout": true
+        }
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "candles": 999,
+      "first_date": "2024-02-07",
+      "last_date": "2026-11-01",
+      "exploration": {
+        "trades": 2,
+        "wins": 0,
+        "win_rate_pct": 0,
+        "mean_net_return_pct": -5.735,
+        "profit_factor": 0,
+        "exit_reasons": {
+          "stop_loss": 2,
+          "stop_gap": 0,
+          "take_profit": 0,
+          "time_exit": 0
+        }
+      },
+      "holdout": {
+        "trades": 1,
+        "wins": 0,
+        "win_rate_pct": 0,
+        "mean_net_return_pct": -0.675,
+        "profit_factor": 0,
+        "exit_reasons": {
+          "stop_loss": 0,
+          "stop_gap": 0,
+          "take_profit": 0,
+          "time_exit": 1
+        }
+      },
+      "trades": [
+        {
+          "breakout_date": "2024-10-02",
+          "retest_date": "2024-10-03",
+          "entry_date": "2024-10-04",
+          "exit_date": "2024-10-07",
+          "side": "short",
+          "exit_reason": "stop_loss",
+          "net_return_pct": -5.4667,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2024-10-31",
+          "retest_date": "2024-11-01",
+          "entry_date": "2024-11-02",
+          "exit_date": "2024-11-06",
+          "side": "short",
+          "exit_reason": "stop_loss",
+          "net_return_pct": -6.0023,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2026-09-21",
+          "retest_date": "2026-09-24",
+          "entry_date": "2026-09-25",
+          "exit_date": "2026-09-29",
+          "side": "long",
+          "exit_reason": "time_exit",
+          "net_return_pct": -0.675,
+          "holdout": true
+        }
+      ]
+    },
+    {
+      "symbol": "SOLUSDT",
+      "candles": 999,
+      "first_date": "2024-02-07",
+      "last_date": "2026-11-01",
+      "exploration": {
+        "trades": 4,
+        "wins": 2,
+        "win_rate_pct": 50,
+        "mean_net_return_pct": 2.125,
+        "profit_factor": 2.417,
+        "exit_reasons": {
+          "stop_loss": 1,
+          "stop_gap": 0,
+          "take_profit": 1,
+          "time_exit": 2
+        }
+      },
+      "holdout": {
+        "trades": 2,
+        "wins": 2,
+        "win_rate_pct": 100,
+        "mean_net_return_pct": 4.121,
+        "profit_factor": null,
+        "exit_reasons": {
+          "stop_loss": 0,
+          "stop_gap": 0,
+          "take_profit": 1,
+          "time_exit": 1
+        }
+      },
+      "trades": [
+        {
+          "breakout_date": "2024-08-30",
+          "retest_date": "2024-08-31",
+          "entry_date": "2024-09-01",
+          "exit_date": "2024-09-05",
+          "side": "short",
+          "exit_reason": "time_exit",
+          "net_return_pct": 4.0886,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2024-10-28",
+          "retest_date": "2024-10-29",
+          "entry_date": "2024-10-30",
+          "exit_date": "2024-10-30",
+          "side": "long",
+          "exit_reason": "stop_loss",
+          "net_return_pct": -3.4684,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2025-06-13",
+          "retest_date": "2025-06-16",
+          "entry_date": "2025-06-17",
+          "exit_date": "2025-06-21",
+          "side": "short",
+          "exit_reason": "take_profit",
+          "net_return_pct": 10.4079,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2025-08-27",
+          "retest_date": "2025-08-28",
+          "entry_date": "2025-08-29",
+          "exit_date": "2025-09-02",
+          "side": "long",
+          "exit_reason": "time_exit",
+          "net_return_pct": -2.5292,
+          "holdout": false
+        },
+        {
+          "breakout_date": "2026-01-20",
+          "retest_date": "2026-01-22",
+          "entry_date": "2026-01-23",
+          "exit_date": "2026-01-25",
+          "side": "short",
+          "exit_reason": "take_profit",
+          "net_return_pct": 6.7389,
+          "holdout": true
+        },
+        {
+          "breakout_date": "2026-09-21",
+          "retest_date": "2026-09-24",
+          "entry_date": "2026-09-25",
+          "exit_date": "2026-09-29",
+          "side": "long",
+          "exit_reason": "time_exit",
+          "net_return_pct": 1.5028,
+          "holdout": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Only 999 daily candles per symbol (2024-02-07 to 2026-11-01).",
+    "Very small event counts; no statistical inference or evidence of a durable edge.",
+    "Daily OHLC cannot resolve intraday ordering; stop assumed before target if both levels touched.",
+    "Research only; not connected to scanner, paper trading or execution."
+  ]
+}

@@ -1,0 +1,29 @@
+name: Statistical research report
+
+on:
+  push:
+    branches: [feature/statistical-intelligence-prototype]
+    paths:
+      - "global_markets/statistical_intelligence.py"
+      - "tools/run_statistical_research.py"
+      - ".github/workflows/statistical-research.yml"
+
+jobs:
+  historical-research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Fetch Binance daily candles and calculate descriptive statistics
+        run: python tools/run_statistical_research.py --symbols BTCUSDT ETHUSDT SOLUSDT --limit 1000
+      - name: Upload research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: statistical-research-report
+          path: statistical_research_report.json
+          if-no-files-found: error
+          retention-days: 14

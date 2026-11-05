@@ -48,14 +48,14 @@ class CrossMarketTests(unittest.TestCase):
 
     def test_does_not_use_unclosed_candles(self):
         now = datetime(2026, 11, 5, 16, 0, tzinfo=timezone.utc)
-        start = now - timedelta(minutes=15 * 6)
+        start = now - timedelta(minutes=15 * 8)
         candles = {
-            symbol: self.make_series(symbol, start, [0.1] * 7)
+            symbol: self.make_series(symbol, start, [0.1] * 9)
             for symbol in ("BTCUSDT", "SPY", "QQQ")
         }
         result = analyze_cross_market(candles, now=now)
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["common_bars"], 6)
+        self.assertEqual(result["common_bars"], 8)
 
 
 if __name__ == "__main__":

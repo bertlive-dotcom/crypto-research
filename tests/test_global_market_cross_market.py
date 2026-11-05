@@ -46,6 +46,32 @@ class CrossMarketTests(unittest.TestCase):
         result = analyze_cross_market({"BTCUSDT": [], "SPY": [], "QQQ": []}, now=now)
         self.assertEqual(result["status"], "insufficient_data")
 
+
+    def test_overnight_gap_is_not_used_as_a_one_hour_return(self):
+        now = datetime(2026, 11, 5, 16, 0, tzinfo=timezone.utc)
+        first_session = [now - timedelta(hours=14) + timedelta(minutes=15 * i) for i in range(5)]
+        current_session = [now - timedelta(minutes=60) + timedelta(minutes=15 * i) for i in range(4)]
+        timestamps = first_session + current_session
+        candles = {}
+        for symbol in ("BTCUSDT", "SPY", "QQQ"):
+            rows = []
+            price = 100.0
+            for stamp in timestamps:
+                price *= 1.001
+                rows.append({
+                    "symbol": symbol,
+                    "timestamp": stamp.isoformat(),
+                    "close_timestamp": (stamp + timedelta(minutes=15)).isoformat(),
+                    "close": price,
+                })
+            candles[symbol] = rows
+
+        result = analyze_cross_market(candles, now=now)
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["assets"]["SPY"]["return_1h_pct"])
+        self.assertIsNotNone(result["assets"]["SPY"]["return_15m_pct"])
+        self.assertIsNone(result["correlations"]["BTC_SPY_15m"])
+
     def test_does_not_use_unclosed_candles(self):
         now = datetime(2026, 11, 5, 16, 0, tzinfo=timezone.utc)
         start = now - timedelta(minutes=15 * 8)

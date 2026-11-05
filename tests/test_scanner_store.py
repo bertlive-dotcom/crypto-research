@@ -17,6 +17,21 @@ class LatestCandidatesTests(unittest.TestCase):
         return response
 
     @patch("scanner.store.requests.request")
+    def test_save_state_uses_safety_snapshot_rpc(self, request):
+        response = MagicMock()
+        response.content = b""
+        response.raise_for_status.return_value = None
+        request.return_value = response
+
+        state = {"cash": 80, "daily_risk": {"date": "2026-11-03", "start_equity_usd": 80}}
+        self.store.save_state(state)
+
+        args, kwargs = request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertIn("/rest/v1/rpc/save_market_scanner_state", args[1])
+        self.assertEqual(kwargs["json"], {"p_state": state})
+
+    @patch("scanner.store.requests.request")
     def test_latest_candidates_reads_only_newest_scan_and_deduplicates_symbols(self, request):
         scan_time = "2026-11-01T14:30:00+00:00"
         request.side_effect = [

@@ -7,6 +7,7 @@ from .config import (
 )
 from .indicators import atr_pct, candle_series, ema, macd_histogram, rsi, volume_ratio
 from .market_data import BinanceSpotClient
+from trading_desk import daily_equity_drawdown
 
 def _features(raw: list[list]) -> dict:
     c = candle_series(raw)
@@ -126,23 +127,34 @@ def scan_market(client: BinanceSpotClient | None = None) -> tuple[list[dict], di
     }
     return selected, run
 
-def daily_realized_pnl(portfolio: dict) -> float:
-    today = datetime.now(timezone.utc).date()
-    total = 0.0
-    for trade in portfolio.get("closed_trades", []):
-        closed = trade.get("closed_at", "")
+
+def consecutive_loss_streak(portfolio: dict) -> int:
+    """Count losses at the tail of the closed-trade ledger, ordered by close time."""
+    trades = sorted(
+        portfolio.get("closed_trades", []),
+        key=lambda trade: str(trade.get("closed_at", "")),
+    )
+    streak = 0
+    for trade in reversed(trades):
         try:
-            if datetime.fromisoformat(closed.replace("Z", "+00:00")).date() == today:
-                total += float(trade.get("realized_pnl_usd", 0.0))
-        except (ValueError, TypeError):
-            continue
-    return total
+            pnl = float(trade["realized_pnl_usd"])
+        except (KeyError, TypeError, ValueError):
+            return 3
+        if pnl < 0:
+            streak += 1
+        else:
+            break
+    return streak
+
 
 def apply_paper_rules(candidates: list[dict], portfolio: dict) -> list[dict]:
     """Return approved candidates; callers pass them to the existing paper_entry engine."""
     if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
         return []
-    if daily_realized_pnl(portfolio) <= -MAX_DAILY_LOSS_USDT:
+    daily_risk = daily_equity_drawdown(portfolio)
+    if daily_risk["loss_usd"] >= MAX_DAILY_LOSS_USDT:
+        return []
+    if consecutive_loss_streak(portfolio) >= 3:
         return []
     open_assets = {p["asset"].upper() for p in portfolio.get("open_positions", [])}
     approved = []

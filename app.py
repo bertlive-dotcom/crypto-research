@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 
 from trading_desk import (
     Signal, evaluate_signal, new_portfolio, paper_entry, paper_exit,
-    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD,
+    portfolio_summary, update_position_mark, update_position_from_candle, ensure_position_ids, STARTING_CAPITAL_USD, position_risk_at_stop, ensure_daily_equity_baseline, daily_equity_drawdown,
 )
 from supabase_store import SupabasePaperStore, SupabaseStoreError
 from scanner.store import ScannerStore, ScannerStoreError
+from scanner.config import MAX_DAILY_LOSS_USDT
 from global_markets.crypto_feed import CryptoWatchlistFeed, BINANCE_SPOT_PAIRS
 from global_markets.providers.binance import BinanceMarketDataClient, BinanceMarketDataError
 from global_markets.market_analysis import analyze_feed, analyze_candles, classify_entry_opportunity
@@ -346,6 +347,18 @@ with desk_tab:
         st.warning("Supabase is not configured: this session is temporary and will not provide a durable 30-day journal. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Streamlit Secrets.")
     else:
         st.caption("Persistent paper ledger connected to Supabase.")
+
+    # Save the start-of-day equity before refreshing any market marks.
+    previous_daily_risk = dict(portfolio.get("daily_risk", {}))
+    ensure_daily_equity_baseline(portfolio)
+    if paper_store and previous_daily_risk != portfolio.get("daily_risk", {}):
+        try:
+            paper_store.save_state(portfolio, {"event_type": "daily_equity_baseline",
+                "asset": "", "daily_risk": portfolio.get("daily_risk")})
+        except SupabaseStoreError as error:
+            st.error("Could not persist daily equity baseline: " + str(error))
+            st.stop()
+
     # Runs every 60 seconds; candle extremes detect TP/SL touches between quote updates.
     candle_client = BinanceMarketDataClient()
     for open_position in list(portfolio["open_positions"]):
@@ -360,7 +373,11 @@ with desk_tab:
                 if candle is not None:
                     candle_stamp = candle["timestamp"]
                 if candle is not None and open_position.get("last_market_candle_timestamp") != candle_stamp:
-                    stopped_trade = update_position_from_candle(portfolio, asset, high=float(candle["high"]), low=float(candle["low"]), close=float(candle["close"]), position_id=open_position["position_id"])
+                    stopped_trade = update_position_from_candle(
+                        portfolio, asset, high=float(candle["high"]),
+                        low=float(candle["low"]), close=float(candle["close"]),
+                        position_id=open_position["position_id"], open=float(candle["open"]),
+                    )
                     if not stopped_trade:
                         open_position["last_market_candle_timestamp"] = candle_stamp
                     market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_candle_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(candle["close"]), "candle_timestamp": candle_stamp, "candle_high": float(candle["high"]), "candle_low": float(candle["low"]), "trade": stopped_trade}
@@ -369,8 +386,11 @@ with desk_tab:
         if market_event is None and not stopped_trade:
             current_price = latest_crypto_prices.get(asset)
             if current_price and abs(float(current_price) - float(open_position["last_price_usd"])) > 1e-12:
-                stopped_trade = update_position_mark(portfolio, asset, float(current_price), position_id=open_position["position_id"])
-                market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(current_price), "trade": stopped_trade}
+                try:
+                    stopped_trade = update_position_mark(portfolio, asset, float(current_price), position_id=open_position["position_id"])
+                    market_event = {"event_type": stopped_trade["exit_reason"] if stopped_trade else "market_mark", "asset": asset, "position_id": open_position["position_id"], "price_usd": float(current_price), "trade": stopped_trade}
+                except ValueError as error:
+                    st.error("Paper position {} needs manual risk-level reconciliation; no fallback mark was applied: {}".format(asset, error))
         if market_event and paper_store:
             try:
                 paper_store.save_state(portfolio, market_event)
@@ -381,14 +401,40 @@ with desk_tab:
             st.warning("Automatic {} triggered for {} at simulated level.".format(stopped_trade["exit_reason"].replace("_", " "), asset))
 
     summary = portfolio_summary(portfolio)
-    col1, col2, col3, col4 = st.columns(4)
+    daily_risk = daily_equity_drawdown(portfolio)
+    daily_risk_ok = daily_risk["loss_usd"] < MAX_DAILY_LOSS_USDT
+    col1, col2, col3 = st.columns(3)
     col1.metric("Virtual equity", "USD {:.2f}".format(summary["equity_usd"]))
     col2.metric("Cash available", "USD {:.2f}".format(summary["cash_usd"]))
-    col3.metric("Realized P&L", "USD {:.2f}".format(summary["realized_pnl_usd"]))
-    col4.metric("Unrealized P&L", "USD {:.2f}".format(summary["unrealized_pnl_usd"]))
+    col3.metric("Unrealized P&L", "USD {:.2f}".format(summary["unrealized_pnl_usd"]))
+    risk_col, exposure_col, pnl_col = st.columns(3)
+    risk_col.metric("Net risk at stops", "USD {:.2f}".format(summary["risk_at_stops_usd"]) if summary["risk_at_stops_usd"] is not None else "Unknown")
+    exposure_col.metric("Open exposure", "USD {:.2f} ({:.1f}%)".format(summary["open_exposure_usd"], summary["open_exposure_pct_equity"] or 0.0))
+    pnl_col.metric("Realized P&L", "USD {:.2f}".format(summary["realized_pnl_usd"]))
+    if summary["risk_unknown_positions"]:
+        st.error("Risk unavailable for positions: {}. Reconcile stop data before opening new trades.".format(", ".join(summary["risk_unknown_positions"])))
+    else:
+        st.caption("Aggregate stop risk: {:.2f}% of current equity (maximum {:.2f}%). Remaining risk budget: USD {:.2f}. Estimates include entry/exit fees and adverse slippage.".format(
+            summary["risk_at_stops_pct_equity"] or 0.0,
+            (summary["max_aggregate_stop_risk_usd"] / summary["equity_usd"] * 100.0) if summary["equity_usd"] > 0 else 0.0,
+            summary["remaining_aggregate_stop_risk_usd"] or 0.0))
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
+    day_col1, day_col2, day_col3 = st.columns(3)
+    if daily_risk.get("status") == "unavailable_fail_closed":
+        day_col1.metric("Daily equity change", "Unavailable")
+        day_col2.metric("Daily loss", "Unavailable / USD {:.2f}".format(MAX_DAILY_LOSS_USDT))
+        day_col3.metric("Daily loss guard", "PAUSED — DATA INVALID")
+    else:
+        day_col1.metric("Daily equity change", "USD {:+.2f}".format(daily_risk["change_usd"]))
+        day_col2.metric("Daily loss", "USD {:.2f} / {:.2f}".format(daily_risk["loss_usd"], MAX_DAILY_LOSS_USDT))
+        day_col3.metric("Daily loss guard", "ACTIVE" if daily_risk_ok else "NEW ENTRIES PAUSED")
+    st.caption("Daily loss compares net-liquidation equity with the persisted Europe/Madrid opening snapshot. It includes realized and unrealized P&L and estimated exit costs. Existing positions remain manageable.")
+    if daily_risk.get("status") == "unavailable_fail_closed":
+        st.error("Daily risk cannot be verified (missing equity, stop-risk, or exit-level data). New entries are paused; reconcile open positions. Existing positions remain visible for management.")
+    elif not daily_risk_ok:
+        st.error("Daily loss limit reached. New paper entries are paused; open positions can still be managed.")
 
     st.markdown("#### Five-agent pipeline")
     st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")
@@ -477,7 +523,7 @@ with desk_tab:
             ))
             and bool(solana_metrics_source.strip()) and bool(solana_metrics_as_of.strip())
         )
-    submitted = st.button("Run filters and simulate entry", disabled=not entry_inputs_ready)
+    submitted = st.button("Run filters and simulate entry", disabled=(not entry_inputs_ready) or (not daily_risk_ok))
     if submitted:
         if market == "major":
             signal = Signal(asset=asset, market=market, price_usd=float(price),
@@ -499,8 +545,9 @@ with desk_tab:
                 position = paper_entry(portfolio, signal, stop_loss_pct=float(stop_pct), take_profit_pct=float(take_profit_pct), direction=direction)
                 if paper_store:
                     paper_store.save_state(portfolio, {"event_type": "entry", "asset": signal.asset, "signal": signal.__dict__, "position": position})
-                st.success("Signal approved. Paper position: USD {:.2f}; stop price {:.8f}; take-profit price {:.8f}.".format(
-                    position["notional_usd"], position["stop_price"], position["take_profit_price"]))
+                st.success("Signal approved. Paper notional: USD {:.2f}; net loss at stop: USD {:.2f} ({:.3f}% of equity at entry); stop: {:.8f}; take-profit: {:.8f}.".format(
+                    position["notional_usd"], position["risk_at_stop_usd"], position["risk_at_stop_pct_equity"],
+                    position["stop_price"], position["take_profit_price"]))
             except ValueError as error:
                 st.error(str(error))
         else:
@@ -518,7 +565,20 @@ with desk_tab:
 
     st.markdown("#### Open paper positions")
     if portfolio["open_positions"]:
-        st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
+        position_rows = []
+        for position in portfolio["open_positions"]:
+            row = dict(position)
+            try:
+                row.update(position_risk_at_stop(position))
+                row["risk_at_stop_pct_equity"] = (
+                    row["risk_at_stop_usd"] / summary["equity_usd"] * 100.0
+                    if summary["equity_usd"] > 0 else None
+                )
+            except (KeyError, TypeError, ValueError):
+                row["risk_at_stop_usd"] = None
+                row["risk_at_stop_pct_notional"] = None
+            position_rows.append(row)
+        st.dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
         with st.form("position_update_form"):
             position_by_id = {position["position_id"]: position for position in portfolio["open_positions"]}
             selected_id = st.selectbox(
@@ -534,8 +594,9 @@ with desk_tab:
             selected_asset = selected_position["asset"]
             default_price = selected_position["last_price_usd"]
             mark_price = st.number_input("Latest/reference price (USD)", min_value=0.00000001, value=float(default_price), format="%.8f")
+            close_fraction_pct = st.slider("Percentage of position to close", min_value=5, max_value=100, value=100, step=5)
             update_mark = st.form_submit_button("Update simulated market price")
-            close_position = st.form_submit_button("Close paper position at this price")
+            close_position = st.form_submit_button("Close selected percentage at this price")
         if update_mark:
             stopped_trade = update_position_mark(portfolio, selected_asset, mark_price, position_id=selected_id)
             if paper_store:
@@ -545,10 +606,16 @@ with desk_tab:
             else:
                 st.success("Paper mark price updated.")
         if close_position:
-            trade = paper_exit(portfolio, selected_asset, mark_price, position_id=selected_id)
+            trade = paper_exit(portfolio, selected_asset, mark_price, position_id=selected_id,
+                               fraction=close_fraction_pct / 100.0)
             if paper_store:
-                paper_store.save_state(portfolio, {"event_type": "manual_exit", "asset": selected_asset, "position_id": selected_id, "trade": trade})
-            st.success("Paper position closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
+                paper_store.save_state(portfolio, {"event_type": "partial_exit" if trade["is_partial"] else "manual_exit",
+                    "asset": selected_asset, "position_id": selected_id, "trade": trade})
+            if trade["is_partial"]:
+                st.success("Partial close: {:.0f}% closed; {:.8f} units remain. Realized P&L: USD {:.2f}".format(
+                    close_fraction_pct, trade["remaining_quantity"], trade["realized_pnl_usd"]))
+            else:
+                st.success("Paper position fully closed. Realized P&L: USD {:.2f}".format(trade["realized_pnl_usd"]))
     else:
         st.info("No open paper positions.")
 
@@ -1198,6 +1265,15 @@ with scanner_tab:
                 c4.metric("Closed trades", scanner_summary["closed_trades"])
                 st.caption("Scanner realized P&L: USD {:.2f} | Unrealized P&L: USD {:.2f}".format(
                     scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
+                if scanner_summary["risk_unknown_positions"]:
+                    st.error("Scanner stop risk unavailable for: {}. New entries should remain blocked until reconciled.".format(
+                        ", ".join(scanner_summary["risk_unknown_positions"])))
+                else:
+                    st.caption("Scanner net risk at stops: USD {:.2f} ({:.2f}% equity) | Open exposure: USD {:.2f} ({:.1f}% equity)".format(
+                        scanner_summary["risk_at_stops_usd"] or 0.0,
+                        scanner_summary["risk_at_stops_pct_equity"] or 0.0,
+                        scanner_summary["open_exposure_usd"],
+                        scanner_summary["open_exposure_pct_equity"] or 0.0))
                 if scanner_state.get("open_positions"):
                     st.markdown("#### Scanner open paper positions")
                     st.dataframe(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)

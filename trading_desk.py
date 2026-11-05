@@ -6,7 +6,9 @@ Deployment sync marker: position-id migration support is included in this module
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from math import floor
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from uuid import uuid4
 
@@ -20,6 +22,8 @@ MIN_MAJOR_VOLUME_24H_USD = 1_000_000.0
 DEFAULT_RISK_FRACTION = 0.01
 MAX_POSITION_FRACTION = 0.10
 MAX_TOTAL_EXPOSURE_FRACTION = 0.25
+MAX_TOTAL_RISK_FRACTION = 0.03
+MAX_OPEN_POSITIONS = 3
 DEFAULT_FEE_RATE = 0.001
 DEFAULT_SLIPPAGE_RATE = 0.003
 
@@ -37,6 +41,7 @@ class Signal:
     volume_24h_usd: Optional[float] = None
     gain_1h_pct: Optional[float] = None
     source: str = "manual"
+    scanner_approved: bool = False
     observed_at: str = ""
 
     def __post_init__(self):
@@ -79,30 +84,79 @@ def evaluate_signal(signal: Signal) -> dict:
             reasons.append("Missing 24-hour volume; major-asset signal rejected.")
         elif signal.volume_24h_usd < MIN_MAJOR_VOLUME_24H_USD:
             reasons.append(f"24-hour volume below ${MIN_MAJOR_VOLUME_24H_USD:,.0f}.")
-        major_gain = signal.gain_1h_pct
-        # Backward compatibility for callers that still submit the old field.
-        if major_gain is None:
-            major_gain = signal.gain_45m_pct
-        if major_gain is None:
-            reasons.append("Missing 1-hour price change; major-asset signal rejected.")
-        elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+        # The scanner has already applied its own closed-candle, multi-timeframe
+        # hard filters. Only its exact internal source may use this path.
+        scanner_path = (
+            signal.scanner_approved is True
+            and signal.source == "Market Scanner v1 / Binance Spot"
+        )
+        if not scanner_path:
+            major_gain = signal.gain_1h_pct
+            # Backward compatibility for callers that still submit the old field.
+            if major_gain is None:
+                major_gain = signal.gain_45m_pct
+            if major_gain is None:
+                reasons.append("Missing 1-hour price change; major-asset signal rejected.")
+            elif major_gain > MAX_MAJOR_GAIN_1H_PCT:
+                reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
+        elif signal.gain_1h_pct is not None and signal.gain_1h_pct > MAX_MAJOR_GAIN_1H_PCT:
             reasons.append("Asset gained more than 80% in 1 hour; reject late entry.")
     else:
         reasons.append("Unknown market. Use 'solana' or 'major'.")
     return {"approved": not reasons, "reasons": reasons, "checks_passed": 0 if reasons else (6 if signal.market == "solana" else 2)}
 
+def position_risk_at_stop(position: dict, fee_rate: float = DEFAULT_FEE_RATE,
+                           slippage_rate: float = DEFAULT_SLIPPAGE_RATE) -> dict:
+    """Estimate net USD loss if the stored stop executes, including both-side costs."""
+    stop = position.get("stop_price")
+    if stop is None or float(stop) <= 0:
+        raise ValueError("Position has no valid stop price; risk cannot be calculated.")
+    result = mark_position(position, float(stop), fee_rate=fee_rate, slippage_rate=slippage_rate)
+    risk_usd = max(0.0, -float(result["unrealized_pnl_usd"]))
+    notional = float(position.get("notional_usd", 0.0))
+    return {
+        "risk_at_stop_usd": risk_usd,
+        "risk_at_stop_pct_equity": None,
+        "risk_at_stop_pct_notional": (risk_usd / notional * 100.0) if notional > 0 else None,
+        "estimated_stop_exit_fill_usd": result["estimated_exit_fill_usd"],
+    }
+
+
 def size_position(capital_usd: float, stop_loss_pct: float, open_exposure_usd: float = 0.0,
                   risk_fraction: float = DEFAULT_RISK_FRACTION,
                   max_position_fraction: float = MAX_POSITION_FRACTION,
-                  max_total_exposure_fraction: float = MAX_TOTAL_EXPOSURE_FRACTION) -> float:
-    """Return position notional constrained by per-trade risk and exposure caps."""
-    if capital_usd <= 0 or stop_loss_pct <= 0:
+                  max_total_exposure_fraction: float = MAX_TOTAL_EXPOSURE_FRACTION,
+                  direction: str = "long", fee_rate: float = DEFAULT_FEE_RATE,
+                  slippage_rate: float = DEFAULT_SLIPPAGE_RATE,
+                  open_risk_usd: float = 0.0,
+                  max_total_risk_fraction: float = MAX_TOTAL_RISK_FRACTION,
+                  max_notional_usd: Optional[float] = None) -> float:
+    """Return notional constrained by net loss-at-stop (including costs) and exposure caps."""
+    if (capital_usd <= 0 or stop_loss_pct <= 0 or risk_fraction <= 0
+            or max_position_fraction <= 0 or max_total_exposure_fraction <= 0
+            or max_total_risk_fraction <= 0 or open_risk_usd < 0
+            or (max_notional_usd is not None and max_notional_usd < 0)
+            or direction not in ("long", "short") or fee_rate < 0 or slippage_rate < 0):
+        return 0.0
+    entry_fill = 1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate
+    stop_price = entry_fill * (1.0 - stop_loss_pct / 100.0 if direction == "long"
+                               else 1.0 + stop_loss_pct / 100.0)
+    exit_fill = stop_price * (1.0 - slippage_rate if direction == "long"
+                              else 1.0 + slippage_rate)
+    exit_fee_fraction = (exit_fill / entry_fill) * fee_rate
+    net_loss_fraction = ((1.0 - exit_fill / entry_fill + exit_fee_fraction + fee_rate)
+                         if direction == "long"
+                         else (exit_fill / entry_fill - 1.0 + exit_fee_fraction + fee_rate))
+    if net_loss_fraction <= 0:
         return 0.0
     risk_budget = capital_usd * risk_fraction
-    risk_limited_notional = risk_budget / (stop_loss_pct / 100.0)
+    remaining_portfolio_risk = max(0.0, capital_usd * max_total_risk_fraction - open_risk_usd)
+    risk_limited_notional = min(risk_budget, remaining_portfolio_risk) / net_loss_fraction
     per_position_cap = capital_usd * max_position_fraction
     total_room = max(0.0, capital_usd * max_total_exposure_fraction - open_exposure_usd)
-    return round(max(0.0, min(risk_limited_notional, per_position_cap, total_room)), 2)
+    cash_room = max_notional_usd if max_notional_usd is not None else float("inf")
+    # Floor to cents so rounding can never push modeled stop loss above either risk budget.
+    return floor(max(0.0, min(risk_limited_notional, per_position_cap, total_room, cash_room)) * 100.0) / 100.0
 
 def new_portfolio(starting_capital: float = STARTING_CAPITAL_USD) -> dict:
     return {"starting_capital": float(starting_capital), "cash": float(starting_capital), "open_positions": [], "closed_trades": []}
@@ -150,8 +204,32 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
     direction = direction.lower()
     if direction not in ("long", "short"):
         raise ValueError("Direction must be long or short.")
-    exposure = sum(p["notional_usd"] for p in portfolio["open_positions"])
-    notional = size_position(portfolio["cash"], stop_loss_pct, exposure)
+    if len(portfolio.get("open_positions", [])) >= MAX_OPEN_POSITIONS:
+        raise ValueError(f"Maximum of {MAX_OPEN_POSITIONS} concurrent paper positions reached.")
+    exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
+    open_risk = 0.0
+    for existing in portfolio["open_positions"]:
+        try:
+            open_risk += position_risk_at_stop(existing, fee_rate=fee_rate, slippage_rate=slippage_rate)["risk_at_stop_usd"]
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("An open position has unknown stop risk; reconcile it before opening another trade.")
+    current_equity = portfolio["cash"]
+    for existing in portfolio["open_positions"]:
+        mark = existing.get("last_price_usd")
+        if mark is None or float(mark) <= 0:
+            raise ValueError("An open position has no valid market mark; reconcile it before opening another trade.")
+        current_equity += (
+            float(existing["notional_usd"])
+            + mark_position(existing, float(mark), fee_rate, slippage_rate)["unrealized_pnl_usd"]
+            + float(existing.get("entry_fee_usd", 0.0))
+        )
+    if current_equity <= 0:
+        raise ValueError("Portfolio equity is not positive; new paper entries are blocked.")
+    notional = size_position(
+        current_equity, stop_loss_pct, exposure, direction=direction,
+        fee_rate=fee_rate, slippage_rate=slippage_rate, open_risk_usd=open_risk,
+        max_notional_usd=portfolio["cash"] / (1.0 + fee_rate),
+    )
     if notional <= 0:
         raise ValueError("No available paper-trading risk budget or cash.")
     fill_price = signal.price_usd * (1.0 + slippage_rate if direction == "long" else 1.0 - slippage_rate)
@@ -171,6 +249,8 @@ def paper_entry(portfolio: dict, signal: Signal, stop_loss_pct: float, take_prof
         "last_price_usd": signal.price_usd, "opened_at": datetime.now(timezone.utc).isoformat(),
         "source": signal.source,
     }
+    position.update(position_risk_at_stop(position, fee_rate=fee_rate, slippage_rate=slippage_rate))
+    position["risk_at_stop_pct_equity"] = position["risk_at_stop_usd"] / current_equity * 100.0
     portfolio["cash"] = round(portfolio["cash"] - notional - entry_fee, 8)
     portfolio["open_positions"].append(position)
     return position
@@ -188,35 +268,170 @@ def mark_position(position: dict, price_usd: float, fee_rate: float = DEFAULT_FE
 
 def paper_exit(portfolio: dict, asset: str, price_usd: float, reason: str = "manual",
                fee_rate: float = DEFAULT_FEE_RATE, slippage_rate: float = DEFAULT_SLIPPAGE_RATE,
-               position_id: Optional[str] = None) -> dict:
-    """Close one exact paper position using conservative slippage and fees."""
+               position_id: Optional[str] = None, quantity: Optional[float] = None,
+               fraction: Optional[float] = None) -> dict:
+    """Close all or part of one exact paper position; allocate entry basis and fees pro rata."""
     idx, position = _find_open_position(portfolio, asset, position_id)
-    portfolio["open_positions"].pop(idx)
+    if price_usd <= 0:
+        raise ValueError("Exit price must be greater than zero.")
+    if quantity is not None and fraction is not None:
+        raise ValueError("Specify quantity or fraction, not both.")
+    original_quantity = float(position["quantity"])
+    if fraction is not None:
+        if not 0 < float(fraction) <= 1:
+            raise ValueError("Close fraction must be greater than zero and at most one.")
+        close_quantity = original_quantity * float(fraction)
+    elif quantity is not None:
+        close_quantity = float(quantity)
+        if close_quantity <= 0 or close_quantity > original_quantity:
+            raise ValueError("Close quantity must be greater than zero and no greater than the open quantity.")
+    else:
+        close_quantity = original_quantity
+
+    close_ratio = close_quantity / original_quantity
+    closed_notional = float(position["notional_usd"]) * close_ratio
+    allocated_entry_fee = float(position.get("entry_fee_usd", 0.0)) * close_ratio
     is_short = position.get("direction", "long") == "short"
     exit_fill = price_usd * (1.0 + slippage_rate if is_short else 1.0 - slippage_rate)
-    proceeds = position["quantity"] * exit_fill
+    proceeds = close_quantity * exit_fill
     exit_fee = proceeds * fee_rate
-    realized_pnl = (position["notional_usd"] - proceeds - exit_fee - position["entry_fee_usd"]) if is_short else (proceeds - exit_fee - position["notional_usd"] - position["entry_fee_usd"])
-    portfolio["cash"] = round(portfolio["cash"] + (position["notional_usd"] + realized_pnl if is_short else proceeds - exit_fee), 8)
+    realized_pnl = (
+        closed_notional - proceeds - exit_fee - allocated_entry_fee
+        if is_short else proceeds - exit_fee - closed_notional - allocated_entry_fee
+    )
+    cash_credit = (
+        closed_notional + realized_pnl + allocated_entry_fee
+        if is_short else proceeds - exit_fee
+    )
+    portfolio["cash"] = round(portfolio["cash"] + cash_credit, 8)
+
+    remaining_quantity = original_quantity - close_quantity
+    fully_closed = remaining_quantity <= max(1e-12, original_quantity * 1e-12)
     trade = {
-        **position, "exit_reference_price": price_usd, "exit_fill_price": exit_fill,
+        **position,
+        "quantity": close_quantity,
+        "notional_usd": closed_notional,
+        "entry_fee_usd": allocated_entry_fee,
+        "exit_reference_price": price_usd,
+        "exit_fill_price": exit_fill,
         "exit_fee_usd": exit_fee,
         "realized_pnl_usd": realized_pnl,
-        "closed_at": datetime.now(timezone.utc).isoformat(), "exit_reason": reason,
+        "closed_quantity": close_quantity,
+        "remaining_quantity": 0.0 if fully_closed else remaining_quantity,
+        "closed_fraction": close_ratio,
+        "is_partial": not fully_closed,
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+        "exit_reason": reason,
     }
     portfolio["closed_trades"].append(trade)
+    if fully_closed:
+        portfolio["open_positions"].pop(idx)
+    else:
+        position["quantity"] = remaining_quantity
+        position["notional_usd"] = round(float(position["notional_usd"]) - closed_notional, 12)
+        position["entry_fee_usd"] = round(float(position.get("entry_fee_usd", 0.0)) - allocated_entry_fee, 12)
     return trade
 
 def portfolio_summary(portfolio: dict) -> dict:
-    open_value = sum((p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] + p["entry_fee_usd"]) if p.get("direction", "long") == "short" else p["quantity"] * p["last_price_usd"] for p in portfolio["open_positions"])
+    open_value = sum(
+        p["notional_usd"] + mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"]
+        + p["entry_fee_usd"] for p in portfolio["open_positions"]
+    )
     unrealized = sum(mark_position(p, p["last_price_usd"])["unrealized_pnl_usd"] for p in portfolio["open_positions"])
     realized = sum(t["realized_pnl_usd"] for t in portfolio["closed_trades"])
     equity = portfolio["cash"] + open_value
+    open_exposure = sum(float(p.get("notional_usd", 0.0)) for p in portfolio["open_positions"])
+    risk_total = 0.0
+    risk_unknown = []
+    management_unknown = []
+    for position in portfolio["open_positions"]:
+        try:
+            risk_total += position_risk_at_stop(position)["risk_at_stop_usd"]
+        except (KeyError, TypeError, ValueError):
+            risk_unknown.append(str(position.get("position_id") or position.get("asset") or "unknown"))
+        try:
+            target = position.get("take_profit_price")
+            target_pct = position.get("take_profit_pct")
+            if target is not None:
+                if float(target) <= 0:
+                    raise ValueError("Invalid take-profit price.")
+            elif target_pct is None or float(target_pct) <= 0:
+                raise ValueError("Take-profit data unavailable.")
+        except (TypeError, ValueError):
+            management_unknown.append(str(position.get("position_id") or position.get("asset") or "unknown"))
     return {
         "cash_usd": portfolio["cash"], "open_value_usd": open_value, "equity_usd": equity,
         "realized_pnl_usd": realized, "unrealized_pnl_usd": unrealized,
         "total_return_pct": (equity / portfolio["starting_capital"] - 1.0) * 100.0 if portfolio["starting_capital"] else 0.0,
         "open_positions": len(portfolio["open_positions"]), "closed_trades": len(portfolio["closed_trades"]),
+        "open_exposure_usd": open_exposure,
+        "open_exposure_pct_equity": open_exposure / equity * 100.0 if equity > 0 else None,
+        "risk_at_stops_usd": None if risk_unknown else risk_total,
+        "risk_at_stops_pct_equity": (risk_total / equity * 100.0) if not risk_unknown and equity > 0 else None,
+        "risk_budget_per_trade_usd": equity * DEFAULT_RISK_FRACTION if equity > 0 else None,
+        "max_aggregate_stop_risk_usd": equity * MAX_TOTAL_RISK_FRACTION if equity > 0 else None,
+        "remaining_aggregate_stop_risk_usd": max(0.0, equity * MAX_TOTAL_RISK_FRACTION - risk_total) if not risk_unknown and equity > 0 else None,
+        "risk_unknown_positions": risk_unknown,
+        "management_unknown_positions": management_unknown,
+        "market_data_unavailable_positions": list(portfolio.get("market_data_unavailable_positions", [])),
+    }
+
+
+def ensure_daily_equity_baseline(portfolio: dict, now: Optional[datetime] = None,
+                                 timezone_name: str = "Europe/Madrid") -> dict:
+    """Persist opening net equity for the local trading day; survive process restarts."""
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    local_now = reference.astimezone(ZoneInfo(timezone_name))
+    day_key = local_now.date().isoformat()
+    risk = portfolio.setdefault("daily_risk", {})
+    if risk.get("date") != day_key or risk.get("timezone") != timezone_name or "start_equity_usd" not in risk:
+        try:
+            opening_equity = round(float(portfolio_summary(portfolio)["equity_usd"]), 8)
+            baseline_status = "ok"
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            opening_equity = None
+            baseline_status = "unavailable"
+        risk.update({
+            "date": day_key,
+            "timezone": timezone_name,
+            "start_equity_usd": opening_equity,
+            "baseline_status": baseline_status,
+            "baseline_at": local_now.isoformat(),
+        })
+    return risk
+
+
+def daily_equity_drawdown(portfolio: dict, now: Optional[datetime] = None,
+                          timezone_name: str = "Europe/Madrid") -> dict:
+    """Measure net-liquidation equity against the persisted local-day opening snapshot; fail closed."""
+    risk = ensure_daily_equity_baseline(portfolio, now=now, timezone_name=timezone_name)
+    try:
+        summary = portfolio_summary(portfolio)
+        if (summary.get("risk_unknown_positions") or summary.get("management_unknown_positions")
+                or summary.get("market_data_unavailable_positions")):
+            raise ValueError("Open position risk, management or market data is unavailable.")
+        current_equity = float(summary["equity_usd"])
+        start_equity = float(risk["start_equity_usd"])
+        if not (current_equity >= 0 and start_equity > 0):
+            raise ValueError("Equity snapshot is not valid.")
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return {
+            "date": risk["date"], "timezone": risk["timezone"],
+            "start_equity_usd": risk.get("start_equity_usd"),
+            "current_equity_usd": None, "change_usd": None,
+            "loss_usd": 1_000_000_000.0, "loss_pct": None,
+            "status": "unavailable_fail_closed",
+        }
+    change = current_equity - start_equity
+    loss = max(0.0, -change)
+    return {
+        "date": risk["date"], "timezone": risk["timezone"],
+        "start_equity_usd": start_equity, "current_equity_usd": current_equity,
+        "change_usd": change, "loss_usd": loss,
+        "loss_pct": loss / start_equity * 100.0,
+        "status": "ok",
     }
 
 
@@ -234,14 +449,20 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float,
     position.setdefault("direction", direction)
     reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
                              or position.get("entry_price_usd") or position.get("last_price_usd") or price_usd)
-    stop_pct = float(position.get("stop_loss_pct", 10.0))
-    take_profit_pct = float(position.get("take_profit_pct", 20.0))
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if not position.get("stop_price") and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if not position.get("take_profit_price") and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
     if not position.get("stop_price"):
         position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if is_short else 1.0 - stop_pct / 100.0)
     if not position.get("take_profit_price"):
         position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if is_short else 1.0 + take_profit_pct / 100.0)
-    position.setdefault("take_profit_pct", take_profit_pct)
-    position.setdefault("stop_loss_pct", stop_pct)
 
     position["last_price_usd"] = price_usd
     stop_hit = price_usd >= position["stop_price"] if is_short else price_usd <= position["stop_price"]
@@ -255,20 +476,48 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float,
 
 def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float,
                                 close: Optional[float] = None,
-                                position_id: Optional[str] = None) -> Optional[dict]:
-    """Check candle extremes against one exact position; stop wins if both levels cross."""
+                                position_id: Optional[str] = None,
+                                open: Optional[float] = None) -> Optional[dict]:
+    """Check candle extremes; stop wins ambiguous bars and gaps fill at the open."""
     if high <= 0 or low <= 0 or high < low:
         raise ValueError("Invalid candle high/low.")
+    if open is not None and (open <= 0 or not low <= open <= high):
+        raise ValueError("Invalid candle open.")
     _, position = _find_open_position(portfolio, asset, position_id)
+    direction = str(position.get("direction", "long")).lower()
+    if direction not in ("long", "short"):
+        raise ValueError("Invalid paper position direction.")
+    short = direction == "short"
+    position.setdefault("direction", direction)
+    reference_entry = float(position.get("entry_fill_price") or position.get("entry_reference_price")
+                            or position.get("entry_price_usd") or position.get("last_price_usd")
+                            or (close if close is not None else open if open is not None else high))
+    stop_pct_raw = position.get("stop_loss_pct")
+    take_profit_pct_raw = position.get("take_profit_pct")
+    if position.get("stop_price") is None and stop_pct_raw is None:
+        raise ValueError("Legacy position has no stop price or stored stop percentage; refusing to invent risk.")
+    if position.get("take_profit_price") is None and take_profit_pct_raw is None:
+        raise ValueError("Legacy position has no take-profit price or stored percentage; refusing to invent target.")
+    stop_pct = float(stop_pct_raw) if stop_pct_raw is not None else None
+    take_profit_pct = float(take_profit_pct_raw) if take_profit_pct_raw is not None else None
+    if (stop_pct is not None and stop_pct <= 0) or (take_profit_pct is not None and take_profit_pct <= 0):
+        raise ValueError("Legacy position has invalid stop/take-profit percentages.")
+    if position.get("stop_price") is None:
+        position["stop_price"] = reference_entry * (1.0 + stop_pct / 100.0 if short else 1.0 - stop_pct / 100.0)
+    if position.get("take_profit_price") is None:
+        position["take_profit_price"] = reference_entry * (1.0 - take_profit_pct / 100.0 if short else 1.0 + take_profit_pct / 100.0)
     if close is not None:
         if close <= 0:
             raise ValueError("Candle close must be positive.")
         position["last_price_usd"] = float(close)
-    short = position.get("direction", "long") == "short"
-    stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
-    tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
+    stop_price, target_price = float(position["stop_price"]), float(position["take_profit_price"])
+    stop_hit = high >= stop_price if short else low <= stop_price
+    tp_hit = low <= target_price if short else high >= target_price
     if stop_hit:
-        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss", position_id=position.get("position_id"))
+        stop_fill = (max(stop_price, float(open)) if short and open is not None
+                     else min(stop_price, float(open)) if not short and open is not None
+                     else stop_price)
+        return paper_exit(portfolio, asset, stop_fill, reason="stop_loss", position_id=position.get("position_id"))
     if tp_hit:
-        return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit", position_id=position.get("position_id"))
+        return paper_exit(portfolio, asset, target_price, reason="take_profit", position_id=position.get("position_id"))
     return None

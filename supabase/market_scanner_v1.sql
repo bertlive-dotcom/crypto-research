@@ -62,7 +62,7 @@ alter table public.trading_signals enable row level security;
 alter table public.market_scanner_lock enable row level security;
 
 revoke all on public.scanner_paper_state, public.scanner_runs, public.market_candidates,
-    public.trading_signals, public.market_scanner_lock from anon, authenticated;
+    public.trading_signals, public.market_scanner_lock from public, anon, authenticated;
 grant select on public.scanner_paper_state, public.scanner_runs, public.market_candidates,
     public.trading_signals to service_role;
 
@@ -73,6 +73,10 @@ language plpgsql security definer set search_path = public
 as $$
 declare affected_rows integer;
 begin
+    if p_worker_id is null or btrim(p_worker_id) = '' then
+        raise exception 'p_worker_id must not be empty';
+    end if;
+
     insert into public.market_scanner_lock (id, worker_id, lease_until)
     values ('singleton', p_worker_id, now() + make_interval(secs => greatest(30, p_lease_seconds)))
     on conflict (id) do update
@@ -90,10 +94,29 @@ language plpgsql security definer set search_path = public
 as $$
 declare affected_rows integer;
 begin
+    if p_worker_id is null or btrim(p_worker_id) = '' then
+        raise exception 'p_worker_id must not be empty';
+    end if;
+
     delete from public.market_scanner_lock
      where id = 'singleton' and worker_id = p_worker_id;
     get diagnostics affected_rows = row_count;
     return affected_rows > 0;
+end;
+$$;
+
+create or replace function public.save_market_scanner_state(p_state jsonb)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+    if p_state is null or jsonb_typeof(p_state) <> 'object' then
+        raise exception 'p_state must be a non-null JSON object';
+    end if;
+
+    insert into public.scanner_paper_state (id, state, updated_at)
+    values ('default', p_state, now())
+    on conflict (id) do update set state = excluded.state, updated_at = now();
 end;
 $$;
 
@@ -104,6 +127,31 @@ language plpgsql security definer set search_path = public
 as $$
 declare item jsonb;
 begin
+    if p_state is null or jsonb_typeof(p_state) <> 'object' then
+        raise exception 'p_state must be a non-null JSON object';
+    end if;
+    if p_run is null or jsonb_typeof(p_run) <> 'object' then
+        raise exception 'p_run must be a non-null JSON object';
+    end if;
+    if p_candidates is not null and jsonb_typeof(p_candidates) <> 'array' then
+        raise exception 'p_candidates must be a JSON array';
+    end if;
+    if p_signals is not null and jsonb_typeof(p_signals) <> 'array' then
+        raise exception 'p_signals must be a JSON array';
+    end if;
+    if exists (
+        select 1 from jsonb_array_elements(coalesce(p_candidates, '[]'::jsonb)) as candidate(value)
+        where jsonb_typeof(candidate.value) <> 'object'
+    ) then
+        raise exception 'each candidate must be a JSON object';
+    end if;
+    if exists (
+        select 1 from jsonb_array_elements(coalesce(p_signals, '[]'::jsonb)) as signal(value)
+        where jsonb_typeof(signal.value) <> 'object'
+    ) then
+        raise exception 'each signal must be a JSON object';
+    end if;
+
     delete from public.scanner_runs where created_at < now() - interval '30 days';
     delete from public.market_candidates where scanned_at < now() - interval '30 days';
 
@@ -146,7 +194,9 @@ $$;
 
 revoke all on function public.acquire_market_scanner_lock(text, integer) from public, anon, authenticated;
 revoke all on function public.release_market_scanner_lock(text) from public, anon, authenticated;
+revoke all on function public.save_market_scanner_state(jsonb) from public, anon, authenticated;
 revoke all on function public.save_market_scanner_cycle(jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.acquire_market_scanner_lock(text, integer) to service_role;
 grant execute on function public.release_market_scanner_lock(text) to service_role;
+grant execute on function public.save_market_scanner_state(jsonb) to service_role;
 grant execute on function public.save_market_scanner_cycle(jsonb, jsonb, jsonb, jsonb) to service_role;

@@ -119,7 +119,9 @@ class ScannerRuleTests(unittest.TestCase):
 
     def test_open_asset_is_not_reentered(self):
         portfolio = new_portfolio(80)
-        portfolio["open_positions"].append({"asset": "BTC"})
+        signal = Signal(asset="BTC", market="major", price_usd=100.0,
+                        volume_24h_usd=20_000_000, gain_1h_pct=0)
+        paper_entry(portfolio, signal, stop_loss_pct=10)
         approved = apply_paper_rules([self.candidate()], portfolio)
         self.assertEqual(approved, [])
 

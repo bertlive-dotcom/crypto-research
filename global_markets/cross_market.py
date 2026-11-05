@@ -208,7 +208,7 @@ def analyze_cross_market(
     assets = {}
     for symbol in required:
         close = lookup[symbol][latest]
-        prior = lookup[symbol].get(previous_15m)
+        prior = lookup[symbol].get(previous_15m) if previous_15m in common_set else None
         base = lookup[symbol].get(hourly_base) if has_contiguous_hour else None
         assets[symbol] = {
             "price": close,

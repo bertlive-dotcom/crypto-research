@@ -80,7 +80,17 @@ p, label, [data-testid="stCaptionContainer"] { color: var(--mid-muted); }
 [data-testid="stMetricValue"] { color: #f7fbff !important; }
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
   gap: .35rem; border-bottom: 1px solid rgba(25,200,255,.28);
+  overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin;
 }
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  flex: 0 0 auto; white-space: nowrap; min-width: max-content;
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: var(--mid-cyan); }
+[data-testid="stTabs"] [data-baseweb="tab-border"] { background: rgba(25,200,255,.25); }
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stCaptionContainer"] p,
+[data-testid="stWidgetLabel"] p { color: #b7c9da !important; }
+[data-testid="stVerticalBlock"] > [style*="gap"] { gap: .8rem; }
 [data-testid="stTabs"] button[role="tab"] {
   color: #9bb3c8; border-radius: 9px 9px 0 0;
 }
@@ -914,8 +924,42 @@ with global_tab:
                         item["30d %"] if item["30d %"] is not None else -999
                     ), reverse=True
                 )
+
+                # Visual market overview: preserve the underlying scoring and data.
+                st.markdown("#### Mapa de rendiment · 7d / 30d")
+                heatmap_rows = [
+                    {"Actiu": item["Actiu"], "7 dies (%)": item["7d %"], "30 dies (%)": item["30d %"]}
+                    for item in summary_rows
+                    if item["7d %"] is not None or item["30d %"] is not None
+                ]
+                if heatmap_rows:
+                    heatmap_frame = pd.DataFrame(heatmap_rows).set_index("Actiu")
+                    st.dataframe(
+                        heatmap_frame.style.format("{:+.2f}%").background_gradient(
+                            cmap="RdYlGn", axis=None, subset=["7 dies (%)", "30 dies (%)"]
+                        ),
+                        width="stretch",
+                    )
+                    st.bar_chart(
+                        heatmap_frame.fillna(0),
+                        color=["#19c8ff", "#0878d1"],
+                    )
+                else:
+                    st.info("No hi ha rendiments suficients per construir el mapa de mercat.")
+
+                available_contexts = sorted({item["Context d'entrada"] for item in summary_rows})
+                selected_context = st.selectbox(
+                    "Filtra per classificació",
+                    ["Tots"] + available_contexts,
+                    key="global_crypto_context_filter",
+                )
+                visible_summary_rows = [
+                    item for item in summary_rows
+                    if selected_context == "Tots" or item["Context d'entrada"] == selected_context
+                ]
+
                 # Mobile-first summary: compact cards avoid wide tables on phone screens.
-                for item in summary_rows:
+                for item in visible_summary_rows:
                     with st.container(border=True):
                         st.markdown("**{}** · {}".format(item["Actiu"], item["Estat"]))
                         st.caption("Entrada: {} · Confirmació: {}".format(
@@ -977,6 +1021,36 @@ with global_tab:
                     st.line_chart(chart_frame, width="stretch")
                 else:
                     st.info("No hi ha historial diari suficient per als actius seleccionats.")
+
+                with st.expander("Indicadors visuals per actiu", expanded=False):
+                    available_indicator_assets = [
+                        row["symbol"].replace("USDT", "")
+                        for row in aligned
+                        if daily_by_symbol.get(row["symbol"], {}).get("indicators")
+                        or tactical_by_symbol.get(row["symbol"], {}).get("indicators")
+                    ]
+                    if available_indicator_assets:
+                        selected_indicator_asset = st.selectbox(
+                            "Actiu per inspeccionar",
+                            available_indicator_assets,
+                            key="global_crypto_indicator_asset",
+                        )
+                        canonical_indicator_symbol = selected_indicator_asset + "USDT"
+                        selected_daily = daily_by_symbol.get(canonical_indicator_symbol, {})
+                        selected_tactical = tactical_by_symbol.get(canonical_indicator_symbol, {})
+                        selected_daily_ind = selected_daily.get("indicators", {})
+                        selected_tactical_ind = selected_tactical.get("indicators", {})
+                        indicator_frame = pd.DataFrame([
+                            {"Interval": "Diari", "RSI 14": selected_daily_ind.get("rsi_14"),
+                             "Força vs BTC 30d (pp)": next((row.get("relative_strength_vs_btc_30d_pct") for row in aligned if row["symbol"] == canonical_indicator_symbol), None)},
+                            {"Interval": "4 hores", "RSI 14": selected_tactical_ind.get("rsi_14"),
+                             "Força vs BTC 30d (pp)": next((row.get("relative_strength_vs_btc_30d_pct") for row in aligned if row["symbol"] == canonical_indicator_symbol), None)},
+                        ]).set_index("Interval")
+                        st.markdown("**RSI i força relativa**")
+                        st.bar_chart(indicator_frame, color=["#19c8ff", "#0878d1"])
+                        st.caption("RSI: escala 0–100. La força relativa indica punts percentuals respecte a BTC; no és rendibilitat absoluta.")
+                    else:
+                        st.info("No hi ha indicadors disponibles per als actius actuals.")
 
                 with st.expander("RSI i força relativa respecte a BTC", expanded=False):
                     rsi_rows = [{

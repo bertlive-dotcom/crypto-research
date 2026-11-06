@@ -40,6 +40,45 @@ def last_closed_candle(candles, now=None):
             closed.append((close_time, candle))
     return max(closed, key=lambda item: item[0])[1] if closed else None
 
+
+def render_mid_cards(data, *args, **kwargs):
+    """Render tabular records as responsive MIDMarkets cards (never an HTML table)."""
+    if hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame):
+        data = data.data
+    frame = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+    if frame.empty:
+        st.info("No hi ha registres disponibles.")
+        return
+
+    preferred_titles = (
+        "Actiu", "Asset", "Symbol", "Parell", "Market", "asset", "symbol",
+        "coin", "marginCoin", "Data", "Date", "event_type",
+    )
+    title_key = next((key for key in preferred_titles if key in frame.columns), frame.columns[0])
+    records = frame.where(pd.notna(frame), None).to_dict("records")
+
+    for start in range(0, len(records), 2):
+        card_columns = st.columns(2)
+        for offset, record in enumerate(records[start:start + 2]):
+            with card_columns[offset].container(border=True):
+                title_value = record.get(title_key)
+                st.markdown("**{}**".format(title_value if title_value not in (None, "") else "Registre"))
+                details = [(key, value) for key, value in record.items() if key != title_key]
+                for detail_start in range(0, len(details), 2):
+                    detail_columns = st.columns(2)
+                    for detail_offset, (label, value) in enumerate(details[detail_start:detail_start + 2]):
+                        with detail_columns[detail_offset]:
+                            st.caption(str(label))
+                            if value is None or value == "":
+                                display_value = "—"
+                            elif isinstance(value, (dict, list, tuple)):
+                                display_value = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+                            elif isinstance(value, float):
+                                display_value = "{:,.4f}".format(value).rstrip("0").rstrip(".")
+                            else:
+                                display_value = str(value)
+                            st.write(display_value)
+
 st.set_page_config(page_title="MIDMarkets | Markets Intelligence Desk", layout="wide")
 
 # MIDMarkets visual identity: navy / electric blue / cyan, with restrained
@@ -395,7 +434,7 @@ with market_tab:
             st.markdown("#### Crypto market performance · 24h")
             st.bar_chart(pd.DataFrame(crypto_chart_rows).set_index("Asset"), color="#19c8ff")
         with st.expander("Detailed crypto quotes", expanded=False):
-            st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
+            render_mid_cards(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
@@ -431,7 +470,7 @@ with market_tab:
             st.markdown("#### Equity & ETF performance · provider period")
             st.bar_chart(pd.DataFrame(stock_chart_rows).set_index("Symbol"), color="#19c8ff")
         with st.expander("Detailed equity and ETF quotes", expanded=False):
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
 
 with desk_tab:
@@ -642,7 +681,7 @@ with desk_tab:
 
     st.markdown("#### Open paper positions")
     if portfolio["open_positions"]:
-        st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
+        render_mid_cards(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
         with st.form("position_update_form"):
             position_by_id = {position["position_id"]: position for position in portfolio["open_positions"]}
             selected_id = st.selectbox(
@@ -678,7 +717,7 @@ with desk_tab:
 
     st.markdown("#### Closed paper trades")
     if portfolio["closed_trades"]:
-        st.dataframe(pd.DataFrame(portfolio["closed_trades"]), width="stretch", hide_index=True)
+        render_mid_cards(pd.DataFrame(portfolio["closed_trades"]), width="stretch", hide_index=True)
     else:
         st.caption("No closed trades yet.")
 
@@ -700,7 +739,7 @@ with desk_tab:
                     }
                     for event in recent_events
                 ]
-                st.dataframe(pd.DataFrame(display_events), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(display_events), width="stretch", hide_index=True)
             else:
                 st.caption("No ledger events in the last 30 days yet.")
         except SupabaseStoreError as error:
@@ -1040,7 +1079,7 @@ with global_tab:
                         "Motius": " ".join(entry.get("reasons", [])),
                     })
                 with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=False):
-                    st.dataframe(pd.DataFrame(entry_details), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(entry_details), width="stretch", hide_index=True)
                     st.caption("La qualitat /100 resta penalitzacions per volatilitat (>=80%/120%), drawdown (<=-30%/-40%) i deteriorament a 20 dies. Només es considera configuració confirmada si RSI i MACD són positius simultàniament en diari i 4h. No és una probabilitat d'èxit ni una ordre.")
 
                 st.markdown("#### Evolució comparativa (base 100)")
@@ -1115,11 +1154,11 @@ with global_tab:
                         "Vs BTC 30d (pp)": item["Força vs BTC 30d (pp)"],
                     } for item in detail_rows]
                     st.markdown("**RSI**")
-                    st.dataframe(pd.DataFrame(rsi_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rsi_rows), width="stretch", hide_index=True)
                     st.markdown("**Histograma MACD i confirmació**")
-                    st.dataframe(pd.DataFrame(macd_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(macd_rows), width="stretch", hide_index=True)
                     st.markdown("**Força relativa**")
-                    st.dataframe(pd.DataFrame(relative_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(relative_rows), width="stretch", hide_index=True)
                     st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")
                     st.markdown("**Risc i rendiment històric (diari)**")
                     risk_rows = []
@@ -1134,7 +1173,7 @@ with global_tab:
                             "Vol. 60d anualitzada %": risk.get("realized_volatility_60d_pct_annualized"),
                             "Drawdown màx. finestra %": risk.get("max_drawdown_120d_pct"),
                         })
-                    st.dataframe(pd.DataFrame(risk_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(risk_rows), width="stretch", hide_index=True)
                     risk_relative_rows = [{
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Vs BTC 20d (pp)": row.get("relative_strength_vs_btc_20d_pp"),
@@ -1142,7 +1181,7 @@ with global_tab:
                         "Vs BTC 120d (pp)": row.get("relative_strength_vs_btc_120d_pp"),
                     } for row in aligned]
                     st.markdown("**Força relativa vs BTC — horitzons ampliats**")
-                    st.dataframe(pd.DataFrame(risk_relative_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(risk_relative_rows), width="stretch", hide_index=True)
                     st.caption("Volatilitat anualitzada aproximada a partir de rendiments diaris. Drawdown: caiguda màxima des d'un màxim anterior dins de les últimes 120 espelmes disponibles. Els horitzons sense historial suficient queden buits.")
                     st.markdown("**Rànquing de força relativa ajustada pel risc**")
                     adjusted_rows = [{
@@ -1159,7 +1198,7 @@ with global_tab:
                         "Drawdown màx. %": item["max_drawdown_120d_pct"],
                     } for item in global_report.get("risk_adjusted_relative_strength", [])]
                     if adjusted_rows:
-                        st.dataframe(pd.DataFrame(adjusted_rows).round(2), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(adjusted_rows).round(2), width="stretch", hide_index=True)
                     else:
                         st.info("Cap actiu té ara mateix tots els horitzons i mètriques necessaris per entrar al rànquing complet.")
                     coverage_rows = [{
@@ -1180,7 +1219,7 @@ with global_tab:
                     } for item in global_report.get("risk_adjusted_relative_strength_coverage", [])]
                     if coverage_rows:
                         st.markdown("**Completesa i actualització de dades del rànquing**")
-                        st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
                     st.caption("Les dues subpuntuacions són independents: Momentum mesura força relativa vs BTC (40% 20d, 35% 60d, 25% 120d); Qualitat del risc mesura menor volatilitat (60%) i drawdown menys profund (40%). La puntuació composta combina aquestes dues dimensions (70% momentum, 30% risc); no les confonguis. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
@@ -1205,7 +1244,7 @@ with global_tab:
                             "Antiguitat (min)": round(row["age_seconds"] / 60, 1),
                         })
                     tactical_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(tactical_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(tactical_rows), width="stretch", hide_index=True)
 
                 if daily:
                     st.markdown("#### Confirmació de tendència - diari")
@@ -1226,7 +1265,7 @@ with global_tab:
                             "Antiguitat (h)": round(row["age_seconds"] / 3600, 1),
                         })
                     daily_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
 
                 if aligned:
                     st.markdown("#### Alineació multi-temporal")
@@ -1239,7 +1278,7 @@ with global_tab:
                         "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "Lectura": row.get("structure_explanation", ""),
                     } for row in aligned]
-                    st.dataframe(pd.DataFrame(alignment_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(alignment_rows), width="stretch", hide_index=True)
                 st.caption("Les puntuacions tècniques són filtres descriptius, no probabilitats, rendiments esperats ni senyals d'operació.")
 
             if rejected:
@@ -1258,7 +1297,7 @@ with global_tab:
                     "Motiu": ", ".join(reason_labels.get(reason, reason.replace("_", " ")) for reason in row.get("reasons", [])),
                 } for row in rejected]
                 with st.expander("Sèries descartades per qualitat de dades", expanded=False):
-                    st.dataframe(pd.DataFrame(rejected_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rejected_rows), width="stretch", hide_index=True)
 
             if unavailable_items:
                 reason_labels = {
@@ -1284,7 +1323,7 @@ with global_tab:
                         "Motiu": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                     } for (symbol, pair, reason), intervals in sorted(grouped_preflight.items())]
                     with st.expander("Diagnòstic avançat · actius omesos al catàleg Binance Spot", expanded=False):
-                        st.dataframe(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
                         st.caption("Aquests parells s'han descartat abans de demanar espelmes. Cada fila agrupa els intervals afectats per actiu.")
 
                 if request_failures:
@@ -1296,12 +1335,12 @@ with global_tab:
                         "Detall": item.get("detail", ""),
                     } for item in request_failures]
                     with st.expander("Diagnòstic avançat · errors de dades", expanded=False):
-                        st.dataframe(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
 
                 availability_counts = global_report.get("availability_counts", {})
                 if availability_counts:
                     with st.expander("Resum de causes per interval", expanded=False):
-                        st.dataframe(pd.DataFrame([
+                        render_mid_cards(pd.DataFrame([
                             {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                              "Intervals afectats": count}
                             for reason, count in sorted(availability_counts.items())
@@ -1346,20 +1385,20 @@ with global_tab:
                             "Data age (days)": round(item["age_seconds"] / 86400, 2),
                         })
                     rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
                 if bad:
                     st.markdown("#### Rejected histories")
-                    st.dataframe(pd.DataFrame([{
+                    render_mid_cards(pd.DataFrame([{
                         "Asset class": item.get("asset_class"), "Symbol": item.get("symbol"),
                         "Reasons": ", ".join(item.get("reasons", [])),
                     } for item in bad]), width="stretch", hide_index=True)
                 if daily_report["quality"]:
                     st.markdown("#### Rejected source records (excluded from indicators)")
-                    st.dataframe(pd.DataFrame(daily_report["quality"]),
+                    render_mid_cards(pd.DataFrame(daily_report["quality"]),
                         width="stretch", hide_index=True)
                 if daily_report["unavailable"]:
                     st.markdown("#### Provider unavailable / no exact symbol data")
-                    st.dataframe(pd.DataFrame(daily_report["unavailable"]),
+                    render_mid_cards(pd.DataFrame(daily_report["unavailable"]),
                         width="stretch", hide_index=True)
                 st.caption("FinancialData.Net historical daily data. This feed does not imply real-time prices or verified subscription entitlement for every symbol. Technical screening only; no paper positions are changed.")
             except Exception as error:
@@ -1398,15 +1437,15 @@ with global_tab:
                             "Volume": "Not provided",
                         })
                     fx_rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(fx_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(fx_rows), width="stretch", hide_index=True)
                 if rejected:
                     st.markdown("#### Rejected FX histories")
-                    st.dataframe(pd.DataFrame([{
+                    render_mid_cards(pd.DataFrame([{
                         "Pair": item.get("symbol"), "Reasons": ", ".join(item.get("reasons", [])),
                     } for item in rejected]), width="stretch", hide_index=True)
                 if fx_report["unavailable"]:
                     st.markdown("#### FX provider unavailable")
-                    st.dataframe(pd.DataFrame(fx_report["unavailable"]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(fx_report["unavailable"]), width="stretch", hide_index=True)
                 st.caption("The FX technical score uses price candles only. Alpha Vantage does not supply centralized FX volume here; no volume/liquidity score is inferred. Historical data is not a real-time quote and does not modify paper positions.")
             except Exception as error:
                 st.error("Global FX scan failed: " + str(error))
@@ -1433,11 +1472,11 @@ with scanner_tab:
                     scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
                 if scanner_state.get("open_positions"):
                     st.markdown("#### Scanner open paper positions")
-                    st.dataframe(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)
                 if scanner_state.get("closed_trades"):
                     st.markdown("#### Operacions paper tancades (històric)")
                     st.caption("Registre d'operacions anteriors. No implica que aquests actius continuïn cotitzant a Binance Spot ni que siguin candidats actuals.")
-                    st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_state["closed_trades"][-50:]), width="stretch", hide_index=True)
             else:
                 st.info("The scanner has not completed its first cycle yet.")
             st.markdown("#### Candidats de l'últim escaneig")
@@ -1471,9 +1510,9 @@ with scanner_tab:
                         "Alertes tècniques": ", ".join(row.get("quality_warnings", [])) or "Cap",
                         "Entrada automàtica": "Sí" if row.get("auto_entry_eligible") else "No",
                     })
-                st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(display_rows), width="stretch", hide_index=True)
                 with st.expander("Dades tècniques completes de cada candidat"):
-                    st.dataframe(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
             else:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:
@@ -1496,7 +1535,7 @@ with cross_market_tab:
                 cross_report = get_cross_market_report(twelve_key)
             if cross_report.get("provider_unavailable"):
                 st.markdown("#### Provider availability")
-                st.dataframe(pd.DataFrame(cross_report["provider_unavailable"]), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(cross_report["provider_unavailable"]), width="stretch", hide_index=True)
             if cross_report.get("status") == "ok":
                 st.markdown("#### Current market regime")
                 st.metric("Cross-market reading", cross_report["label"])
@@ -1513,13 +1552,13 @@ with cross_market_tab:
                     "Return 1h %": values["return_1h_pct"],
                     "Latest closed candle UTC": values["latest_candle_utc"],
                 } for symbol, values in cross_report["assets"].items()]
-                st.dataframe(pd.DataFrame(asset_rows).round(4), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(asset_rows).round(4), width="stretch", hide_index=True)
                 correlation_rows = [{
                     "Pair": label.replace("_15m", "").replace("_", " / "),
                     "Correlation (15m returns)": value,
                 } for label, value in cross_report["correlations"].items()]
                 st.markdown("#### Rolling correlations")
-                st.dataframe(pd.DataFrame(correlation_rows).round(3), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(correlation_rows).round(3), width="stretch", hide_index=True)
                 st.caption("Correlations are descriptive, not causal. They are calculated over up to the latest 24 synchronized 15-minute returns. Correlation can change quickly and is not a standalone trading signal.")
             else:
                 st.warning(cross_report.get("label", "Cross-market data unavailable"))
@@ -1607,7 +1646,7 @@ with bitunix_tab:
             else:
                 futures_rows = snapshot.get("futures_account", [])
                 if futures_rows:
-                    st.dataframe(pd.DataFrame(futures_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(futures_rows), width="stretch", hide_index=True)
                 else:
                     st.info("Bitunix returned no USDT Futures account data.")
             st.markdown("#### Open Futures positions")
@@ -1616,7 +1655,7 @@ with bitunix_tab:
             else:
                 position_rows = snapshot.get("futures_positions", [])
                 if position_rows:
-                    st.dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(position_rows), width="stretch", hide_index=True)
                 else:
                     st.info("No open Futures positions returned.")
             st.caption("Read-only snapshot. Data is requested only when you press the button; no trading action is available.")

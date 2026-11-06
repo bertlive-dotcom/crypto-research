@@ -2,6 +2,7 @@ import json
 import streamlit as st
 import requests
 import pandas as pd
+import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone
 
@@ -432,7 +433,9 @@ with market_tab:
         ]
         if crypto_chart_rows:
             st.markdown("#### Crypto market performance · 24h")
-            st.bar_chart(pd.DataFrame(crypto_chart_rows).set_index("Asset"), color="#19c8ff")
+            crypto_fig = px.bar(pd.DataFrame(crypto_chart_rows), x="Asset", y="24h change (%)", color="24h change (%)", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], title="Canvi 24h · passa el cursor per veure valors")
+            crypto_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", coloraxis_showscale=False, height=360, margin=dict(l=8,r=8,t=55,b=8), dragmode="zoom")
+            st.plotly_chart(crypto_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
         with st.expander("Detailed crypto quotes", expanded=False):
             render_mid_cards(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
@@ -468,7 +471,9 @@ with market_tab:
         ]
         if stock_chart_rows:
             st.markdown("#### Equity & ETF performance · provider period")
-            st.bar_chart(pd.DataFrame(stock_chart_rows).set_index("Symbol"), color="#19c8ff")
+            stock_fig = px.bar(pd.DataFrame(stock_chart_rows), x="Symbol", y="24h change (%)", color="24h change (%)", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], title="Variació del període del proveïdor")
+            stock_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", coloraxis_showscale=False, height=340, margin=dict(l=8,r=8,t=55,b=8), dragmode="zoom")
+            st.plotly_chart(stock_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
         with st.expander("Detailed equity and ETF quotes", expanded=False):
             render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
@@ -550,7 +555,9 @@ with desk_tab:
         {"Component": "Realized P&L", "USD": summary["realized_pnl_usd"]},
         {"Component": "Unrealized P&L", "USD": summary["unrealized_pnl_usd"]},
     ]).set_index("Component")
-    st.bar_chart(pnl_chart, color="#19c8ff")
+    pnl_fig = px.bar(pnl_chart.reset_index(), x="Component", y="USD", color="Component", color_discrete_sequence=["#19c8ff", "#0878d1"], title="Resultat de la cartera simulada")
+    pnl_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False, height=300, margin=dict(l=8,r=8,t=50,b=8))
+    st.plotly_chart(pnl_fig, use_container_width=True, config={"displaylogo": False})
     st.caption("P&L components are current portfolio snapshots, not a historical equity curve.")
 
     st.markdown("#### Five-agent pipeline")
@@ -1024,10 +1031,21 @@ with global_tab:
                                     "30 dies",
                                     "—" if item["30 dies (%)"] is None else "{:+.2f}%".format(item["30 dies (%)"]),
                                 )
-                    st.bar_chart(
-                        heatmap_frame,
-                        color=["#19c8ff", "#0878d1"],
-                    )
+                    heatmap_fig = px.imshow(heatmap_frame, text_auto=".2f", aspect="auto", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], color_continuous_midpoint=0, labels={"x": "Horitzó", "y": "Actiu", "color": "Canvi %"}, title="Rendiment per actiu · selecciona una cel·la per veure'n el detall")
+                    heatmap_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=max(300, len(heatmap_rows)*48), margin=dict(l=8,r=8,t=55,b=8))
+                    heatmap_event = st.plotly_chart(heatmap_fig, use_container_width=True, config={"displaylogo": False}, on_select="rerun", selection_mode="points")
+                    selected_heatmap = (heatmap_event.selection.points or []) if heatmap_event else []
+                    if selected_heatmap:
+                        point = selected_heatmap[-1]
+                        selected_asset = str(point.get("y", ""))
+                        selected_horizon = str(point.get("x", ""))
+                        selected_row = next((item for item in summary_rows if item["Actiu"] == selected_asset), None)
+                        if selected_row:
+                            st.markdown("**Detall seleccionat · {} · {}**".format(selected_asset, selected_horizon))
+                            d1, d2, d3 = st.columns(3)
+                            d1.metric("7 dies", "—" if selected_row["7d %"] is None else "{:+.2f}%".format(selected_row["7d %"]))
+                            d2.metric("30 dies", "—" if selected_row["30d %"] is None else "{:+.2f}%".format(selected_row["30d %"]))
+                            d3.metric("Força vs BTC 30d", "—" if selected_row["Força vs BTC 30d (pp)"] is None else "{:+.2f} pp".format(selected_row["Força vs BTC 30d (pp)"]))
                 else:
                     st.info("No hi ha rendiments suficients per construir el mapa de mercat.")
 
@@ -1102,7 +1120,9 @@ with global_tab:
                         }
                 if chart_series:
                     chart_frame = pd.DataFrame(chart_series).sort_index()
-                    st.line_chart(chart_frame, width="stretch")
+                    comparison_fig = px.line(chart_frame.reset_index(), x=chart_frame.index.name or "index", y=list(chart_frame.columns), title="Evolució normalitzada · activa/desactiva actius a la llegenda")
+                    comparison_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=430, hovermode="x unified", xaxis_title="Data", yaxis_title="Índex (inici = 100)", margin=dict(l=8,r=8,t=55,b=8), xaxis_rangeslider_visible=True, legend_title="Actius")
+                    st.plotly_chart(comparison_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
                 else:
                     st.info("No hi ha historial diari suficient per als actius seleccionats.")
 
@@ -1131,7 +1151,9 @@ with global_tab:
                              "Força vs BTC 30d (pp)": next((row.get("relative_strength_vs_btc_30d_pct") for row in aligned if row["symbol"] == canonical_indicator_symbol), None)},
                         ]).set_index("Interval")
                         st.markdown("**RSI i força relativa**")
-                        st.bar_chart(indicator_frame, color=["#19c8ff", "#0878d1"])
+                        indicator_fig = px.bar(indicator_frame.reset_index(), x="Interval", y=["RSI 14", "Força vs BTC 30d (pp)"], barmode="group", title="RSI i força relativa · passa el cursor per consultar valors")
+                        indicator_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=320, margin=dict(l=8,r=8,t=55,b=8), legend_title="Indicador")
+                        st.plotly_chart(indicator_fig, use_container_width=True, config={"displaylogo": False})
                         st.caption("RSI: escala 0–100. La força relativa indica punts percentuals respecte a BTC; no és rendibilitat absoluta.")
                     else:
                         st.info("No hi ha indicadors disponibles per als actius actuals.")

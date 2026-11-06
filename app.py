@@ -1336,26 +1336,17 @@ with bitunix_tab:
             metric_cols[0].metric("Spot assets", overview["spot_asset_count"])
             metric_cols[1].metric("Open Futures positions", overview["open_futures_positions"])
             metric_cols[2].metric("Futures accounts", len(overview["futures_accounts"]))
-            if overview["spot_assets"]:
+            st.markdown("#### Spot assets")
+            if snapshot.get("spot_error"):
+                st.error("Spot: " + snapshot["spot_error"])
+            elif overview["spot_assets"]:
                 st.dataframe(pd.DataFrame(overview["spot_assets"]), width="stretch", hide_index=True)
+            else:
+                st.info("Bitunix returned no Spot balances.")
             st.caption(
                 "Real Bitunix account data only. Fiat valuation is not calculated here; "
                 "paper-trading balances and positions remain separate and unchanged."
             )
-
-            st.markdown("#### Spot balances")
-            if snapshot.get("spot_error"):
-                st.error("Spot: " + snapshot["spot_error"])
-            else:
-                spot_rows = [{
-                    "Asset": row.get("coin"),
-                    "Balance": row.get("balance"),
-                    "Locked": row.get("balanceLocked"),
-                } for row in snapshot.get("spot_balances", [])]
-                if spot_rows:
-                    st.dataframe(pd.DataFrame(spot_rows), width="stretch", hide_index=True)
-                else:
-                    st.info("Bitunix returned no Spot balances.")
             st.markdown("#### Futures account (USDT)")
             if snapshot.get("futures_account_error"):
                 st.error("Futures account: " + snapshot["futures_account_error"])

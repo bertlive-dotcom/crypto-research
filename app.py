@@ -1328,6 +1328,21 @@ with bitunix_tab:
 
         snapshot = st.session_state.get("bitunix_readonly_snapshot")
         if snapshot:
+            from bitunix.portfolio import build_portfolio_overview
+
+            overview = build_portfolio_overview(snapshot)
+            st.markdown("#### Real portfolio overview")
+            metric_cols = st.columns(3)
+            metric_cols[0].metric("Spot assets", overview["spot_asset_count"])
+            metric_cols[1].metric("Open Futures positions", overview["open_futures_positions"])
+            metric_cols[2].metric("Futures accounts", len(overview["futures_accounts"]))
+            if overview["spot_assets"]:
+                st.dataframe(pd.DataFrame(overview["spot_assets"]), width="stretch", hide_index=True)
+            st.caption(
+                "Real Bitunix account data only. Fiat valuation is not calculated here; "
+                "paper-trading balances and positions remain separate and unchanged."
+            )
+
             st.markdown("#### Spot balances")
             if snapshot.get("spot_error"):
                 st.error("Spot: " + snapshot["spot_error"])

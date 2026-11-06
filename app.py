@@ -377,7 +377,15 @@ with market_tab:
         crypto_rows = get_crypto(cmc_key)
         latest_crypto_market_data = {row["Asset"]: row for row in crypto_rows}
         latest_crypto_prices = {row["Asset"]: row["Price USD"] for row in crypto_rows if row.get("Price USD")}
-        st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
+        crypto_chart_rows = [
+            {"Asset": row["Asset"], "24h change (%)": row.get("24h %")}
+            for row in crypto_rows if row.get("24h %") is not None
+        ]
+        if crypto_chart_rows:
+            st.markdown("#### Crypto market performance · 24h")
+            st.bar_chart(pd.DataFrame(crypto_chart_rows).set_index("Asset"), color="#19c8ff")
+        with st.expander("Detailed crypto quotes", expanded=False):
+            st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
@@ -405,7 +413,15 @@ with market_tab:
         else:
             rows.append(quote_result)
     if rows:
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        stock_chart_rows = [
+            {"Symbol": row["Asset"], "24h change (%)": row.get("24h %")}
+            for row in rows if row.get("24h %") is not None
+        ]
+        if stock_chart_rows:
+            st.markdown("#### Equity & ETF performance · provider period")
+            st.bar_chart(pd.DataFrame(stock_chart_rows).set_index("Symbol"), color="#19c8ff")
+        with st.expander("Detailed equity and ETF quotes", expanded=False):
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
 
 with desk_tab:
@@ -480,6 +496,13 @@ with desk_tab:
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
+    st.markdown("#### Paper portfolio performance")
+    pnl_chart = pd.DataFrame([
+        {"Component": "Realized P&L", "USD": summary["realized_pnl_usd"]},
+        {"Component": "Unrealized P&L", "USD": summary["unrealized_pnl_usd"]},
+    ]).set_index("Component")
+    st.bar_chart(pnl_chart, color="#19c8ff")
+    st.caption("P&L components are current portfolio snapshots, not a historical equity curve.")
 
     st.markdown("#### Five-agent pipeline")
     st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")

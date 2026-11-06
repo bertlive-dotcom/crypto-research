@@ -1097,7 +1097,7 @@ with global_tab:
                     else:
                         st.info("No hi ha indicadors disponibles per als actius actuals.")
 
-                with st.expander("RSI i força relativa respecte a BTC", expanded=False):
+                with st.expander("Dades avançades · RSI, MACD, força relativa i risc", expanded=False):
                     rsi_rows = [{
                         "Actiu": item["Actiu"],
                         "RSI diari": item["RSI diari"],
@@ -1184,7 +1184,7 @@ with global_tab:
                     st.caption("Les dues subpuntuacions són independents: Momentum mesura força relativa vs BTC (40% 20d, 35% 60d, 25% 120d); Qualitat del risc mesura menor volatilitat (60%) i drawdown menys profund (40%). La puntuació composta combina aquestes dues dimensions (70% momentum, 30% risc); no les confonguis. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
-            with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):
+            with st.expander("Consulta tècnica avançada · dades completes", expanded=False):
                 if tactical:
                     st.markdown("#### Rànquing tàctic - 4 hores")
                     tactical_rows = []
@@ -1283,7 +1283,7 @@ with global_tab:
                         "Intervals omesos": ", ".join(sorted(intervals)),
                         "Motiu": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                     } for (symbol, pair, reason), intervals in sorted(grouped_preflight.items())]
-                    with st.expander("Actius omesos després de comprovar el catàleg Binance Spot", expanded=True):
+                    with st.expander("Diagnòstic avançat · actius omesos al catàleg Binance Spot", expanded=False):
                         st.dataframe(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
                         st.caption("Aquests parells s'han descartat abans de demanar espelmes. Cada fila agrupa els intervals afectats per actiu.")
 
@@ -1295,7 +1295,7 @@ with global_tab:
                         "Motiu": reason_labels.get(item.get("reason"), str(item.get("reason", "unknown")).replace("_", " ").capitalize()),
                         "Detall": item.get("detail", ""),
                     } for item in request_failures]
-                    with st.expander("Errors en peticions de dades", expanded=True):
+                    with st.expander("Diagnòstic avançat · errors de dades", expanded=False):
                         st.dataframe(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
 
                 availability_counts = global_report.get("availability_counts", {})

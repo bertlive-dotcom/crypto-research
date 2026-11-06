@@ -40,8 +40,99 @@ def last_closed_candle(candles, now=None):
             closed.append((close_time, candle))
     return max(closed, key=lambda item: item[0])[1] if closed else None
 
-st.set_page_config(page_title="Crypto & Equities", layout="wide")
-st.title("Crypto & Equities Dashboard")
+st.set_page_config(page_title="MIDMarkets | Markets Intelligence Desk", layout="wide")
+
+# MIDMarkets visual identity: navy / electric blue / cyan, with restrained
+# green and red market states. Presentation only; no data or trading logic.
+st.markdown("""
+<style>
+:root {
+  --mid-bg: #050d19;
+  --mid-panel: #091a2c;
+  --mid-panel-2: #0c2238;
+  --mid-blue: #0878d1;
+  --mid-cyan: #19c8ff;
+  --mid-text: #f4f8fc;
+  --mid-muted: #91a8bd;
+  --mid-green: #00b879;
+  --mid-red: #e3484d;
+}
+.stApp, [data-testid="stAppViewContainer"] {
+  background: radial-gradient(ellipse at 78% 0%, #092b49 0%, var(--mid-bg) 44%);
+  color: var(--mid-text);
+}
+[data-testid="stHeader"] { background: rgba(5,13,25,.88); }
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #07182a, #040b14);
+  border-right: 1px solid rgba(25,200,255,.22);
+}
+.block-container { padding-top: 1.35rem; padding-bottom: 2.5rem; max-width: 1600px; }
+h1, h2, h3, h4 { color: var(--mid-text) !important; letter-spacing: -.025em; }
+p, label, [data-testid="stCaptionContainer"] { color: var(--mid-muted); }
+[data-testid="stMetric"] {
+  background: linear-gradient(145deg, rgba(12,34,56,.96), rgba(6,20,35,.96));
+  border: 1px solid rgba(25,200,255,.45);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 0 22px rgba(0,130,220,.08);
+}
+[data-testid="stMetricLabel"] { color: #a8c5dc !important; }
+[data-testid="stMetricValue"] { color: #f7fbff !important; }
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  gap: .35rem; border-bottom: 1px solid rgba(25,200,255,.28);
+}
+[data-testid="stTabs"] button[role="tab"] {
+  color: #9bb3c8; border-radius: 9px 9px 0 0;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+  color: #fff; border-bottom: 3px solid var(--mid-cyan);
+  background: rgba(8,120,209,.13);
+}
+.stButton > button, [data-testid="stDownloadButton"] button {
+  border: 1px solid var(--mid-cyan);
+  border-radius: 9px;
+  background: linear-gradient(110deg, #075b9d, #087fc7);
+  color: white; font-weight: 650;
+}
+.stButton > button:hover { border-color: #8ce8ff; color: white; box-shadow: 0 0 16px rgba(25,200,255,.25); }
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+  border: 1px solid rgba(25,200,255,.28); border-radius: 10px; overflow: hidden;
+}
+[data-testid="stExpander"] {
+  border: 1px solid rgba(25,200,255,.24); border-radius: 12px;
+  background: rgba(8,26,44,.55);
+}
+[data-testid="stAlert"] { border-radius: 10px; }
+.mid-brand {
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  padding: 18px 22px; margin: 0 0 18px 0;
+  border: 1px solid rgba(25,200,255,.55); border-radius: 16px;
+  background: linear-gradient(105deg, rgba(5,20,37,.98), rgba(5,52,88,.82));
+  box-shadow: 0 0 28px rgba(0,145,230,.12), inset 0 1px rgba(255,255,255,.05);
+}
+.mid-logo { font-size: clamp(2rem, 4vw, 3.2rem); font-weight: 850; letter-spacing: -.06em; color: #fff; }
+.mid-divider { width: 3px; height: 48px; background: var(--mid-cyan); box-shadow: 0 0 12px var(--mid-cyan); }
+.mid-brand-title { font-size: clamp(1.1rem, 2vw, 1.65rem); font-weight: 750; line-height: 1.1; color: #fff; }
+.mid-brand-sub { margin-top: 5px; color: #a9c9e2; font-size: .88rem; letter-spacing: .08em; text-transform: uppercase; }
+.mid-tagline { margin-left:auto; color:#b8eaff; font-size:.78rem; letter-spacing:.16em; font-weight:700; }
+@media (max-width: 640px) {
+  .block-container { padding-left: .8rem; padding-right: .8rem; }
+  .mid-brand { padding: 14px; gap: 10px; }
+  .mid-divider { height: 38px; }
+  .mid-tagline { width:100%; margin-left:0; font-size:.68rem; }
+  [data-testid="stMetric"] { padding: 12px; }
+}
+</style>
+<div class="mid-brand">
+  <div class="mid-logo">MID</div>
+  <div class="mid-divider"></div>
+  <div>
+    <div class="mid-brand-title">Markets Intelligence Desk</div>
+    <div class="mid-brand-sub">Independent research across global markets</div>
+  </div>
+  <div class="mid-tagline">DATA · SIGNALS · INTELLIGENCE</div>
+</div>
+""", unsafe_allow_html=True)
 
 def secret(key):
     try:
@@ -286,7 +377,15 @@ with market_tab:
         crypto_rows = get_crypto(cmc_key)
         latest_crypto_market_data = {row["Asset"]: row for row in crypto_rows}
         latest_crypto_prices = {row["Asset"]: row["Price USD"] for row in crypto_rows if row.get("Price USD")}
-        st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
+        crypto_chart_rows = [
+            {"Asset": row["Asset"], "24h change (%)": row.get("24h %")}
+            for row in crypto_rows if row.get("24h %") is not None
+        ]
+        if crypto_chart_rows:
+            st.markdown("#### Crypto market performance · 24h")
+            st.bar_chart(pd.DataFrame(crypto_chart_rows).set_index("Asset"), color="#19c8ff")
+        with st.expander("Detailed crypto quotes", expanded=False):
+            st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
@@ -314,7 +413,15 @@ with market_tab:
         else:
             rows.append(quote_result)
     if rows:
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        stock_chart_rows = [
+            {"Symbol": row["Asset"], "24h change (%)": row.get("24h %")}
+            for row in rows if row.get("24h %") is not None
+        ]
+        if stock_chart_rows:
+            st.markdown("#### Equity & ETF performance · provider period")
+            st.bar_chart(pd.DataFrame(stock_chart_rows).set_index("Symbol"), color="#19c8ff")
+        with st.expander("Detailed equity and ETF quotes", expanded=False):
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
 
 with desk_tab:
@@ -389,6 +496,13 @@ with desk_tab:
     st.caption("Starting capital: USD {:.2f} | Return: {:.2f}% | Open: {} | Closed: {}".format(
         portfolio["starting_capital"], summary["total_return_pct"],
         summary["open_positions"], summary["closed_trades"]))
+    st.markdown("#### Paper portfolio performance")
+    pnl_chart = pd.DataFrame([
+        {"Component": "Realized P&L", "USD": summary["realized_pnl_usd"]},
+        {"Component": "Unrealized P&L", "USD": summary["unrealized_pnl_usd"]},
+    ]).set_index("Component")
+    st.bar_chart(pnl_chart, color="#19c8ff")
+    st.caption("P&L components are current portfolio snapshots, not a historical equity curve.")
 
     st.markdown("#### Five-agent pipeline")
     st.write("Scout: signal intake -> Filter: hard rules -> Analyst: risk review -> Sniper: simulated entry -> Guard: automatic stop-loss, take-profit and exposure controls.")

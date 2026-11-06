@@ -17,7 +17,7 @@
 
 FOMO Labs' first-party app does not publish a documented public developer API in the material reviewed for this plan. Third-party services advertise FOMO-family data APIs, but they are not official FOMO Labs services and must be treated as independent vendors. In particular, FomoAPI documents a metered API with API-key activation / staking requirements. Do not purchase, stake, or configure a third-party key until its operator, terms, data provenance, pricing, retention, and permission to use the data have been reviewed.
 
-The on-chain leg is separate: monitor only public wallet addresses that the user can legitimately identify from their own FOMO profile or other public sources, using an approved blockchain data provider. Do not assume every FOMO trade is directly attributable to a public wallet until transaction patterns and provider coverage have been validated. Relayed / smart-wallet execution can make attribution incomplete.
+The on-chain leg is separate. Bitquery publishes a FOMO-specific Solana methodology: it attributes DFlow swap rows to the user's wallet through `Trade.Account.Owner`, while the transaction signer / fee payer is FOMO's shared app wallet. Bitquery reports a 94% match in a 1,166-trade sample, says the signer / fee-account addresses are inferred rather than confirmed by FOMO, and notes that its trade-level DEX coverage is roughly the latest 12 hours. The method does not map handles to wallets, does not cover FOMO's EVM orders, and may miss or misattribute routes outside the validated DFlow pattern. Therefore this is a candidate Solana feed, not complete FOMO coverage; validate signer activity and attribution continuously before accepting events. Other chains need separately validated providers and attribution rules. Never assume a public wallet address is a FOMO user merely because it trades the same token.
 
 ## Target architecture
 
@@ -112,8 +112,8 @@ Do not rank from 24h PnL alone. Separate realized from unrealized returns; accou
 ### P0 — source and permission validation (current)
 1. Confirm the FOMO account can expose the public wallet addresses for the user's own account / selected public traders.
 2. Evaluate the third-party FOMO-data provider separately from FOMO Labs; verify terms, data provenance, credit pricing, rate limits, retention, and whether automated internal analysis is permitted.
-3. Compare an independently observed sample of FOMO trades against chain explorer / indexer transactions.
-4. Select one on-chain provider and confirm supported chains, latency, pagination, websocket / polling behavior, and historical coverage.
+3. Validate Bitquery's documented Solana DFlow attribution against a fresh sample: check the shared signer is still active, compare user wallet ownership, and measure false positives / missed routes; explicitly record the ~12-hour DEX trade-history limit and the lack of handle-to-wallet mapping.
+4. Decide whether to use Bitquery for Solana only, then separately assess EVM coverage; confirm provider cost, latency, pagination, websocket / polling behavior, and historical coverage.
 5. Do not enable ingestion until these checks pass.
 
 **Acceptance:** written source decision, documented provider limitations, and a reproducible sample of correctly attributed transactions. No credentials or live trading.

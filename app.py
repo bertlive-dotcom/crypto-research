@@ -941,7 +941,7 @@ with global_tab:
                         width="stretch",
                     )
                     st.bar_chart(
-                        heatmap_frame.fillna(0),
+                        heatmap_frame,
                         color=["#19c8ff", "#0878d1"],
                     )
                 else:

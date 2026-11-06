@@ -789,9 +789,31 @@ with global_tab:
                 "Detall proveïdor": item.get("detail") or "—",
             } for item in global_report.get("freshness", [])]
             if freshness_rows:
-                with st.expander("Frescor de dades per actiu i interval", expanded=False):
-                    st.dataframe(pd.DataFrame(freshness_rows), width="stretch", hide_index=True)
-                    st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD; revisa el motiu quan no hi ha dades actuals.")
+                st.markdown("#### Estat de les dades")
+                freshness_counts = {}
+                for item in freshness_rows:
+                    freshness_counts[item["Estat"]] = freshness_counts.get(item["Estat"], 0) + 1
+                status_cols = st.columns(min(4, max(1, len(freshness_counts))))
+                for index, (label, count) in enumerate(sorted(freshness_counts.items())):
+                    status_cols[index % len(status_cols)].metric(label, count)
+                with st.expander("Detall per actiu", expanded=False):
+                    for start in range(0, len(freshness_rows), 2):
+                        cards = st.columns(2)
+                        for offset, item in enumerate(freshness_rows[start:start + 2]):
+                            with cards[offset].container(border=True):
+                                st.markdown("**{} · {}**".format(item["Actiu"], item["Interval"]))
+                                status = item["Estat"]
+                                st.markdown("**{}**".format(status))
+                                st.caption(
+                                    "Última espelma: {} · Antiguitat: {} h · Historial: {} espelmes".format(
+                                        item["Última espelma tancada UTC"],
+                                        "—" if item["Antiguitat (h)"] is None else item["Antiguitat (h)"],
+                                        "—" if item["Espelmes"] is None else item["Espelmes"],
+                                    )
+                                )
+                                if item["Motiu"] != "—" or item["Detall proveïdor"] != "—":
+                                    st.caption(item["Motiu"] if item["Motiu"] != "—" else item["Detall proveïdor"])
+                st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD.")
 
             tactical = [row for row in eligible if row["interval"] == "4h"]
             daily = [row for row in eligible if row["interval"] == "1d"]
@@ -851,22 +873,34 @@ with global_tab:
                 stored_alerts = new_alerts + [item for item in stored_alerts if item.get("dedupe_key") not in current_keys]
                 st.session_state["global_crypto_alert_history"] = stored_alerts[:500]
             if new_alerts:
-                st.markdown("#### Alertes detectades en aquesta lectura")
-                st.dataframe(pd.DataFrame([{
-                    "Actiu": item["asset"],
-                    "Tipus": "Força relativa (no és entrada)" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica (no és entrada)",
-                    "Alerta": item["label"], "Detall": item["detail"]
-                } for item in new_alerts]), width="stretch", hide_index=True)
+                st.markdown("#### Alertes detectades")
+                for start in range(0, len(new_alerts), 2):
+                    cards = st.columns(2)
+                    for offset, item in enumerate(new_alerts[start:start + 2]):
+                        with cards[offset].container(border=True):
+                            st.markdown("**{}**".format(item.get("asset", "—")))
+                            st.markdown(item.get("label", "Alerta tècnica"))
+                            st.caption(
+                                ("Força relativa" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica")
+                                + " · No és una entrada de trading"
+                            )
+                            st.write(item.get("detail", "Sense detall addicional"))
             else:
-                st.caption("Cap alerta tècnica nova en aquesta lectura.")
+                st.info("Cap alerta tècnica nova en aquesta lectura.")
             if stored_alerts:
-                with st.expander("Historial d'alertes (90 dies)", expanded=False):
-                    st.dataframe(pd.DataFrame([{
-                        "Data": item.get("created_at", item.get("daily_close", "")),
-                        "Actiu": item.get("asset"),
-                        "Tipus": "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
-                        "Alerta": item.get("label"), "Detall": item.get("detail"),
-                    } for item in stored_alerts]), width="stretch", hide_index=True)
+                with st.expander("Historial d'alertes · últims 90 dies", expanded=False):
+                    for item in stored_alerts[:30]:
+                        with st.container(border=True):
+                            st.markdown("**{} · {}**".format(
+                                item.get("asset", "—"), item.get("label", "Alerta")
+                            ))
+                            st.caption("{} · {}".format(
+                                "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
+                                str(item.get("created_at", item.get("daily_close", "Data no disponible")))[:16].replace("T", " ")
+                            ))
+                            st.write(item.get("detail", ""))
+                    if len(stored_alerts) > 30:
+                        st.caption("Es mostren les 30 alertes més recents de {} registres.".format(len(stored_alerts)))
 
             if previous_structures is not None:
                 transitions = [{
@@ -876,8 +910,11 @@ with global_tab:
                 } for symbol, category in current_structures.items()
                     if symbol in previous_structures and previous_structures[symbol] != category]
                 if transitions:
-                    st.markdown("#### Canvis de classificació des de l'última lectura")
-                    st.dataframe(pd.DataFrame(transitions), width="stretch", hide_index=True)
+                    st.markdown("#### Canvis de classificació")
+                    for item in transitions:
+                        with st.container(border=True):
+                            st.markdown("**{}**".format(item["Actiu"]))
+                            st.caption("{}  →  {}".format(item["Abans"], item["Ara"]))
                     confirmed = [item for item in transitions if item["Ara"] == "Tendència confirmada"]
                     if confirmed:
                         st.success("Confirmació tècnica multi-temporal: " + ", ".join(item["Actiu"] for item in confirmed))

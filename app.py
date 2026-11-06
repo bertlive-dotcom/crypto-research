@@ -55,7 +55,7 @@ def render_mid_cards(data, *args, **kwargs):
         "coin", "marginCoin", "Data", "Date", "event_type",
     )
     title_key = next((key for key in preferred_titles if key in frame.columns), frame.columns[0])
-    records = frame.where(pd.notna(frame), None).to_dict("records")
+    records = frame.astype(object).where(pd.notna(frame), None).to_dict("records")
 
     for start in range(0, len(records), 2):
         card_columns = st.columns(2)

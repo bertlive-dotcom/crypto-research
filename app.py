@@ -971,12 +971,20 @@ with global_tab:
                 ]
                 if heatmap_rows:
                     heatmap_frame = pd.DataFrame(heatmap_rows).set_index("Actiu")
-                    st.dataframe(
-                        heatmap_frame.style.format("{:+.2f}%").background_gradient(
-                            cmap="RdYlGn", axis=None, subset=["7 dies (%)", "30 dies (%)"]
-                        ),
-                        width="stretch",
-                    )
+                    for start in range(0, len(heatmap_rows), 2):
+                        asset_cols = st.columns(2)
+                        for offset, item in enumerate(heatmap_rows[start:start + 2]):
+                            with asset_cols[offset].container(border=True):
+                                st.markdown("**{}**".format(item["Actiu"]))
+                                m1, m2 = st.columns(2)
+                                m1.metric(
+                                    "7 dies",
+                                    "—" if item["7 dies (%)"] is None else "{:+.2f}%".format(item["7 dies (%)"]),
+                                )
+                                m2.metric(
+                                    "30 dies",
+                                    "—" if item["30 dies (%)"] is None else "{:+.2f}%".format(item["30 dies (%)"]),
+                                )
                     st.bar_chart(
                         heatmap_frame,
                         color=["#19c8ff", "#0878d1"],

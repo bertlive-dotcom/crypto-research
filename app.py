@@ -1340,7 +1340,28 @@ with bitunix_tab:
             if snapshot.get("spot_error"):
                 st.error("Spot: " + snapshot["spot_error"])
             elif overview["spot_assets"]:
-                st.dataframe(pd.DataFrame(overview["spot_assets"]), width="stretch", hide_index=True)
+                from decimal import Decimal, InvalidOperation
+
+                def format_spot_amount(value):
+                    try:
+                        amount = Decimal(str(value))
+                    except (InvalidOperation, TypeError, ValueError):
+                        return "—"
+                    if not amount.is_finite():
+                        return "—"
+                    rendered = format(amount, ".10f").rstrip("0").rstrip(".")
+                    return rendered or "0"
+
+                for asset in overview["spot_assets"]:
+                    with st.container(border=True):
+                        st.markdown("**{}**".format(asset["asset"]))
+                        st.caption(
+                            "Disponible: {}  ·  Bloquejat: {}  ·  Total: {}".format(
+                                format_spot_amount(asset["available"]),
+                                format_spot_amount(asset["locked"]),
+                                format_spot_amount(asset["total"]),
+                            )
+                        )
             else:
                 st.info("Bitunix returned no Spot balances.")
             st.caption(

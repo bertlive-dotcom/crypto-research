@@ -5,6 +5,8 @@ on:
     paths:
       - "prediction_markets/**"
       - "tests/test_prediction_markets.py"
+      - "tests/test_supabase_store.py"
+      - "supabase_store.py"
       - "app.py"
       - ".github/workflows/prediction-market-tests.yml"
   push:
@@ -30,3 +32,5 @@ jobs:
         run: python -m py_compile prediction_markets/*.py
       - name: Run PMI unit tests
         run: python -m unittest discover -s tests -p "test_prediction_markets.py" -v
+      - name: Run Supabase persistence tests
+        run: python -m unittest discover -s tests -p "test_supabase_store.py" -v

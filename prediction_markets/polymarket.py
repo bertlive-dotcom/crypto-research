@@ -1,14 +1,15 @@
 """Read-only Polymarket public market-data adapter.
 
-Only public discovery and price-history endpoints are used. This module has
-no wallet, authentication, order-placement, signing, or execution methods.
+Discovery uses tagged event feeds because sorting all markets globally by
+volume can return mostly unrelated categories. No wallet or execution APIs
+are used.
 """
 
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 
@@ -80,9 +81,13 @@ class PolymarketClient:
                 elif label == "no":
                     no_probability = parsed_price
 
-        tags = raw.get("tags") or []
+        tags = list(raw.get("tags") or [])
+        event_context = " ".join(
+            str(raw.get(key) or "") for key in ("event_title", "event_description")
+        )
+        tags.append(event_context)
         question = str(raw.get("question") or raw.get("title") or "Untitled market")
-        slug = raw.get("slug")
+        slug = raw.get("event_slug") or raw.get("slug")
         token_ids = cls._as_list(raw.get("clobTokenIds"))
         yes_index = next(
             (index for index, outcome in enumerate(outcomes) if str(outcome).strip().lower() == "yes"),
@@ -108,37 +113,68 @@ class PolymarketClient:
         }
 
     def fetch_markets(self, limit: int = 100, categories=None) -> dict:
-        """Fetch active, unresolved markets and return normalized observations."""
-        if not isinstance(limit, int) or not 1 <= limit <= 500:
-            raise ValueError("limit must be an integer between 1 and 500")
-
-        payload = self._get_json(
-            f"{self.gamma_base_url}/markets",
-            params={
-                "active": "true",
-                "closed": "false",
-                "limit": limit,
-                "order": "volumeNum",
-                "ascending": "false",
-            },
-        )
-        if not isinstance(payload, list):
-            raise PolymarketDataError("Unexpected Gamma API response: expected a list")
+        """Fetch active crypto/macro event feeds and flatten their markets."""
+        if not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100")
 
         allowed = set(categories or ("crypto", "macro"))
-        markets = []
-        for raw in payload:
-            if not isinstance(raw, dict):
-                continue
-            normalized = self.normalize_market(raw)
-            if normalized["active"] and not normalized["closed"]:
-                if normalized["category"] in allowed:
-                    markets.append(normalized)
+        invalid = allowed.difference({"crypto", "macro", "other"})
+        if invalid:
+            raise ValueError("Unsupported categories: " + ", ".join(sorted(invalid)))
 
+        markets_by_id = {}
+        event_counts = {}
+        for tag_slug in ("crypto", "macro"):
+            payload = self._get_json(
+                f"{self.gamma_base_url}/events",
+                params={
+                    "active": "true",
+                    "closed": "false",
+                    "tag_slug": tag_slug,
+                    "limit": limit,
+                    "order": "volume24hr",
+                    "ascending": "false",
+                },
+            )
+            if not isinstance(payload, list):
+                raise PolymarketDataError(
+                    f"Unexpected Gamma API response for {tag_slug}: expected a list"
+                )
+            event_counts[tag_slug] = len(payload)
+
+            for event in payload:
+                if not isinstance(event, dict):
+                    continue
+                nested_markets = event.get("markets")
+                if not isinstance(nested_markets, list):
+                    continue
+                for raw in nested_markets:
+                    if not isinstance(raw, dict):
+                        continue
+                    enriched = {
+                        **raw,
+                        "tags": list(raw.get("tags") or []) + list(event.get("tags") or []),
+                        "event_title": event.get("title") or event.get("question"),
+                        "event_description": event.get("description"),
+                        "event_slug": event.get("slug"),
+                        "volume24hr": raw.get("volume24hr", event.get("volume24hr")),
+                        "liquidityNum": raw.get("liquidityNum", event.get("liquidity")),
+                    }
+                    normalized = self.normalize_market(enriched)
+                    if normalized["active"] and not normalized["closed"]:
+                        if normalized["category"] in allowed and normalized["market_id"]:
+                            markets_by_id[normalized["market_id"]] = normalized
+
+        markets = sorted(
+            markets_by_id.values(),
+            key=lambda row: row.get("volume_usd") or 0,
+            reverse=True,
+        )
         return {
-            "source": "Polymarket Gamma API",
+            "source": "Polymarket Gamma API (tagged events)",
             "observed_at": datetime.now(timezone.utc).isoformat(),
-            "requested": limit,
+            "requested_per_category": limit,
+            "event_counts": event_counts,
             "returned": len(markets),
             "markets": markets,
         }

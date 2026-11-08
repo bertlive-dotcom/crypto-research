@@ -55,10 +55,11 @@ as $function$
 declare
     v_response record;
     v_payload jsonb;
+    v_event jsonb;
     v_market jsonb;
     v_outcomes jsonb;
     v_prices jsonb;
-    v_tags text;
+    v_context text;
     v_question text;
     v_category text;
     v_market_id text;
@@ -70,118 +71,146 @@ declare
     v_liquidity numeric;
     v_end_date timestamptz;
     v_source_updated_at timestamptz;
-    v_inserted integer := 0;
+    v_processed integer := 0;
 begin
     -- Reprocess a rolling 30-minute window. The unique 15-minute bucket key
-    -- makes retries idempotent without maintaining a publicly exposed cursor.
+    -- makes retries idempotent without a publicly exposed cursor table.
     for v_response in
         select id, status_code, content, created
         from net._http_response
         where created >= now() - interval '30 minutes'
         order by id
     loop
-        if v_response.status_code = 200 and v_response.content is not null then
-            begin
-                v_payload := v_response.content::jsonb;
-                if jsonb_typeof(v_payload) = 'array' then
-                    for v_market in
-                        select value from jsonb_array_elements(v_payload) as item(value)
-                    loop
-                        begin
-                            v_market_id := coalesce(nullif(v_market->>'id', ''), nullif(v_market->>'conditionId', ''));
-                            v_question := coalesce(nullif(v_market->>'question', ''), nullif(v_market->>'title', ''));
-                            v_tags := lower(coalesce(v_market->'tags', '[]'::jsonb)::text || ' ' || coalesce(v_question, ''));
-
-                            v_category := case
-                                when v_tags ~ '(bitcoin|btc|ethereum|ether|eth|solana|crypto|token|altcoin|xrp|dogecoin|doge|chainlink|solana)' then 'crypto'
-                                when v_tags ~ '(federal reserve|fomc|interest rate|rate cut|rate hike|inflation|cpi|pce|recession|gdp|unemployment|treasury|yield)' then 'macro'
-                                else 'other'
-                            end;
-
-                            if v_market_id is null or v_question is null or v_category = 'other' then
-                                continue;
-                            end if;
-
-                            v_outcomes := case jsonb_typeof(v_market->'outcomes')
-                                when 'array' then v_market->'outcomes'
-                                when 'string' then (v_market->>'outcomes')::jsonb
-                                else '[]'::jsonb
-                            end;
-                            v_prices := case jsonb_typeof(v_market->'outcomePrices')
-                                when 'array' then v_market->'outcomePrices'
-                                when 'string' then (v_market->>'outcomePrices')::jsonb
-                                else '[]'::jsonb
-                            end;
-
-                            select (ordinality - 1)::integer into v_yes_index
-                            from jsonb_array_elements_text(v_outcomes) with ordinality
-                            where lower(value) = 'yes'
-                            limit 1;
-                            select (ordinality - 1)::integer into v_no_index
-                            from jsonb_array_elements_text(v_outcomes) with ordinality
-                            where lower(value) = 'no'
-                            limit 1;
-
-                            v_yes := null;
-                            v_no := null;
-                            if v_yes_index is not null and jsonb_typeof(v_prices) = 'array' then
-                                v_yes := nullif(v_prices->>v_yes_index, '')::numeric;
-                            end if;
-                            if v_no_index is not null and jsonb_typeof(v_prices) = 'array' then
-                                v_no := nullif(v_prices->>v_no_index, '')::numeric;
-                            end if;
-                            if v_yes is not null and (v_yes < 0 or v_yes > 1) then v_yes := null; end if;
-                            if v_no is not null and (v_no < 0 or v_no > 1) then v_no := null; end if;
-
-                            v_volume := nullif(coalesce(v_market->>'volume24hr', v_market->>'volumeNum', v_market->>'volume'), '')::numeric;
-                            v_liquidity := nullif(coalesce(v_market->>'liquidityNum', v_market->>'liquidity'), '')::numeric;
-                            v_end_date := nullif(v_market->>'endDate', '')::timestamptz;
-                            v_source_updated_at := nullif(v_market->>'updatedAt', '')::timestamptz;
-
-                            insert into public.pmi_market_snapshots (
-                                market_id, question, category, yes_probability, no_probability,
-                                volume_usd, liquidity_usd, end_date, source_updated_at,
-                                market_url, source, observed_at, snapshot_bucket, raw_data
-                            ) values (
-                                v_market_id, v_question, v_category, v_yes, v_no,
-                                v_volume, v_liquidity, v_end_date, v_source_updated_at,
-                                case when nullif(v_market->>'slug', '') is not null
-                                    then 'https://polymarket.com/event/' || (v_market->>'slug')
-                                    else null end,
-                                'Polymarket Gamma API',
-                                v_response.created,
-                                date_bin(interval '15 minutes', v_response.created, timestamptz '2000-01-01 00:00:00+00'),
-                                v_market
-                            )
-                            on conflict (market_id, snapshot_bucket) do update set
-                                question = excluded.question,
-                                category = excluded.category,
-                                yes_probability = excluded.yes_probability,
-                                no_probability = excluded.no_probability,
-                                volume_usd = excluded.volume_usd,
-                                liquidity_usd = excluded.liquidity_usd,
-                                end_date = excluded.end_date,
-                                source_updated_at = excluded.source_updated_at,
-                                market_url = excluded.market_url,
-                                observed_at = excluded.observed_at,
-                                raw_data = excluded.raw_data;
-
-                            v_inserted := v_inserted + 1;
-                        exception when others then
-                            -- Skip malformed individual markets without aborting the batch.
-                            continue;
-                        end;
-                    end loop;
-                end if;
-            exception when others then
-                -- Advance past malformed provider responses; the next scheduled poll will retry.
-                null;
-            end;
+        if v_response.status_code <> 200 or v_response.content is null then
+            continue;
         end if;
 
+        begin
+            v_payload := v_response.content::jsonb;
+            if jsonb_typeof(v_payload) <> 'array' then
+                continue;
+            end if;
+
+            for v_event in select value from jsonb_array_elements(v_payload) as item(value)
+            loop
+                if jsonb_typeof(v_event->'markets') <> 'array' then
+                    continue;
+                end if;
+
+                for v_market in
+                    select value from jsonb_array_elements(v_event->'markets') as market_item(value)
+                loop
+                    begin
+                        if coalesce((v_market->>'active')::boolean, true) = false
+                           or coalesce((v_market->>'closed')::boolean, false) = true then
+                            continue;
+                        end if;
+
+                        v_market_id := coalesce(nullif(v_market->>'id', ''), nullif(v_market->>'conditionId', ''));
+                        v_question := coalesce(nullif(v_market->>'question', ''), nullif(v_market->>'title', ''));
+                        v_context := lower(
+                            coalesce(v_event->>'title', '') || ' ' ||
+                            coalesce(v_event->>'description', '') || ' ' ||
+                            coalesce(v_event->'tags', '[]'::jsonb)::text || ' ' ||
+                            coalesce(v_market->'tags', '[]'::jsonb)::text || ' ' ||
+                            coalesce(v_question, '')
+                        );
+
+                        v_category := case
+                            when v_context ~ '(bitcoin|btc|ethereum|ether|eth|solana|crypto|token|altcoin|xrp|dogecoin|doge|chainlink|defi|memecoin|avalanche|cardano|hype)' then 'crypto'
+                            when v_context ~ '(federal reserve|fed decision|fomc|central bank|bank of russia|interest rate|rate decision|rate cut|rate hike|basis points|bps|inflation|cpi|pce|recession|gdp|unemployment|treasury|yield|economic)' then 'macro'
+                            else 'other'
+                        end;
+
+                        if v_market_id is null or v_question is null or v_category = 'other' then
+                            continue;
+                        end if;
+
+                        v_outcomes := case jsonb_typeof(v_market->'outcomes')
+                            when 'array' then v_market->'outcomes'
+                            when 'string' then (v_market->>'outcomes')::jsonb
+                            else '[]'::jsonb
+                        end;
+                        v_prices := case jsonb_typeof(v_market->'outcomePrices')
+                            when 'array' then v_market->'outcomePrices'
+                            when 'string' then (v_market->>'outcomePrices')::jsonb
+                            else '[]'::jsonb
+                        end;
+
+                        select (ordinality - 1)::integer into v_yes_index
+                        from jsonb_array_elements_text(v_outcomes) with ordinality
+                        where lower(value) = 'yes' limit 1;
+                        select (ordinality - 1)::integer into v_no_index
+                        from jsonb_array_elements_text(v_outcomes) with ordinality
+                        where lower(value) = 'no' limit 1;
+
+                        v_yes := null;
+                        v_no := null;
+                        if v_yes_index is not null and jsonb_typeof(v_prices) = 'array' then
+                            v_yes := nullif(v_prices->>v_yes_index, '')::numeric;
+                        end if;
+                        if v_no_index is not null and jsonb_typeof(v_prices) = 'array' then
+                            v_no := nullif(v_prices->>v_no_index, '')::numeric;
+                        end if;
+                        if v_yes is not null and (v_yes < 0 or v_yes > 1) then v_yes := null; end if;
+                        if v_no is not null and (v_no < 0 or v_no > 1) then v_no := null; end if;
+
+                        v_volume := nullif(coalesce(
+                            v_market->>'volume24hr', v_event->>'volume24hr',
+                            v_market->>'volumeNum', v_market->>'volume', v_event->>'volume'
+                        ), '')::numeric;
+                        v_liquidity := nullif(coalesce(
+                            v_market->>'liquidityNum', v_market->>'liquidity', v_event->>'liquidity'
+                        ), '')::numeric;
+                        v_end_date := nullif(coalesce(v_market->>'endDate', v_event->>'endDate'), '')::timestamptz;
+                        v_source_updated_at := nullif(coalesce(v_market->>'updatedAt', v_event->>'updatedAt'), '')::timestamptz;
+
+                        insert into public.pmi_market_snapshots (
+                            market_id, question, category, yes_probability, no_probability,
+                            volume_usd, liquidity_usd, end_date, source_updated_at,
+                            market_url, source, observed_at, snapshot_bucket, raw_data
+                        ) values (
+                            v_market_id, v_question, v_category, v_yes, v_no,
+                            v_volume, v_liquidity, v_end_date, v_source_updated_at,
+                            case
+                                when nullif(v_event->>'slug', '') is not null
+                                    then 'https://polymarket.com/event/' || (v_event->>'slug')
+                                when nullif(v_market->>'slug', '') is not null
+                                    then 'https://polymarket.com/event/' || (v_market->>'slug')
+                                else null
+                            end,
+                            'Polymarket Gamma API',
+                            v_response.created,
+                            date_bin(interval '15 minutes', v_response.created, timestamptz '2000-01-01 00:00:00+00'),
+                            jsonb_build_object('event', v_event, 'market', v_market)
+                        )
+                        on conflict (market_id, snapshot_bucket) do update set
+                            question = excluded.question,
+                            category = excluded.category,
+                            yes_probability = excluded.yes_probability,
+                            no_probability = excluded.no_probability,
+                            volume_usd = excluded.volume_usd,
+                            liquidity_usd = excluded.liquidity_usd,
+                            end_date = excluded.end_date,
+                            source_updated_at = excluded.source_updated_at,
+                            market_url = excluded.market_url,
+                            observed_at = excluded.observed_at,
+                            raw_data = excluded.raw_data;
+
+                        v_processed := v_processed + 1;
+                    exception when others then
+                        -- Skip malformed individual markets without aborting the batch.
+                        continue;
+                    end;
+                end loop;
+            end loop;
+        exception when others then
+            -- Ignore malformed provider responses; the next scheduled poll retries.
+            continue;
+        end;
     end loop;
 
-    return v_inserted;
+    return v_processed;
 end;
 $function$;
 
@@ -193,7 +222,7 @@ declare
 begin
     for v_job in
         select jobid from cron.job
-        where jobname in ('pmi-fetch-polymarket', 'pmi-process-polymarket')
+        where jobname in ('pmi-fetch-polymarket', 'pmi-fetch-crypto', 'pmi-fetch-macro', 'pmi-process-polymarket')
     loop
         perform cron.unschedule(v_job.jobid);
     end loop;
@@ -201,22 +230,35 @@ end;
 $schedule$;
 
 select cron.schedule(
-    'pmi-fetch-polymarket',
+    'pmi-fetch-crypto',
     '*/15 * * * *',
-    $fetch$
+    $crypto$
         select net.http_get(
-            url := 'https://gamma-api.polymarket.com/markets',
+            url := 'https://gamma-api.polymarket.com/events',
             params := jsonb_build_object(
-                'active', 'true',
-                'closed', 'false',
-                'limit', '100',
-                'order', 'volumeNum',
-                'ascending', 'false'
+                'active', 'true', 'closed', 'false', 'tag_slug', 'crypto',
+                'limit', '100', 'order', 'volume24hr', 'ascending', 'false'
             ),
             headers := '{"accept":"application/json"}'::jsonb,
             timeout_milliseconds := 15000
         );
-    $fetch$
+    $crypto$
+);
+
+select cron.schedule(
+    'pmi-fetch-macro',
+    '*/15 * * * *',
+    $macro$
+        select net.http_get(
+            url := 'https://gamma-api.polymarket.com/events',
+            params := jsonb_build_object(
+                'active', 'true', 'closed', 'false', 'tag_slug', 'macro',
+                'limit', '100', 'order', 'volume24hr', 'ascending', 'false'
+            ),
+            headers := '{"accept":"application/json"}'::jsonb,
+            timeout_milliseconds := 15000
+        );
+    $macro$
 );
 
 select cron.schedule(

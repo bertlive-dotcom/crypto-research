@@ -20,6 +20,7 @@ create table if not exists public.pmi_market_snapshots (
     end_date timestamptz,
     source_updated_at timestamptz,
     market_url text,
+    yes_token_id text,
     source text not null default 'Polymarket Gamma API',
     observed_at timestamptz not null,
     snapshot_bucket timestamptz not null,
@@ -32,6 +33,8 @@ create table if not exists public.pmi_market_snapshots (
         no_probability is null or no_probability between 0 and 1
     )
 );
+
+alter table public.pmi_market_snapshots add column if not exists yes_token_id text;
 
 create index if not exists pmi_market_snapshots_observed_idx
     on public.pmi_market_snapshots (observed_at desc);
@@ -59,6 +62,8 @@ declare
     v_market jsonb;
     v_outcomes jsonb;
     v_prices jsonb;
+    v_token_ids jsonb;
+    v_yes_token_id text;
     v_context text;
     v_question text;
     v_category text;
@@ -136,6 +141,11 @@ begin
                             when 'string' then (v_market->>'outcomePrices')::jsonb
                             else '[]'::jsonb
                         end;
+                        v_token_ids := case jsonb_typeof(v_market->'clobTokenIds')
+                            when 'array' then v_market->'clobTokenIds'
+                            when 'string' then (v_market->>'clobTokenIds')::jsonb
+                            else '[]'::jsonb
+                        end;
 
                         select (ordinality - 1)::integer into v_yes_index
                         from jsonb_array_elements_text(v_outcomes) with ordinality
@@ -154,6 +164,11 @@ begin
                         end if;
                         if v_yes is not null and (v_yes < 0 or v_yes > 1) then v_yes := null; end if;
                         if v_no is not null and (v_no < 0 or v_no > 1) then v_no := null; end if;
+                        v_yes_token_id := case
+                            when v_yes_index is not null and jsonb_typeof(v_token_ids) = 'array'
+                                then nullif(v_token_ids->>v_yes_index, '')
+                            else null
+                        end;
 
                         v_volume := nullif(coalesce(
                             v_market->>'volume24hr', v_event->>'volume24hr',
@@ -168,7 +183,7 @@ begin
                         insert into public.pmi_market_snapshots (
                             market_id, question, category, yes_probability, no_probability,
                             volume_usd, liquidity_usd, end_date, source_updated_at,
-                            market_url, source, observed_at, snapshot_bucket, raw_data
+                            market_url, yes_token_id, source, observed_at, snapshot_bucket, raw_data
                         ) values (
                             v_market_id, v_question, v_category, v_yes, v_no,
                             v_volume, v_liquidity, v_end_date, v_source_updated_at,
@@ -179,6 +194,7 @@ begin
                                     then 'https://polymarket.com/event/' || (v_market->>'slug')
                                 else null
                             end,
+                            v_yes_token_id,
                             'Polymarket Gamma API',
                             v_response.created,
                             date_bin(interval '15 minutes', v_response.created, timestamptz '2000-01-01 00:00:00+00'),
@@ -194,6 +210,7 @@ begin
                             end_date = excluded.end_date,
                             source_updated_at = excluded.source_updated_at,
                             market_url = excluded.market_url,
+                            yes_token_id = excluded.yes_token_id,
                             observed_at = excluded.observed_at,
                             raw_data = excluded.raw_data;
 

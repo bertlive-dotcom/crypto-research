@@ -16,6 +16,9 @@ on:
     paths:
       - "prediction_markets/**"
       - "tests/test_prediction_markets.py"
+      - "tests/test_supabase_store.py"
+      - "supabase_store.py"
+      - "app.py"
       - ".github/workflows/prediction-market-tests.yml"
 
 jobs:

@@ -7,6 +7,8 @@ trade instructions or treat crowd prices as calibrated real-world odds.
 from __future__ import annotations
 
 from typing import Optional
+import re
+import math
 
 
 def probability_divergence(
@@ -53,7 +55,7 @@ def probability_divergence(
 
 
 def classify_market_category(question: str, tags=None) -> str:
-    """Classify a market into crypto, macro, or other using transparent rules."""
+    """Classify a market into crypto, macro, or other using word-boundary rules."""
     text = str(question or "").lower()
     tag_text = " ".join(
         str(tag.get("label", tag.get("name", ""))) if isinstance(tag, dict) else str(tag)
@@ -62,59 +64,19 @@ def classify_market_category(question: str, tags=None) -> str:
     text = f"{text} {tag_text}"
 
     crypto_terms = (
-        "bitcoin", "btc", "ethereum", "ether", "eth", "solana", "sol ",
-        "crypto", "token", "altcoin", "xrp", "dogecoin", "doge",
+        "bitcoin", "btc", "ethereum", "ether", "eth", "solana", "crypto",
+        "token", "altcoin", "xrp", "dogecoin", "doge", "chainlink", "defi",
+        "memecoin", "avalanche", "cardano", "hype",
     )
     macro_terms = (
-        "federal reserve", "fed ", "fomc", "interest rate", "rate cut",
-        "rate hike", "inflation", "cpi", "pce", "recession", "gdp",
-        "unemployment", "treasury", "yield",
+        "federal reserve", "fed", "fomc", "central bank", "bank of russia",
+        "interest rate", "key rate", "rate decision", "rate cut", "rate hike",
+        "rates", "basis points", "bps", "inflation", "cpi", "pce", "recession",
+        "gdp", "unemployment", "treasury", "yield", "economy",
     )
-    if any(term in text for term in crypto_terms):
+    if any(re.search(r"(?<![a-z])" + re.escape(term) + r"(?![a-z])", text) for term in crypto_terms):
         return "crypto"
-    if any(term in text for term in macro_terms):
+    if any(re.search(r"(?<![a-z])" + re.escape(term) + r"(?![a-z])", text) for term in macro_terms):
         return "macro"
     return "other"
 
-
-
-def calibration_metrics(predictions, outcomes, epsilon: float = 1e-6) -> dict:
-    """Return proper scoring rules for resolved binary forecasts.
-
-    Predictions are probabilities in [0, 1], outcomes are binary 0/1 values.
-    This is descriptive validation; it does not imply predictive skill.
-    """
-    if not 0 < epsilon < 0.5:
-        raise ValueError("epsilon must be between 0 and 0.5")
-    if len(predictions) != len(outcomes):
-        raise ValueError("predictions and outcomes must have equal length")
-    if not predictions:
-        return {
-            "sample_size": 0,
-            "brier_score": None,
-            "log_loss": None,
-            "mean_probability": None,
-            "observed_frequency": None,
-        }
-
-    probabilities = [float(value) for value in predictions]
-    labels = [float(value) for value in outcomes]
-    if any(not 0 <= value <= 1 for value in probabilities):
-        raise ValueError("predictions must be between 0 and 1")
-    if any(value not in (0.0, 1.0) for value in labels):
-        raise ValueError("outcomes must be binary 0 or 1")
-
-    count = len(probabilities)
-    brier = sum((p - y) ** 2 for p, y in zip(probabilities, labels)) / count
-    clipped = [min(1.0 - epsilon, max(epsilon, p)) for p in probabilities]
-    log_loss = -sum(
-        y * __import__("math").log(p) + (1.0 - y) * __import__("math").log(1.0 - p)
-        for p, y in zip(clipped, labels)
-    ) / count
-    return {
-        "sample_size": count,
-        "brier_score": round(brier, 6),
-        "log_loss": round(log_loss, 6),
-        "mean_probability": round(sum(probabilities) / count, 6),
-        "observed_frequency": round(sum(labels) / count, 6),
-    }

@@ -18,6 +18,7 @@ from global_markets.market_analysis import analyze_feed, analyze_candles, classi
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
 
 
 
@@ -217,6 +218,15 @@ if supabase_url and supabase_service_key:
     except ValueError as error:
         st.error("Supabase configuration error: " + str(error))
         st.stop()
+# PMI history uses an explicit staging connection; never infer it from the paper-trading database.
+pmi_supabase_url = secret("PMI_SUPABASE_URL")
+pmi_supabase_service_key = secret("PMI_SUPABASE_SERVICE_ROLE_KEY")
+pmi_store = None
+if pmi_supabase_url and pmi_supabase_service_key:
+    try:
+        pmi_store = SupabasePaperStore(pmi_supabase_url, pmi_supabase_service_key)
+    except ValueError as error:
+        st.warning("PMI Supabase configuration error: " + str(error))
 
 @st.cache_data(ttl=55)
 def get_crypto(key):
@@ -416,9 +426,9 @@ def get_cross_market_report(api_key):
 
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab = st.tabs([
+market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab, prediction_tab = st.tabs([
     "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner",
-    "Cross-market risk", "Bitunix (read-only)"
+    "Cross-market risk", "Bitunix (read-only)", "Prediction Markets"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -1681,3 +1691,103 @@ with bitunix_tab:
                 else:
                     st.info("No open Futures positions returned.")
             st.caption("Read-only snapshot. Data is requested only when you press the button; no trading action is available.")
+
+with prediction_tab:
+    st.subheader("Prediction Market Intelligence")
+    st.caption("Polymarket public data · crypto and macro · 15-minute snapshots · read-only.")
+    st.warning("Probabilitats implícites de mercat, no probabilitats calibrades ni senyals de compra/venda. Aquest mòdul no obre ni modifica posicions de paper trading.")
+
+    if pmi_store and "pmi_snapshot_rows" not in st.session_state:
+        try:
+            st.session_state["pmi_snapshot_rows"] = pmi_store.load_pmi_snapshots(days=2, limit=1000)
+            st.session_state["pmi_persist_error"] = None
+        except SupabaseStoreError as error:
+            st.session_state["pmi_persist_error"] = str(error)
+
+    if st.button("Actualitzar mercats ara", key="refresh_prediction_markets"):
+        try:
+            with st.spinner("Consultant els esdeveniments cripto i macro de Polymarket..."):
+                report = PolymarketClient().fetch_markets(limit=100)
+                st.session_state["pmi_report"] = report
+                st.session_state["pmi_error"] = None
+                if pmi_store:
+                    pmi_store.save_pmi_snapshots(report.get("markets", []), report.get("observed_at"))
+                    st.session_state["pmi_snapshot_rows"] = pmi_store.load_pmi_snapshots(days=2, limit=1000)
+                    st.session_state["pmi_persist_error"] = None
+                else:
+                    st.session_state["pmi_persist_error"] = "Falta configurar PMI_SUPABASE_URL i PMI_SUPABASE_SERVICE_ROLE_KEY amb les credencials del projecte crypto-research-staging."
+        except (PolymarketDataError, SupabaseStoreError) as error:
+            st.session_state["pmi_error"] = str(error)
+
+    if st.session_state.get("pmi_error"):
+        st.error("No s'han pogut actualitzar les dades: " + st.session_state["pmi_error"])
+    if st.session_state.get("pmi_persist_error"):
+        st.info("Historial persistent: " + st.session_state["pmi_persist_error"])
+
+    stored_rows = st.session_state.get("pmi_snapshot_rows", [])
+    latest_by_id = {}
+    for row in sorted(stored_rows, key=lambda item: item.get("observed_at") or "", reverse=True):
+        latest_by_id.setdefault(row.get("market_id"), row)
+    pmi_markets = list(latest_by_id.values())
+    if not pmi_markets:
+        pmi_markets = (st.session_state.get("pmi_report") or {}).get("markets", [])
+
+    if pmi_markets:
+        crypto_markets = [item for item in pmi_markets if item.get("category") == "crypto"]
+        macro_markets = [item for item in pmi_markets if item.get("category") == "macro"]
+        latest_observed = max((item.get("observed_at") or "" for item in pmi_markets), default="No disponible")
+        pmi_c1, pmi_c2, pmi_c3, pmi_c4 = st.columns(4)
+        pmi_c1.metric("Mercats", len(pmi_markets))
+        pmi_c2.metric("Cripto", len(crypto_markets))
+        pmi_c3.metric("Macro", len(macro_markets))
+        pmi_c4.metric("Snapshots carregats", len(stored_rows))
+        st.caption("Última observació: {} · Font: Polymarket Gamma API".format(latest_observed))
+
+        st.markdown("#### Historial de probabilitat")
+        selectable = [item for item in pmi_markets if item.get("market_id")]
+        labels = {item["market_id"]: item.get("question", item["market_id"]) for item in selectable}
+        if selectable:
+            selected_market_id = st.selectbox(
+                "Selecciona un mercat",
+                options=[item["market_id"] for item in selectable],
+                format_func=lambda market_id: labels.get(market_id, market_id),
+                key="pmi_history_market",
+            )
+            if pmi_store:
+                try:
+                    history = pmi_store.load_pmi_market_history(selected_market_id, days=7, limit=1000)
+                except SupabaseStoreError as error:
+                    history = []
+                    st.warning("No s'ha pogut llegir l'historial: " + str(error))
+                history_rows = [{"Observat": item.get("observed_at"), "Probabilitat SÍ (%)": float(item["yes_probability"]) * 100} for item in history if item.get("yes_probability") is not None]
+                if history_rows:
+                    history_frame = pd.DataFrame(history_rows)
+                    history_fig = px.line(history_frame, x="Observat", y="Probabilitat SÍ (%)", markers=True, title="Evolució de la probabilitat implícita · últims 7 dies")
+                    history_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=360, margin=dict(l=8, r=8, t=55, b=8), dragmode="zoom")
+                    history_fig.update_yaxes(range=[0, 100], ticksuffix="%")
+                    st.plotly_chart(history_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
+                else:
+                    st.caption("Encara no hi ha prou snapshots d'aquest mercat per dibuixar-ne l'evolució.")
+            else:
+                st.caption("Connecta el projecte staging de Supabase per consultar l'historial persistent.")
+
+        st.markdown("#### Mercats amb més volum")
+        pmi_markets.sort(key=lambda item: float(item.get("volume_usd") or 0), reverse=True)
+        for item in pmi_markets[:20]:
+            with st.container(border=True):
+                st.markdown("**{}**".format(item.get("question", "Mercat sense títol")))
+                probability = item.get("yes_probability")
+                volume = item.get("volume_usd")
+                liquidity = item.get("liquidity_usd")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Probabilitat SÍ", "{:.1f}%".format(float(probability) * 100) if probability is not None else "No disponible")
+                m2.metric("Volum 24 h", "${:,.0f}".format(float(volume)) if volume is not None else "No disponible")
+                m3.metric("Liquiditat", "${:,.0f}".format(float(liquidity)) if liquidity is not None else "No disponible")
+                st.caption("Categoria: {} · Finalització: {}".format(item.get("category", "other"), item.get("end_date") or "No indicada"))
+                market_url = item.get("market_url") or item.get("url")
+                if market_url:
+                    st.markdown("[Obrir mercat a Polymarket]({})".format(market_url))
+    else:
+        st.info("Prem «Actualitzar mercats ara» per carregar la primera lectura. El collector de Supabase desa snapshots cada 15 minuts.")
+
+    st.caption("La divergència independent i les mètriques de calibratge continuen desactivades fins que hi hagi benchmarks independents i resultats resolts suficients. Les dades absents no es converteixen en zero.")

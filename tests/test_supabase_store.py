@@ -33,6 +33,43 @@ class SupabaseStoreTests(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["json"], {"p_state": {"cash": 72}, "p_event": event})
 
     @patch("supabase_store.requests.request")
+    def test_save_pmi_snapshots_upserts_15_minute_bucket(self, request):
+        response = Mock()
+        response.content = b""
+        request.return_value = response
+        store = SupabasePaperStore("https://example.supabase.co", "secret")
+        count = store.save_pmi_snapshots([{
+            "market_id": "m1", "question": "Bitcoin above 100k?",
+            "category": "crypto", "yes_probability": 0.61,
+            "no_probability": 0.39, "volume_usd": 1000,
+            "liquidity_usd": 500, "url": "https://polymarket.com/event/btc",
+            "source": "Polymarket Gamma API",
+        }], observed_at="2026-11-08T13:38:22+00:00")
+        self.assertEqual(count, 1)
+        args, kwargs = request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertIn("/rest/v1/pmi_market_snapshots", args[1])
+        self.assertEqual(kwargs["params"], {"on_conflict": "market_id,snapshot_bucket"})
+        self.assertEqual(kwargs["headers"]["Prefer"], "resolution=merge-duplicates,return=minimal")
+        row = kwargs["json"][0]
+        self.assertEqual(row["snapshot_bucket"], "2026-11-08T13:30:00+00:00")
+        self.assertEqual(row["market_url"], "https://polymarket.com/event/btc")
+
+    @patch("supabase_store.requests.request")
+    def test_load_pmi_market_history_filters_one_market(self, request):
+        response = Mock()
+        response.content = b'[]'
+        response.json.return_value = []
+        request.return_value = response
+        store = SupabasePaperStore("https://example.supabase.co", "secret")
+        self.assertEqual(store.load_pmi_market_history("m1", days=7), [])
+        args, kwargs = request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertIn("/rest/v1/pmi_market_snapshots", args[1])
+        self.assertEqual(kwargs["params"]["market_id"], "eq.m1")
+        self.assertEqual(kwargs["params"]["order"], "observed_at.asc")
+
+    @patch("supabase_store.requests.request")
     def test_save_market_alerts_uses_deduplication_and_minimal_return(self, request):
         response = Mock()
         response.content = b'[{"dedupe_key":"BTC:confirmed_trend:2026-11-01","created_at":"2026-11-01T12:00:00+00:00"}]'

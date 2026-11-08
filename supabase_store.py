@@ -91,7 +91,7 @@ class SupabasePaperStore:
         columns = (
             "market_id", "question", "category", "yes_probability",
             "no_probability", "volume_usd", "liquidity_usd", "end_date",
-            "source_updated_at", "market_url", "source",
+            "source_updated_at", "market_url", "yes_token_id", "source",
         )
         rows = []
         for market in markets:

@@ -44,7 +44,7 @@ workflow specifically needs it.
 Run:
 
 ```bash
-python -m unittest tests.test_bigdata_adapter -v
+python -m unittest discover -s tests -p 'test_bigdata_adapter.py' -v
 python -m py_compile global_markets/providers/bigdata.py
 ```
 

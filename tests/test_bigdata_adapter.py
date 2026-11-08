@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -26,7 +26,7 @@ class BigdataClientTests(unittest.TestCase):
         self.assertIn("timeout", kwargs)
 
     def test_missing_key_fails_closed(self):
-        with unittest.mock.patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             client = BigdataClient("")
         with self.assertRaisesRegex(BigdataAPIError, "BIGDATA_API_KEY"):
             client.search("test")
@@ -57,6 +57,35 @@ class BigdataClientTests(unittest.TestCase):
         with self.assertRaises(BigdataAPIError) as context:
             client.search("test")
         self.assertNotIn("super-secret-key", str(context.exception))
+
+    def test_network_error_is_wrapped(self):
+        session = Mock()
+        session.post.side_effect = requests.Timeout()
+        client = BigdataClient("test-secret", session=session)
+        with self.assertRaisesRegex(BigdataAPIError, "Bigdata request failed: Timeout"):
+            client.search("test")
+
+    def test_non_json_response_is_rejected(self):
+        session = Mock()
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.json.side_effect = ValueError("invalid json")
+        session.post.return_value = response
+        client = BigdataClient("test-secret", session=session)
+        with self.assertRaisesRegex(BigdataAPIError, "non-JSON"):
+            client.search("test")
+
+    def test_non_object_json_response_is_rejected(self):
+        session = Mock()
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.json.return_value = ["unexpected"]
+        session.post.return_value = response
+        client = BigdataClient("test-secret", session=session)
+        with self.assertRaisesRegex(BigdataAPIError, "unexpected response format"):
+            client.search("test")
 
 
 if __name__ == "__main__":

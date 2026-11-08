@@ -47,7 +47,7 @@ Each normalized observation contains:
 - Yes and No implied probabilities when explicitly available;
 - 24-hour or lifetime volume where supplied;
 - liquidity where supplied;
-- end date, update timestamp, source and market URL;
+- end date, update timestamp, source, market URL and Yes outcome token ID;
 - Yes outcome token ID for optional public price-history retrieval.
 
 The adapter requests active and unresolved markets and fails closed on malformed responses. Missing fields remain null.

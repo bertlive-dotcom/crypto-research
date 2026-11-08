@@ -19,6 +19,7 @@ on:
       - "tests/test_prediction_markets.py"
       - "tests/test_supabase_store.py"
       - "supabase_store.py"
+      - "supabase/pmi_v2.sql"
       - "app.py"
       - ".github/workflows/prediction-market-tests.yml"
 

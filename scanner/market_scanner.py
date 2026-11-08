@@ -8,11 +8,14 @@ from .config import (
 from .indicators import atr_pct, candle_series, ema, macd_histogram, rsi, volume_ratio
 from .market_data import BinanceSpotClient
 
-def _features(raw: list[list]) -> dict:
+def _features(raw: list[list], min_closed_candles: int = 60) -> dict:
     c = candle_series(raw)
     closes, highs, lows, volumes = c["close"], c["high"], c["low"], c["volume"]
-    if len(closes) < 60:
-        raise ValueError("Insufficient closed candles")
+    if len(closes) < min_closed_candles:
+        raise ValueError(
+            f"Insufficient closed candles: received {len(closes)}, "
+            f"need {min_closed_candles}"
+        )
     e20, e50 = ema(closes, 20), ema(closes, 50)
     previous_close = closes[-2]
     change_pct = ((closes[-1] / previous_close) - 1.0) * 100.0 if previous_close > 0 else None
@@ -101,8 +104,10 @@ def scan_market(client: BinanceSpotClient | None = None) -> tuple[list[dict], di
         try:
             symbol = ticker["symbol"]
             h1 = _features(client.klines(symbol, "1h", 100))
-            h4 = _features(client.klines(symbol, "4h", 100))
-            d1 = _features(client.klines(symbol, "1d", 100))
+            # EMA50 is required only for the 1h entry trend. Higher timeframes
+            # use EMA20 confirmation, allowing newly listed spot pairs to warm up.
+            h4 = _features(client.klines(symbol, "4h", 100), min_closed_candles=20)
+            d1 = _features(client.klines(symbol, "1d", 100), min_closed_candles=20)
             candidates.append(score_candidate(ticker, h1, h4, d1))
         except Exception as exc:
             errors.append({"symbol": ticker.get("symbol"), "error": str(exc)[:240]})

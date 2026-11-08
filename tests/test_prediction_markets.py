@@ -60,10 +60,16 @@ class PredictionMarketScoringTests(unittest.TestCase):
         self.assertEqual(classify_market_category("Will the Fed cut rates?"), "macro")
         self.assertEqual(classify_market_category("Will Team A win?"), "other")
 
+    def test_word_boundaries_prevent_ether_false_positive_in_whether(self):
+        self.assertEqual(
+            classify_market_category("Will the Bank of Russia decide whether to cut rates?", ["macro"]),
+            "macro",
+        )
+
     def test_calibration_metrics(self):
         result = calibration_metrics([0.8, 0.2, 0.6], [1, 0, 0])
         self.assertEqual(result["sample_size"], 3)
-        self.assertAlmostEqual(result["brier_score"], 0.213333, places=6)
+        self.assertAlmostEqual(result["brier_score"], 0.146667, places=6)
         self.assertAlmostEqual(result["observed_frequency"], 0.333333, places=6)
 
     def test_calibration_empty_sample_is_unavailable(self):

@@ -67,6 +67,7 @@ Run:
 ```bash
 python -m py_compile prediction_markets/*.py
 python -m unittest discover -s tests -p "test_prediction_markets.py" -v
+python -m unittest discover -s tests -p "test_supabase_store.py" -v
 ```
 
 ## Next steps

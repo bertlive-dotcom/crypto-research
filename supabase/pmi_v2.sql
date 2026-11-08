@@ -117,8 +117,8 @@ begin
                         );
 
                         v_category := case
-                            when v_context ~ '(bitcoin|btc|ethereum|ether|eth|solana|crypto|token|altcoin|xrp|dogecoin|doge|chainlink|defi|memecoin|avalanche|cardano|hype)' then 'crypto'
-                            when v_context ~ '(federal reserve|fed decision|fomc|central bank|bank of russia|interest rate|rate decision|rate cut|rate hike|basis points|bps|inflation|cpi|pce|recession|gdp|unemployment|treasury|yield|economic)' then 'macro'
+                            when v_context ~ '(^|[^a-z])(bitcoin|btc|ethereum|ether|eth|solana|crypto|token|altcoin|xrp|dogecoin|doge|chainlink|defi|memecoin|avalanche|cardano|hype)([^a-z]|$)' then 'crypto'
+                            when v_context ~ '(^|[^a-z])(federal reserve|fed decision|fed|fomc|central bank|bank of russia|interest rate|key rate|rate decision|rate cut|rate hike|rates|basis points|bps|inflation|cpi|pce|recession|gdp|unemployment|treasury|yield|economic|economy)([^a-z]|$)' then 'macro'
                             else 'other'
                         end;
 

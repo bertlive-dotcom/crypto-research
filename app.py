@@ -18,6 +18,7 @@ from global_markets.market_analysis import analyze_feed, analyze_candles, classi
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
 
 
 
@@ -416,9 +417,9 @@ def get_cross_market_report(api_key):
 
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab = st.tabs([
+market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab, prediction_tab = st.tabs([
     "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner",
-    "Cross-market risk", "Bitunix (read-only)"
+    "Cross-market risk", "Bitunix (read-only)", "Prediction Markets"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -1681,3 +1682,48 @@ with bitunix_tab:
                 else:
                     st.info("No open Futures positions returned.")
             st.caption("Read-only snapshot. Data is requested only when you press the button; no trading action is available.")
+
+with prediction_tab:
+    st.subheader("Prediction Market Intelligence")
+    st.caption("Polymarket public data · crypto and macro · read-only · independent from trading execution.")
+    st.warning("Probabilitats implícites de mercat, no probabilitats calibrades ni senyals de compra/venda. Aquest mòdul no obre ni modifica posicions de paper trading.")
+    if st.button("Actualitzar Prediction Markets", key="refresh_prediction_markets"):
+        try:
+            with st.spinner("Consultant mercats públics de Polymarket..."):
+                st.session_state["pmi_report"] = PolymarketClient().fetch_markets(limit=100)
+                st.session_state["pmi_error"] = None
+        except PolymarketDataError as error:
+            st.session_state["pmi_error"] = str(error)
+            st.session_state["pmi_report"] = None
+    if st.session_state.get("pmi_error"):
+        st.error("No s'han pogut carregar les dades: " + st.session_state["pmi_error"])
+    pmi_report = st.session_state.get("pmi_report")
+    if pmi_report:
+        pmi_markets = pmi_report.get("markets", [])
+        crypto_markets = [item for item in pmi_markets if item.get("category") == "crypto"]
+        macro_markets = [item for item in pmi_markets if item.get("category") == "macro"]
+        pmi_c1, pmi_c2, pmi_c3 = st.columns(3)
+        pmi_c1.metric("Mercats rellevants", len(pmi_markets))
+        pmi_c2.metric("Cripto", len(crypto_markets))
+        pmi_c3.metric("Macroeconomia", len(macro_markets))
+        st.caption("Font: {} · Consulta UTC: {}".format(pmi_report.get("source", "Polymarket"), pmi_report.get("observed_at", "—")))
+        if pmi_markets:
+            st.markdown("#### Mercats amb més activitat")
+            for item in pmi_markets[:20]:
+                with st.container(border=True):
+                    st.markdown("**{}**".format(item.get("question", "Mercat sense títol")))
+                    probability = item.get("yes_probability")
+                    volume = item.get("volume_usd")
+                    liquidity = item.get("liquidity_usd")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Probabilitat SÍ", "{:.1f}%".format(probability * 100) if probability is not None else "No disponible")
+                    m2.metric("Volum", "${:,.0f}".format(volume) if volume is not None else "No disponible")
+                    m3.metric("Liquiditat", "${:,.0f}".format(liquidity) if liquidity is not None else "No disponible")
+                    st.caption("Categoria: {} · Finalització: {} · Divergència independent: pendent de benchmark".format(item.get("category", "other"), item.get("end_date") or "No indicada"))
+                    if item.get("url"):
+                        st.markdown("[Obrir mercat a Polymarket]({})".format(item["url"]))
+        else:
+            st.info("No s'han trobat mercats de cripto o macro amb els filtres actuals.")
+    else:
+        st.info("Prem «Actualitzar Prediction Markets» per carregar la primera lectura. La consulta és manual i només de lectura.")
+    st.caption("La divergència només es calcularà quan disposem d'una probabilitat de referència independent i validada. Les dades absents no es converteixen en zero.")

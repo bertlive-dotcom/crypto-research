@@ -1762,9 +1762,42 @@ with prediction_tab:
                 history_rows = [{"Observat": item.get("observed_at"), "Probabilitat SÍ (%)": float(item["yes_probability"]) * 100} for item in history if item.get("yes_probability") is not None]
                 if history_rows:
                     history_frame = pd.DataFrame(history_rows)
-                    history_fig = px.line(history_frame, x="Observat", y="Probabilitat SÍ (%)", markers=True, title="Evolució de la probabilitat implícita · últims 7 dies")
+                    history_frame["Observat"] = pd.to_datetime(history_frame["Observat"], utc=True)
+                    history_frame = history_frame.sort_values("Observat")
+                    probabilities = history_frame["Probabilitat SÍ (%)"]
+                    low, high = float(probabilities.min()), float(probabilities.max())
+                    st.caption(
+                        "{} snapshots · {} → {} · Probabilitat actual: {:.4f}%".format(
+                            len(history_frame),
+                            history_frame["Observat"].min().strftime("%d/%m %H:%M UTC"),
+                            history_frame["Observat"].max().strftime("%d/%m %H:%M UTC"),
+                            float(probabilities.iloc[-1]),
+                        )
+                    )
+                    scale_mode = st.radio(
+                        "Escala de probabilitat",
+                        options=["Adaptativa", "Completa (0–100%)"],
+                        horizontal=True,
+                        key="pmi_history_scale",
+                    )
+                    history_fig = px.line(
+                        history_frame, x="Observat", y="Probabilitat SÍ (%)",
+                        markers=True, title="Evolució de la probabilitat implícita · últims 7 dies",
+                        hover_data={"Observat": "|%d/%m/%Y %H:%M:%S UTC", "Probabilitat SÍ (%)": ":.4f"},
+                    )
+                    history_fig.update_traces(
+                        hovertemplate="%{x|%d/%m/%Y %H:%M:%S UTC}<br>Probabilitat SÍ: %{y:.4f}%<extra></extra>"
+                    )
                     history_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=360, margin=dict(l=8, r=8, t=55, b=8), dragmode="zoom")
-                    history_fig.update_yaxes(range=[0, 100], ticksuffix="%")
+                    if scale_mode == "Completa (0–100%)":
+                        y_range = [0, 100]
+                    else:
+                        spread = high - low
+                        padding = max(spread * 0.25, high * 0.15, 0.02)
+                        y_range = [max(0, low - padding), min(100, high + padding)]
+                        if y_range[1] - y_range[0] < 0.02:
+                            y_range[1] = min(100, y_range[0] + 0.02)
+                    history_fig.update_yaxes(range=y_range, ticksuffix="%", tickformat=".4f")
                     st.plotly_chart(history_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
                 else:
                     st.caption("Encara no hi ha prou snapshots d'aquest mercat per dibuixar-ne l'evolució.")

@@ -2,6 +2,7 @@ import json
 import streamlit as st
 import requests
 import pandas as pd
+import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone
 
@@ -39,6 +40,45 @@ def last_closed_candle(candles, now=None):
         if close_time <= reference_time:
             closed.append((close_time, candle))
     return max(closed, key=lambda item: item[0])[1] if closed else None
+
+
+def render_mid_cards(data, *args, **kwargs):
+    """Render tabular records as responsive MIDMarkets cards (never an HTML table)."""
+    if hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame):
+        data = data.data
+    frame = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+    if frame.empty:
+        st.info("No hi ha registres disponibles.")
+        return
+
+    preferred_titles = (
+        "Actiu", "Asset", "Symbol", "Parell", "Market", "asset", "symbol",
+        "coin", "marginCoin", "Data", "Date", "event_type",
+    )
+    title_key = next((key for key in preferred_titles if key in frame.columns), frame.columns[0])
+    records = frame.astype(object).where(pd.notna(frame), None).to_dict("records")
+
+    for start in range(0, len(records), 2):
+        card_columns = st.columns(2)
+        for offset, record in enumerate(records[start:start + 2]):
+            with card_columns[offset].container(border=True):
+                title_value = record.get(title_key)
+                st.markdown("**{}**".format(title_value if title_value not in (None, "") else "Registre"))
+                details = [(key, value) for key, value in record.items() if key != title_key]
+                for detail_start in range(0, len(details), 2):
+                    detail_columns = st.columns(2)
+                    for detail_offset, (label, value) in enumerate(details[detail_start:detail_start + 2]):
+                        with detail_columns[detail_offset]:
+                            st.caption(str(label))
+                            if value is None or value == "":
+                                display_value = "—"
+                            elif isinstance(value, (dict, list, tuple)):
+                                display_value = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+                            elif isinstance(value, float):
+                                display_value = "{:,.4f}".format(value).rstrip("0").rstrip(".")
+                            else:
+                                display_value = str(value)
+                            st.write(display_value)
 
 st.set_page_config(page_title="MIDMarkets | Markets Intelligence Desk", layout="wide")
 
@@ -80,7 +120,17 @@ p, label, [data-testid="stCaptionContainer"] { color: var(--mid-muted); }
 [data-testid="stMetricValue"] { color: #f7fbff !important; }
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
   gap: .35rem; border-bottom: 1px solid rgba(25,200,255,.28);
+  overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin;
 }
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  flex: 0 0 auto; white-space: nowrap; min-width: max-content;
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: var(--mid-cyan); }
+[data-testid="stTabs"] [data-baseweb="tab-border"] { background: rgba(25,200,255,.25); }
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stCaptionContainer"] p,
+[data-testid="stWidgetLabel"] p { color: #b7c9da !important; }
+[data-testid="stVerticalBlock"] > [style*="gap"] { gap: .8rem; }
 [data-testid="stTabs"] button[role="tab"] {
   color: #9bb3c8; border-radius: 9px 9px 0 0;
 }
@@ -383,9 +433,11 @@ with market_tab:
         ]
         if crypto_chart_rows:
             st.markdown("#### Crypto market performance · 24h")
-            st.bar_chart(pd.DataFrame(crypto_chart_rows).set_index("Asset"), color="#19c8ff")
+            crypto_fig = px.bar(pd.DataFrame(crypto_chart_rows), x="Asset", y="24h change (%)", color="24h change (%)", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], title="Canvi 24h · passa el cursor per veure valors")
+            crypto_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", coloraxis_showscale=False, height=360, margin=dict(l=8,r=8,t=55,b=8), dragmode="zoom")
+            st.plotly_chart(crypto_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
         with st.expander("Detailed crypto quotes", expanded=False):
-            st.dataframe(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
+            render_mid_cards(pd.DataFrame(crypto_rows), width="stretch", hide_index=True)
     except Exception as error:
         st.error("CMC request failed: " + str(error))
     st.subheader("Stocks and ETFs - Twelve Data")
@@ -419,9 +471,11 @@ with market_tab:
         ]
         if stock_chart_rows:
             st.markdown("#### Equity & ETF performance · provider period")
-            st.bar_chart(pd.DataFrame(stock_chart_rows).set_index("Symbol"), color="#19c8ff")
+            stock_fig = px.bar(pd.DataFrame(stock_chart_rows), x="Symbol", y="24h change (%)", color="24h change (%)", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], title="Variació del període del proveïdor")
+            stock_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", coloraxis_showscale=False, height=340, margin=dict(l=8,r=8,t=55,b=8), dragmode="zoom")
+            st.plotly_chart(stock_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
         with st.expander("Detailed equity and ETF quotes", expanded=False):
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
 
 with desk_tab:
@@ -501,7 +555,9 @@ with desk_tab:
         {"Component": "Realized P&L", "USD": summary["realized_pnl_usd"]},
         {"Component": "Unrealized P&L", "USD": summary["unrealized_pnl_usd"]},
     ]).set_index("Component")
-    st.bar_chart(pnl_chart, color="#19c8ff")
+    pnl_fig = px.bar(pnl_chart.reset_index(), x="Component", y="USD", color="Component", color_discrete_sequence=["#19c8ff", "#0878d1"], title="Resultat de la cartera simulada")
+    pnl_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False, height=300, margin=dict(l=8,r=8,t=50,b=8))
+    st.plotly_chart(pnl_fig, use_container_width=True, config={"displaylogo": False})
     st.caption("P&L components are current portfolio snapshots, not a historical equity curve.")
 
     st.markdown("#### Five-agent pipeline")
@@ -632,7 +688,7 @@ with desk_tab:
 
     st.markdown("#### Open paper positions")
     if portfolio["open_positions"]:
-        st.dataframe(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
+        render_mid_cards(pd.DataFrame(portfolio["open_positions"]), width="stretch", hide_index=True)
         with st.form("position_update_form"):
             position_by_id = {position["position_id"]: position for position in portfolio["open_positions"]}
             selected_id = st.selectbox(
@@ -668,7 +724,7 @@ with desk_tab:
 
     st.markdown("#### Closed paper trades")
     if portfolio["closed_trades"]:
-        st.dataframe(pd.DataFrame(portfolio["closed_trades"]), width="stretch", hide_index=True)
+        render_mid_cards(pd.DataFrame(portfolio["closed_trades"]), width="stretch", hide_index=True)
     else:
         st.caption("No closed trades yet.")
 
@@ -690,7 +746,7 @@ with desk_tab:
                     }
                     for event in recent_events
                 ]
-                st.dataframe(pd.DataFrame(display_events), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(display_events), width="stretch", hide_index=True)
             else:
                 st.caption("No ledger events in the last 30 days yet.")
         except SupabaseStoreError as error:
@@ -779,9 +835,31 @@ with global_tab:
                 "Detall proveïdor": item.get("detail") or "—",
             } for item in global_report.get("freshness", [])]
             if freshness_rows:
-                with st.expander("Frescor de dades per actiu i interval", expanded=False):
-                    st.dataframe(pd.DataFrame(freshness_rows), width="stretch", hide_index=True)
-                    st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD; revisa el motiu quan no hi ha dades actuals.")
+                st.markdown("#### Estat de les dades")
+                freshness_counts = {}
+                for item in freshness_rows:
+                    freshness_counts[item["Estat"]] = freshness_counts.get(item["Estat"], 0) + 1
+                status_cols = st.columns(min(4, max(1, len(freshness_counts))))
+                for index, (label, count) in enumerate(sorted(freshness_counts.items())):
+                    status_cols[index % len(status_cols)].metric(label, count)
+                with st.expander("Detall per actiu", expanded=False):
+                    for start in range(0, len(freshness_rows), 2):
+                        cards = st.columns(2)
+                        for offset, item in enumerate(freshness_rows[start:start + 2]):
+                            with cards[offset].container(border=True):
+                                st.markdown("**{} · {}**".format(item["Actiu"], item["Interval"]))
+                                status = item["Estat"]
+                                st.markdown("**{}**".format(status))
+                                st.caption(
+                                    "Última espelma: {} · Antiguitat: {} h · Historial: {} espelmes".format(
+                                        item["Última espelma tancada UTC"],
+                                        "—" if item["Antiguitat (h)"] is None else item["Antiguitat (h)"],
+                                        "—" if item["Espelmes"] is None else item["Espelmes"],
+                                    )
+                                )
+                                if item["Motiu"] != "—" or item["Detall proveïdor"] != "—":
+                                    st.caption(item["Motiu"] if item["Motiu"] != "—" else item["Detall proveïdor"])
+                st.caption("Només s'utilitzen espelmes tancades. Les sèries 4h endarrerides queden fora dels indicadors i de la confirmació RSI + MACD.")
 
             tactical = [row for row in eligible if row["interval"] == "4h"]
             daily = [row for row in eligible if row["interval"] == "1d"]
@@ -841,22 +919,34 @@ with global_tab:
                 stored_alerts = new_alerts + [item for item in stored_alerts if item.get("dedupe_key") not in current_keys]
                 st.session_state["global_crypto_alert_history"] = stored_alerts[:500]
             if new_alerts:
-                st.markdown("#### Alertes detectades en aquesta lectura")
-                st.dataframe(pd.DataFrame([{
-                    "Actiu": item["asset"],
-                    "Tipus": "Força relativa (no és entrada)" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica (no és entrada)",
-                    "Alerta": item["label"], "Detall": item["detail"]
-                } for item in new_alerts]), width="stretch", hide_index=True)
+                st.markdown("#### Alertes detectades")
+                for start in range(0, len(new_alerts), 2):
+                    cards = st.columns(2)
+                    for offset, item in enumerate(new_alerts[start:start + 2]):
+                        with cards[offset].container(border=True):
+                            st.markdown("**{}**".format(item.get("asset", "—")))
+                            st.markdown(item.get("label", "Alerta tècnica"))
+                            st.caption(
+                                ("Força relativa" if item.get("alert_class") == "relative_strength" else "Confirmació tècnica")
+                                + " · No és una entrada de trading"
+                            )
+                            st.write(item.get("detail", "Sense detall addicional"))
             else:
-                st.caption("Cap alerta tècnica nova en aquesta lectura.")
+                st.info("Cap alerta tècnica nova en aquesta lectura.")
             if stored_alerts:
-                with st.expander("Historial d'alertes (90 dies)", expanded=False):
-                    st.dataframe(pd.DataFrame([{
-                        "Data": item.get("created_at", item.get("daily_close", "")),
-                        "Actiu": item.get("asset"),
-                        "Tipus": "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
-                        "Alerta": item.get("label"), "Detall": item.get("detail"),
-                    } for item in stored_alerts]), width="stretch", hide_index=True)
+                with st.expander("Historial d'alertes · últims 90 dies", expanded=False):
+                    for item in stored_alerts[:30]:
+                        with st.container(border=True):
+                            st.markdown("**{} · {}**".format(
+                                item.get("asset", "—"), item.get("label", "Alerta")
+                            ))
+                            st.caption("{} · {}".format(
+                                "Força relativa" if item.get("event_type") == "relative_strength_outperformance" else "Confirmació tècnica",
+                                str(item.get("created_at", item.get("daily_close", "Data no disponible")))[:16].replace("T", " ")
+                            ))
+                            st.write(item.get("detail", ""))
+                    if len(stored_alerts) > 30:
+                        st.caption("Es mostren les 30 alertes més recents de {} registres.".format(len(stored_alerts)))
 
             if previous_structures is not None:
                 transitions = [{
@@ -866,8 +956,11 @@ with global_tab:
                 } for symbol, category in current_structures.items()
                     if symbol in previous_structures and previous_structures[symbol] != category]
                 if transitions:
-                    st.markdown("#### Canvis de classificació des de l'última lectura")
-                    st.dataframe(pd.DataFrame(transitions), width="stretch", hide_index=True)
+                    st.markdown("#### Canvis de classificació")
+                    for item in transitions:
+                        with st.container(border=True):
+                            st.markdown("**{}**".format(item["Actiu"]))
+                            st.caption("{}  →  {}".format(item["Abans"], item["Ara"]))
                     confirmed = [item for item in transitions if item["Ara"] == "Tendència confirmada"]
                     if confirmed:
                         st.success("Confirmació tècnica multi-temporal: " + ", ".join(item["Actiu"] for item in confirmed))
@@ -914,8 +1007,61 @@ with global_tab:
                         item["30d %"] if item["30d %"] is not None else -999
                     ), reverse=True
                 )
+
+                # Visual market overview: preserve the underlying scoring and data.
+                st.markdown("#### Mapa de rendiment · 7d / 30d")
+                heatmap_rows = [
+                    {"Actiu": item["Actiu"], "7 dies (%)": item["7d %"], "30 dies (%)": item["30d %"]}
+                    for item in summary_rows
+                    if item["7d %"] is not None or item["30d %"] is not None
+                ]
+                if heatmap_rows:
+                    heatmap_frame = pd.DataFrame(heatmap_rows).set_index("Actiu")
+                    for start in range(0, len(heatmap_rows), 2):
+                        asset_cols = st.columns(2)
+                        for offset, item in enumerate(heatmap_rows[start:start + 2]):
+                            with asset_cols[offset].container(border=True):
+                                st.markdown("**{}**".format(item["Actiu"]))
+                                m1, m2 = st.columns(2)
+                                m1.metric(
+                                    "7 dies",
+                                    "—" if item["7 dies (%)"] is None else "{:+.2f}%".format(item["7 dies (%)"]),
+                                )
+                                m2.metric(
+                                    "30 dies",
+                                    "—" if item["30 dies (%)"] is None else "{:+.2f}%".format(item["30 dies (%)"]),
+                                )
+                    heatmap_fig = px.imshow(heatmap_frame, text_auto=".2f", aspect="auto", color_continuous_scale=["#e3484d", "#091a2c", "#00b879"], color_continuous_midpoint=0, labels={"x": "Horitzó", "y": "Actiu", "color": "Canvi %"}, title="Rendiment per actiu · selecciona una cel·la per veure'n el detall")
+                    heatmap_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=max(300, len(heatmap_rows)*48), margin=dict(l=8,r=8,t=55,b=8))
+                    heatmap_event = st.plotly_chart(heatmap_fig, use_container_width=True, config={"displaylogo": False}, on_select="rerun", selection_mode="points")
+                    selected_heatmap = (heatmap_event.selection.points or []) if heatmap_event else []
+                    if selected_heatmap:
+                        point = selected_heatmap[-1]
+                        selected_asset = str(point.get("y", ""))
+                        selected_horizon = str(point.get("x", ""))
+                        selected_row = next((item for item in summary_rows if item["Actiu"] == selected_asset), None)
+                        if selected_row:
+                            st.markdown("**Detall seleccionat · {} · {}**".format(selected_asset, selected_horizon))
+                            d1, d2, d3 = st.columns(3)
+                            d1.metric("7 dies", "—" if selected_row["7d %"] is None else "{:+.2f}%".format(selected_row["7d %"]))
+                            d2.metric("30 dies", "—" if selected_row["30d %"] is None else "{:+.2f}%".format(selected_row["30d %"]))
+                            d3.metric("Força vs BTC 30d", "—" if selected_row["Força vs BTC 30d (pp)"] is None else "{:+.2f} pp".format(selected_row["Força vs BTC 30d (pp)"]))
+                else:
+                    st.info("No hi ha rendiments suficients per construir el mapa de mercat.")
+
+                available_contexts = sorted({item["Context d'entrada"] for item in summary_rows})
+                selected_context = st.selectbox(
+                    "Filtra per classificació",
+                    ["Tots"] + available_contexts,
+                    key="global_crypto_context_filter",
+                )
+                visible_summary_rows = [
+                    item for item in summary_rows
+                    if selected_context == "Tots" or item["Context d'entrada"] == selected_context
+                ]
+
                 # Mobile-first summary: compact cards avoid wide tables on phone screens.
-                for item in summary_rows:
+                for item in visible_summary_rows:
                     with st.container(border=True):
                         st.markdown("**{}** · {}".format(item["Actiu"], item["Estat"]))
                         st.caption("Entrada: {} · Confirmació: {}".format(
@@ -951,7 +1097,7 @@ with global_tab:
                         "Motius": " ".join(entry.get("reasons", [])),
                     })
                 with st.expander("Classificació d'oportunitats i qualitat d'entrada", expanded=False):
-                    st.dataframe(pd.DataFrame(entry_details), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(entry_details), width="stretch", hide_index=True)
                     st.caption("La qualitat /100 resta penalitzacions per volatilitat (>=80%/120%), drawdown (<=-30%/-40%) i deteriorament a 20 dies. Només es considera configuració confirmada si RSI i MACD són positius simultàniament en diari i 4h. No és una probabilitat d'èxit ni una ordre.")
 
                 st.markdown("#### Evolució comparativa (base 100)")
@@ -974,11 +1120,45 @@ with global_tab:
                         }
                 if chart_series:
                     chart_frame = pd.DataFrame(chart_series).sort_index()
-                    st.line_chart(chart_frame, width="stretch")
+                    comparison_fig = px.line(chart_frame.reset_index(), x=chart_frame.index.name or "index", y=list(chart_frame.columns), title="Evolució normalitzada · activa/desactiva actius a la llegenda")
+                    comparison_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=430, hovermode="x unified", xaxis_title="Data", yaxis_title="Índex (inici = 100)", margin=dict(l=8,r=8,t=55,b=8), xaxis_rangeslider_visible=True, legend_title="Actius")
+                    st.plotly_chart(comparison_fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
                 else:
                     st.info("No hi ha historial diari suficient per als actius seleccionats.")
 
-                with st.expander("RSI i força relativa respecte a BTC", expanded=False):
+                with st.expander("Indicadors visuals per actiu", expanded=False):
+                    available_indicator_assets = [
+                        row["symbol"].replace("USDT", "")
+                        for row in aligned
+                        if daily_by_symbol.get(row["symbol"], {}).get("indicators")
+                        or tactical_by_symbol.get(row["symbol"], {}).get("indicators")
+                    ]
+                    if available_indicator_assets:
+                        selected_indicator_asset = st.selectbox(
+                            "Actiu per inspeccionar",
+                            available_indicator_assets,
+                            key="global_crypto_indicator_asset",
+                        )
+                        canonical_indicator_symbol = selected_indicator_asset + "USDT"
+                        selected_daily = daily_by_symbol.get(canonical_indicator_symbol, {})
+                        selected_tactical = tactical_by_symbol.get(canonical_indicator_symbol, {})
+                        selected_daily_ind = selected_daily.get("indicators", {})
+                        selected_tactical_ind = selected_tactical.get("indicators", {})
+                        indicator_frame = pd.DataFrame([
+                            {"Interval": "Diari", "RSI 14": selected_daily_ind.get("rsi_14"),
+                             "Força vs BTC 30d (pp)": next((row.get("relative_strength_vs_btc_30d_pct") for row in aligned if row["symbol"] == canonical_indicator_symbol), None)},
+                            {"Interval": "4 hores", "RSI 14": selected_tactical_ind.get("rsi_14"),
+                             "Força vs BTC 30d (pp)": next((row.get("relative_strength_vs_btc_30d_pct") for row in aligned if row["symbol"] == canonical_indicator_symbol), None)},
+                        ]).set_index("Interval")
+                        st.markdown("**RSI i força relativa**")
+                        indicator_fig = px.bar(indicator_frame.reset_index(), x="Interval", y=["RSI 14", "Força vs BTC 30d (pp)"], barmode="group", title="RSI i força relativa · passa el cursor per consultar valors")
+                        indicator_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=320, margin=dict(l=8,r=8,t=55,b=8), legend_title="Indicador")
+                        st.plotly_chart(indicator_fig, use_container_width=True, config={"displaylogo": False})
+                        st.caption("RSI: escala 0–100. La força relativa indica punts percentuals respecte a BTC; no és rendibilitat absoluta.")
+                    else:
+                        st.info("No hi ha indicadors disponibles per als actius actuals.")
+
+                with st.expander("Dades avançades · RSI, MACD, força relativa i risc", expanded=False):
                     rsi_rows = [{
                         "Actiu": item["Actiu"],
                         "RSI diari": item["RSI diari"],
@@ -996,11 +1176,11 @@ with global_tab:
                         "Vs BTC 30d (pp)": item["Força vs BTC 30d (pp)"],
                     } for item in detail_rows]
                     st.markdown("**RSI**")
-                    st.dataframe(pd.DataFrame(rsi_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rsi_rows), width="stretch", hide_index=True)
                     st.markdown("**Histograma MACD i confirmació**")
-                    st.dataframe(pd.DataFrame(macd_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(macd_rows), width="stretch", hide_index=True)
                     st.markdown("**Força relativa**")
-                    st.dataframe(pd.DataFrame(relative_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(relative_rows), width="stretch", hide_index=True)
                     st.caption("Valor positiu: l'actiu ha superat BTC. Valor negatiu: ha quedat per sota. Els valors buits indiquen historial insuficient.")
                     st.markdown("**Risc i rendiment històric (diari)**")
                     risk_rows = []
@@ -1015,7 +1195,7 @@ with global_tab:
                             "Vol. 60d anualitzada %": risk.get("realized_volatility_60d_pct_annualized"),
                             "Drawdown màx. finestra %": risk.get("max_drawdown_120d_pct"),
                         })
-                    st.dataframe(pd.DataFrame(risk_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(risk_rows), width="stretch", hide_index=True)
                     risk_relative_rows = [{
                         "Actiu": row["symbol"].replace("USDT", ""),
                         "Vs BTC 20d (pp)": row.get("relative_strength_vs_btc_20d_pp"),
@@ -1023,7 +1203,7 @@ with global_tab:
                         "Vs BTC 120d (pp)": row.get("relative_strength_vs_btc_120d_pp"),
                     } for row in aligned]
                     st.markdown("**Força relativa vs BTC — horitzons ampliats**")
-                    st.dataframe(pd.DataFrame(risk_relative_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(risk_relative_rows), width="stretch", hide_index=True)
                     st.caption("Volatilitat anualitzada aproximada a partir de rendiments diaris. Drawdown: caiguda màxima des d'un màxim anterior dins de les últimes 120 espelmes disponibles. Els horitzons sense historial suficient queden buits.")
                     st.markdown("**Rànquing de força relativa ajustada pel risc**")
                     adjusted_rows = [{
@@ -1040,7 +1220,7 @@ with global_tab:
                         "Drawdown màx. %": item["max_drawdown_120d_pct"],
                     } for item in global_report.get("risk_adjusted_relative_strength", [])]
                     if adjusted_rows:
-                        st.dataframe(pd.DataFrame(adjusted_rows).round(2), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(adjusted_rows).round(2), width="stretch", hide_index=True)
                     else:
                         st.info("Cap actiu té ara mateix tots els horitzons i mètriques necessaris per entrar al rànquing complet.")
                     coverage_rows = [{
@@ -1061,11 +1241,11 @@ with global_tab:
                     } for item in global_report.get("risk_adjusted_relative_strength_coverage", [])]
                     if coverage_rows:
                         st.markdown("**Completesa i actualització de dades del rànquing**")
-                        st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
+                        render_mid_cards(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
                     st.caption("Les dues subpuntuacions són independents: Momentum mesura força relativa vs BTC (40% 20d, 35% 60d, 25% 120d); Qualitat del risc mesura menor volatilitat (60%) i drawdown menys profund (40%). La puntuació composta combina aquestes dues dimensions (70% momentum, 30% risc); no les confonguis. Només competeixen actius amb els cinc components disponibles. La completesa indica si hi ha totes les mètriques; l’antiguitat indica quan s’ha tancat l’última vela diària. No és una probabilitat ni un senyal de compra.")
                 st.caption("Els rendiments són variacions històriques, no previsions ni recomanacions d'operar.")
 
-            with st.expander("Anàlisi tècnica detallada (taules completes)", expanded=False):
+            with st.expander("Consulta tècnica avançada · dades completes", expanded=False):
                 if tactical:
                     st.markdown("#### Rànquing tàctic - 4 hores")
                     tactical_rows = []
@@ -1086,7 +1266,7 @@ with global_tab:
                             "Antiguitat (min)": round(row["age_seconds"] / 60, 1),
                         })
                     tactical_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(tactical_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(tactical_rows), width="stretch", hide_index=True)
 
                 if daily:
                     st.markdown("#### Confirmació de tendència - diari")
@@ -1107,7 +1287,7 @@ with global_tab:
                             "Antiguitat (h)": round(row["age_seconds"] / 3600, 1),
                         })
                     daily_rows.sort(key=lambda item: item["Puntuació"], reverse=True)
-                    st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
 
                 if aligned:
                     st.markdown("#### Alineació multi-temporal")
@@ -1120,7 +1300,7 @@ with global_tab:
                         "Confirmació RSI + MACD": confirmation_labels.get(row.get("rsi_macd_confirmation"), "Sense dades"),
                         "Lectura": row.get("structure_explanation", ""),
                     } for row in aligned]
-                    st.dataframe(pd.DataFrame(alignment_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(alignment_rows), width="stretch", hide_index=True)
                 st.caption("Les puntuacions tècniques són filtres descriptius, no probabilitats, rendiments esperats ni senyals d'operació.")
 
             if rejected:
@@ -1139,7 +1319,7 @@ with global_tab:
                     "Motiu": ", ".join(reason_labels.get(reason, reason.replace("_", " ")) for reason in row.get("reasons", [])),
                 } for row in rejected]
                 with st.expander("Sèries descartades per qualitat de dades", expanded=False):
-                    st.dataframe(pd.DataFrame(rejected_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rejected_rows), width="stretch", hide_index=True)
 
             if unavailable_items:
                 reason_labels = {
@@ -1164,8 +1344,8 @@ with global_tab:
                         "Intervals omesos": ", ".join(sorted(intervals)),
                         "Motiu": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                     } for (symbol, pair, reason), intervals in sorted(grouped_preflight.items())]
-                    with st.expander("Actius omesos després de comprovar el catàleg Binance Spot", expanded=True):
-                        st.dataframe(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
+                    with st.expander("Diagnòstic avançat · actius omesos al catàleg Binance Spot", expanded=False):
+                        render_mid_cards(pd.DataFrame(preflight_rows), width="stretch", hide_index=True)
                         st.caption("Aquests parells s'han descartat abans de demanar espelmes. Cada fila agrupa els intervals afectats per actiu.")
 
                 if request_failures:
@@ -1176,13 +1356,13 @@ with global_tab:
                         "Motiu": reason_labels.get(item.get("reason"), str(item.get("reason", "unknown")).replace("_", " ").capitalize()),
                         "Detall": item.get("detail", ""),
                     } for item in request_failures]
-                    with st.expander("Errors en peticions de dades", expanded=True):
-                        st.dataframe(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
+                    with st.expander("Diagnòstic avançat · errors de dades", expanded=False):
+                        render_mid_cards(pd.DataFrame(failure_rows), width="stretch", hide_index=True)
 
                 availability_counts = global_report.get("availability_counts", {})
                 if availability_counts:
                     with st.expander("Resum de causes per interval", expanded=False):
-                        st.dataframe(pd.DataFrame([
+                        render_mid_cards(pd.DataFrame([
                             {"Causa": reason_labels.get(reason, reason.replace("_", " ").capitalize()),
                              "Intervals afectats": count}
                             for reason, count in sorted(availability_counts.items())
@@ -1227,20 +1407,20 @@ with global_tab:
                             "Data age (days)": round(item["age_seconds"] / 86400, 2),
                         })
                     rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
                 if bad:
                     st.markdown("#### Rejected histories")
-                    st.dataframe(pd.DataFrame([{
+                    render_mid_cards(pd.DataFrame([{
                         "Asset class": item.get("asset_class"), "Symbol": item.get("symbol"),
                         "Reasons": ", ".join(item.get("reasons", [])),
                     } for item in bad]), width="stretch", hide_index=True)
                 if daily_report["quality"]:
                     st.markdown("#### Rejected source records (excluded from indicators)")
-                    st.dataframe(pd.DataFrame(daily_report["quality"]),
+                    render_mid_cards(pd.DataFrame(daily_report["quality"]),
                         width="stretch", hide_index=True)
                 if daily_report["unavailable"]:
                     st.markdown("#### Provider unavailable / no exact symbol data")
-                    st.dataframe(pd.DataFrame(daily_report["unavailable"]),
+                    render_mid_cards(pd.DataFrame(daily_report["unavailable"]),
                         width="stretch", hide_index=True)
                 st.caption("FinancialData.Net historical daily data. This feed does not imply real-time prices or verified subscription entitlement for every symbol. Technical screening only; no paper positions are changed.")
             except Exception as error:
@@ -1279,15 +1459,15 @@ with global_tab:
                             "Volume": "Not provided",
                         })
                     fx_rows.sort(key=lambda item: item["Technical score"], reverse=True)
-                    st.dataframe(pd.DataFrame(fx_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(fx_rows), width="stretch", hide_index=True)
                 if rejected:
                     st.markdown("#### Rejected FX histories")
-                    st.dataframe(pd.DataFrame([{
+                    render_mid_cards(pd.DataFrame([{
                         "Pair": item.get("symbol"), "Reasons": ", ".join(item.get("reasons", [])),
                     } for item in rejected]), width="stretch", hide_index=True)
                 if fx_report["unavailable"]:
                     st.markdown("#### FX provider unavailable")
-                    st.dataframe(pd.DataFrame(fx_report["unavailable"]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(fx_report["unavailable"]), width="stretch", hide_index=True)
                 st.caption("The FX technical score uses price candles only. Alpha Vantage does not supply centralized FX volume here; no volume/liquidity score is inferred. Historical data is not a real-time quote and does not modify paper positions.")
             except Exception as error:
                 st.error("Global FX scan failed: " + str(error))
@@ -1314,11 +1494,11 @@ with scanner_tab:
                     scanner_summary["realized_pnl_usd"], scanner_summary["unrealized_pnl_usd"]))
                 if scanner_state.get("open_positions"):
                     st.markdown("#### Scanner open paper positions")
-                    st.dataframe(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_state["open_positions"]), width="stretch", hide_index=True)
                 if scanner_state.get("closed_trades"):
                     st.markdown("#### Operacions paper tancades (històric)")
                     st.caption("Registre d'operacions anteriors. No implica que aquests actius continuïn cotitzant a Binance Spot ni que siguin candidats actuals.")
-                    st.dataframe(pd.DataFrame(scanner_state["closed_trades"][-50:]), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_state["closed_trades"][-50:]), width="stretch", hide_index=True)
             else:
                 st.info("The scanner has not completed its first cycle yet.")
             st.markdown("#### Candidats de l'últim escaneig")
@@ -1352,9 +1532,9 @@ with scanner_tab:
                         "Alertes tècniques": ", ".join(row.get("quality_warnings", [])) or "Cap",
                         "Entrada automàtica": "Sí" if row.get("auto_entry_eligible") else "No",
                     })
-                st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(display_rows), width="stretch", hide_index=True)
                 with st.expander("Dades tècniques completes de cada candidat"):
-                    st.dataframe(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(scanner_candidates), width="stretch", hide_index=True)
             else:
                 st.info("No scanner candidates stored yet.")
         except (ScannerStoreError, ValueError) as error:
@@ -1377,7 +1557,7 @@ with cross_market_tab:
                 cross_report = get_cross_market_report(twelve_key)
             if cross_report.get("provider_unavailable"):
                 st.markdown("#### Provider availability")
-                st.dataframe(pd.DataFrame(cross_report["provider_unavailable"]), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(cross_report["provider_unavailable"]), width="stretch", hide_index=True)
             if cross_report.get("status") == "ok":
                 st.markdown("#### Current market regime")
                 st.metric("Cross-market reading", cross_report["label"])
@@ -1394,13 +1574,13 @@ with cross_market_tab:
                     "Return 1h %": values["return_1h_pct"],
                     "Latest closed candle UTC": values["latest_candle_utc"],
                 } for symbol, values in cross_report["assets"].items()]
-                st.dataframe(pd.DataFrame(asset_rows).round(4), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(asset_rows).round(4), width="stretch", hide_index=True)
                 correlation_rows = [{
                     "Pair": label.replace("_15m", "").replace("_", " / "),
                     "Correlation (15m returns)": value,
                 } for label, value in cross_report["correlations"].items()]
                 st.markdown("#### Rolling correlations")
-                st.dataframe(pd.DataFrame(correlation_rows).round(3), width="stretch", hide_index=True)
+                render_mid_cards(pd.DataFrame(correlation_rows).round(3), width="stretch", hide_index=True)
                 st.caption("Correlations are descriptive, not causal. They are calculated over up to the latest 24 synchronized 15-minute returns. Correlation can change quickly and is not a standalone trading signal.")
             else:
                 st.warning(cross_report.get("label", "Cross-market data unavailable"))
@@ -1488,7 +1668,7 @@ with bitunix_tab:
             else:
                 futures_rows = snapshot.get("futures_account", [])
                 if futures_rows:
-                    st.dataframe(pd.DataFrame(futures_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(futures_rows), width="stretch", hide_index=True)
                 else:
                     st.info("Bitunix returned no USDT Futures account data.")
             st.markdown("#### Open Futures positions")
@@ -1497,7 +1677,7 @@ with bitunix_tab:
             else:
                 position_rows = snapshot.get("futures_positions", [])
                 if position_rows:
-                    st.dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
+                    render_mid_cards(pd.DataFrame(position_rows), width="stretch", hide_index=True)
                 else:
                     st.info("No open Futures positions returned.")
             st.caption("Read-only snapshot. Data is requested only when you press the button; no trading action is available.")

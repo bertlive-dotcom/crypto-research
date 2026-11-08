@@ -43,7 +43,7 @@ class SupabaseStoreTests(unittest.TestCase):
             "category": "crypto", "yes_probability": 0.61,
             "no_probability": 0.39, "volume_usd": 1000,
             "liquidity_usd": 500, "url": "https://polymarket.com/event/btc",
-            "source": "Polymarket Gamma API",
+            "yes_token_id": "yes-token-1", "source": "Polymarket Gamma API",
         }], observed_at="2026-11-08T13:38:22+00:00")
         self.assertEqual(count, 1)
         args, kwargs = request.call_args
@@ -54,6 +54,7 @@ class SupabaseStoreTests(unittest.TestCase):
         row = kwargs["json"][0]
         self.assertEqual(row["snapshot_bucket"], "2026-11-08T13:30:00+00:00")
         self.assertEqual(row["market_url"], "https://polymarket.com/event/btc")
+        self.assertEqual(row["yes_token_id"], "yes-token-1")
 
     @patch("supabase_store.requests.request")
     def test_load_pmi_market_history_filters_one_market(self, request):

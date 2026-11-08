@@ -84,6 +84,10 @@ class PolymarketClient:
         question = str(raw.get("question") or raw.get("title") or "Untitled market")
         slug = raw.get("slug")
         token_ids = cls._as_list(raw.get("clobTokenIds"))
+        yes_index = next(
+            (index for index, outcome in enumerate(outcomes) if str(outcome).strip().lower() == "yes"),
+            None,
+        )
         return {
             "market_id": str(raw.get("id") or raw.get("conditionId") or ""),
             "question": question,
@@ -97,9 +101,7 @@ class PolymarketClient:
             "end_date": raw.get("endDate"),
             "updated_at": raw.get("updatedAt") or raw.get("updated_at"),
             "url": f"https://polymarket.com/event/{slug}" if slug else None,
-            "yes_token_id": token_ids[outcomes.index("Yes")] if (
-                isinstance(outcomes, list) and "Yes" in outcomes and len(token_ids) > outcomes.index("Yes")
-            ) else None,
+            "yes_token_id": token_ids[yes_index] if yes_index is not None and len(token_ids) > yes_index else None,
             "active": bool(raw.get("active", True)),
             "closed": bool(raw.get("closed", False)),
             "source": "Polymarket Gamma API",

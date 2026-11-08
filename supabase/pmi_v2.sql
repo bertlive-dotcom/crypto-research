@@ -45,17 +45,7 @@ revoke all on public.pmi_market_snapshots from public, anon, authenticated;
 grant select, insert, update on public.pmi_market_snapshots to service_role;
 grant usage, select on sequence public.pmi_market_snapshots_id_seq to service_role;
 
-create table if not exists pmi_private.ingestion_cursor (
-    id boolean primary key default true check (id),
-    last_response_id bigint not null default 0,
-    updated_at timestamptz not null default now()
-);
-insert into pmi_private.ingestion_cursor (id, last_response_id)
-values (true, 0)
-on conflict (id) do nothing;
-
 revoke all on schema pmi_private from public, anon, authenticated, service_role;
-revoke all on all tables in schema pmi_private from public, anon, authenticated, service_role;
 
 create or replace function pmi_private.process_polymarket_responses()
 returns integer
@@ -63,7 +53,6 @@ language plpgsql
 set search_path = pg_catalog, public, net, pmi_private
 as $function$
 declare
-    v_cursor bigint;
     v_response record;
     v_payload jsonb;
     v_market jsonb;
@@ -83,15 +72,12 @@ declare
     v_source_updated_at timestamptz;
     v_inserted integer := 0;
 begin
-    select last_response_id into v_cursor
-    from pmi_private.ingestion_cursor
-    where id = true
-    for update;
-
+    -- Reprocess a rolling 30-minute window. The unique 15-minute bucket key
+    -- makes retries idempotent without maintaining a publicly exposed cursor.
     for v_response in
         select id, status_code, content, created
         from net._http_response
-        where id > coalesce(v_cursor, 0)
+        where created >= now() - interval '30 minutes'
         order by id
     loop
         if v_response.status_code = 200 and v_response.content is not null then
@@ -193,9 +179,6 @@ begin
             end;
         end if;
 
-        update pmi_private.ingestion_cursor
-        set last_response_id = v_response.id, updated_at = now()
-        where id = true;
     end loop;
 
     return v_inserted;

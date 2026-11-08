@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from scanner.indicators import ema, rsi, volume_ratio
-from scanner.market_scanner import apply_paper_rules, score_candidate, scan_market
+from scanner.market_scanner import _features, apply_paper_rules, score_candidate, scan_market
 from scanner.store import enrich_candidate_diagnostics
 from trading_desk import new_portfolio
 
@@ -17,6 +17,28 @@ class IndicatorTests(unittest.TestCase):
         self.assertAlmostEqual(volume_ratio([10] * 20 + [20]), 2.0)
 
 class ScannerRuleTests(unittest.TestCase):
+    def test_newly_listed_daily_pair_can_use_ema20_before_ema50_warmup(self):
+        # 45 closed daily candles plus one forming candle: realistic for HYPE
+        # shortly after its Binance Spot listing.
+        raw = []
+        for i in range(46):
+            price = 100.0 + i
+            raw.append([i, str(price), str(price + 1), str(price - 1),
+                        str(price), "1000"])
+        features = _features(raw, min_closed_candles=20)
+        self.assertIsNotNone(features["ema20"])
+        self.assertIsNone(features["ema50"])
+        self.assertEqual(features["close"], 144.0)
+
+    def test_one_hour_still_requires_full_ema50_history(self):
+        raw = []
+        for i in range(60):
+            price = 100.0 + i
+            raw.append([i, str(price), str(price + 1), str(price - 1),
+                        str(price), "1000"])
+        with self.assertRaisesRegex(ValueError, "received 59, need 60"):
+            _features(raw)
+
     def test_score_80_can_pass_when_hard_gates_pass(self):
         ticker = {"symbol": "BTCUSDT", "base_asset": "BTC", "price_usdt": 102.0,
                   "quote_volume_24h": 20_000_000, "change_24h_pct": 1.0}

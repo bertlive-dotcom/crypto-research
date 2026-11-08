@@ -1,7 +1,11 @@
 import unittest
 
 from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
-from prediction_markets.scoring import probability_divergence, classify_market_category
+from prediction_markets.scoring import (
+    probability_divergence,
+    classify_market_category,
+    calibration_metrics,
+)
 
 
 class FakeResponse:
@@ -18,13 +22,16 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, payload):
-        self.payload = payload
+    def __init__(self, payloads):
+        self.payloads = list(payloads) if (
+            isinstance(payloads, list) and payloads and isinstance(payloads[0], list)
+        ) else [payloads]
         self.calls = []
 
     def get(self, url, params=None, timeout=None):
         self.calls.append({"url": url, "params": params, "timeout": timeout})
-        return FakeResponse(self.payload)
+        payload = self.payloads.pop(0) if self.payloads else []
+        return FakeResponse(payload)
 
 
 class PredictionMarketScoringTests(unittest.TestCase):
@@ -53,6 +60,23 @@ class PredictionMarketScoringTests(unittest.TestCase):
         self.assertEqual(classify_market_category("Will the Fed cut rates?"), "macro")
         self.assertEqual(classify_market_category("Will Team A win?"), "other")
 
+    def test_calibration_metrics(self):
+        result = calibration_metrics([0.8, 0.2, 0.6], [1, 0, 0])
+        self.assertEqual(result["sample_size"], 3)
+        self.assertAlmostEqual(result["brier_score"], 0.213333, places=6)
+        self.assertAlmostEqual(result["observed_frequency"], 0.333333, places=6)
+
+    def test_calibration_empty_sample_is_unavailable(self):
+        result = calibration_metrics([], [])
+        self.assertEqual(result["sample_size"], 0)
+        self.assertIsNone(result["brier_score"])
+
+    def test_calibration_rejects_invalid_inputs(self):
+        with self.assertRaises(ValueError):
+            calibration_metrics([0.2], [2])
+        with self.assertRaises(ValueError):
+            calibration_metrics([0.2, 0.3], [1])
+
 
 class PolymarketAdapterTests(unittest.TestCase):
     def test_normalize_binary_market(self):
@@ -77,36 +101,65 @@ class PolymarketAdapterTests(unittest.TestCase):
         self.assertEqual(row["yes_token_id"], "yes-token")
         self.assertIn("bitcoin-over-100k", row["url"])
 
-    def test_fetch_markets_uses_public_active_market_endpoint(self):
-        session = FakeSession([{
-            "id": "1",
-            "question": "Will the Fed cut rates?",
-            "outcomes": ["Yes", "No"],
-            "outcomePrices": ["0.7", "0.3"],
-            "active": True,
-            "closed": False,
-        }])
+    def test_fetch_markets_uses_tagged_event_endpoints(self):
+        crypto = [{
+            "id": "event-crypto",
+            "title": "What price will Bitcoin hit?",
+            "slug": "bitcoin-price-event",
+            "markets": [{
+                "id": "1",
+                "question": "Will Bitcoin exceed $100k?",
+                "outcomes": '["Yes", "No"]',
+                "outcomePrices": '["0.7", "0.3"]',
+                "volume24hr": "5000",
+                "active": True,
+                "closed": False,
+            }],
+        }]
+        macro = [{
+            "id": "event-macro",
+            "title": "Federal Reserve decision",
+            "slug": "fed-decision",
+            "markets": [{
+                "id": "2",
+                "question": "Will rates be cut?",
+                "outcomes": '["Yes", "No"]',
+                "outcomePrices": '["0.4", "0.6"]',
+                "active": True,
+                "closed": False,
+            }],
+        }]
+        session = FakeSession([crypto, macro])
         report = PolymarketClient(session=session).fetch_markets(limit=25)
-        self.assertEqual(report["returned"], 1)
-        self.assertEqual(report["markets"][0]["category"], "macro")
-        self.assertEqual(session.calls[0]["params"]["active"], "true")
-        self.assertEqual(session.calls[0]["params"]["closed"], "false")
+        self.assertEqual(report["returned"], 2)
+        by_id = {row["market_id"]: row for row in report["markets"]}
+        self.assertEqual(by_id["1"]["category"], "crypto")
+        self.assertEqual(by_id["2"]["category"], "macro")
+        self.assertEqual(session.calls[0]["url"], "https://gamma-api.polymarket.com/events")
+        self.assertEqual(session.calls[0]["params"]["tag_slug"], "crypto")
+        self.assertEqual(session.calls[1]["params"]["tag_slug"], "macro")
+        self.assertIn("bitcoin-price-event", by_id["1"]["url"])
 
-    def test_other_categories_are_excluded_by_default(self):
-        session = FakeSession([{
-            "id": "1", "question": "Will Team A win?",
-            "active": True, "closed": False,
-        }])
+    def test_other_categories_are_excluded(self):
+        other = [{
+            "id": "event-other",
+            "title": "Basketball",
+            "markets": [{
+                "id": "3", "question": "Will Team A win?",
+                "active": True, "closed": False,
+            }],
+        }]
+        session = FakeSession([other, []])
         report = PolymarketClient(session=session).fetch_markets()
         self.assertEqual(report["returned"], 0)
 
     def test_unexpected_response_fails_closed(self):
         with self.assertRaises(PolymarketDataError):
-            PolymarketClient(session=FakeSession({"markets": []})).fetch_markets()
+            PolymarketClient(session=FakeSession({"events": []})).fetch_markets()
 
     def test_limit_validation(self):
         with self.assertRaises(ValueError):
-            PolymarketClient(session=FakeSession([])).fetch_markets(limit=501)
+            PolymarketClient(session=FakeSession([[], []])).fetch_markets(limit=501)
 
 
 if __name__ == "__main__":

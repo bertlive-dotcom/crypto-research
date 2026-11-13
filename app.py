@@ -590,7 +590,7 @@ with assistant_tab:
             c1.metric("Sol·licitats", summary.get("requested", 0))
             c2.metric("Retornats", summary.get("returned", 0))
             c3.metric("Dades tècnicament vàlides", summary.get("data_quality_eligible", 0))
-            c4.metric("Entitlement verificat", summary.get("entitlement_verified", 0))
+            c4.metric("Llicència ús personal confirmada", summary.get("personal_use_license_scope_confirmed", 0))
             daily_rows = []
             for item in report.get("instruments", []):
                 analysis = item.get("analysis", {})
@@ -604,7 +604,7 @@ with assistant_tab:
                     "MACD": indicators.get("macd_12_26"),
                     "SMA20": indicators.get("sma_20"),
                     "SMA50": indicators.get("sma_50"),
-                    "Entitlement verificat": item.get("entitlement_verified", False),
+                    "Llicència ús personal": item.get("license_status", "not_reviewed"),\n                    "Entitlement del pla": item.get("entitlement_verified", False),
                     "Registres rebutjats": len(item.get("rejected_source_records", [])),
                 })
             if daily_rows:

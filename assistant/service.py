@@ -197,6 +197,7 @@ class ReadOnlyAssistantService:
                 "asset_class": instrument.asset_class, "provider": provider,
                 "provider_symbol": instrument.provider_symbol(provider),
                 "coverage_status": instrument.coverage_status,
+                "license_status": instrument.license_status,
                 "entitlement_verified": instrument.coverage_status == "verified",
                 "analysis": analysis, "series_quality": series_quality, "rejected_source_records": rejected,
                 "provider_diagnostics": {
@@ -216,6 +217,7 @@ class ReadOnlyAssistantService:
                 "requested": len(requested), "returned": len(records),
                 "data_quality_eligible": sum(1 for item in records if item["analysis"].get("eligible")),
                 "entitlement_verified": sum(1 for item in records if item["entitlement_verified"]),
+                "personal_use_license_scope_confirmed": sum(1 for item in records if item.get("license_status") == "personal_use_scope_confirmed"),
                 "unavailable": len(unavailable),
                 "warning": "Provider adapter availability does not prove plan entitlement or data licensing. Unverified instruments remain research-only.",
             },

@@ -27,6 +27,17 @@ class FakeFinancialData:
         return {"candles": self.candles, "rejected_records": []}
 
 
+class FakeTwelveData:
+    def __init__(self, candles=None, error=None):
+        self.candles, self.error, self.calls = candles or [], error, []
+
+    def fetch_daily_prices_with_quality(self, symbol, asset_class, limit=120):
+        self.calls.append((symbol, asset_class, limit))
+        if self.error:
+            raise self.error
+        return {"candles": self.candles, "rejected_records": []}
+
+
 class FakeAlphaVantage:
     def __init__(self, candles=None, error=None):
         self.candles, self.error, self.calls = candles or [], error, []
@@ -106,14 +117,17 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
         self.assertEqual(financial.calls[0][:2], ("NVDA", "equity"))
         self.assertEqual(alpha.calls, [("EUR", "USD")])
 
-    def test_etf_uses_explicit_provider_mapping(self):
+    def test_etf_uses_twelve_data_fallback_not_financialdata_free_tier(self):
         now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
-        financial = FakeFinancialData(daily_candles("SPY", now=now))
+        financial = FakeFinancialData(error=RuntimeError("should not be called"))
+        twelve = FakeTwelveData(daily_candles("SPY", now=now))
         report = ReadOnlyAssistantService(
-            FakeFeed(), financialdata_client=financial
+            FakeFeed(), financialdata_client=financial, twelvedata_client=twelve
         ).daily_multi_asset_overview(["SPY"], now=now)
         self.assertEqual(report["instruments"][0]["asset_class"], "etf")
-        self.assertEqual(financial.calls[0][:2], ("SPY", "etf"))
+        self.assertEqual(report["instruments"][0]["provider"], "twelve_data")
+        self.assertEqual(twelve.calls[0][:2], ("SPY", "etf"))
+        self.assertEqual(financial.calls, [])
 
     def test_gold_spot_is_not_silently_enabled(self):
         with self.assertRaises(ValueError):
@@ -123,6 +137,11 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
         report = ReadOnlyAssistantService(FakeFeed()).daily_multi_asset_overview(["NVDA"])
         self.assertEqual(report["summary"]["returned"], 0)
         self.assertEqual(report["unavailable"][0]["reason"], "financialdata_adapter_not_configured")
+
+    def test_etf_without_twelve_data_client_is_reported_unavailable(self):
+        report = ReadOnlyAssistantService(FakeFeed()).daily_multi_asset_overview(["SPY"])
+        self.assertEqual(report["summary"]["returned"], 0)
+        self.assertEqual(report["unavailable"][0]["reason"], "twelvedata_adapter_not_configured")
 
     def test_provider_errors_are_reported_without_leaking_details(self):
         service = ReadOnlyAssistantService(

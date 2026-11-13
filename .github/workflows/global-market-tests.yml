@@ -44,6 +44,8 @@ jobs:
         run: python -m py_compile app.py assistant/*.py global_markets/*.py global_markets/providers/*.py
       - name: Run AI assistant core unit tests
         run: python -m unittest discover -s tests -p "test_ai_assistant_core.py" -v
+      - name: Run AI assistant service tests
+        run: python -m unittest discover -s tests -p "test_ai_assistant_service.py" -v
       - name: Run global market unit tests
         run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
       - name: Run FinancialData.Net adapter tests

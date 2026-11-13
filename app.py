@@ -18,6 +18,7 @@ from global_markets.market_analysis import analyze_feed, analyze_candles, classi
 from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
+from global_markets.providers.twelvedata import TwelveDataClient
 from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
 from assistant.service import ReadOnlyAssistantService
 
@@ -509,7 +510,8 @@ with assistant_tab:
     )
     st.caption(
         "Les credencials opcionals es llegeixen només de Streamlit Secrets: "
-        "FINANCIALDATA_API_KEY i ALPHA_VANTAGE_API_KEY. "
+        "FINANCIALDATA_API_KEY, ALPHA_VANTAGE_API_KEY i TWELVE_DATA_API_KEY. "
+        "SPY utilitza Twelve Data; NVDA FinancialData.Net; EURUSD Alpha Vantage. "
         "No s'hi mostren ni s'emmagatzemen en el repositori."
     )
 
@@ -523,6 +525,10 @@ with assistant_tab:
             alphavantage_client=(
                 AlphaVantageClient(secret("ALPHA_VANTAGE_API_KEY"))
                 if secret("ALPHA_VANTAGE_API_KEY") else None
+            ),
+            twelvedata_client=(
+                TwelveDataClient(secret("TWELVE_DATA_API_KEY"))
+                if secret("TWELVE_DATA_API_KEY") else None
             ),
         )
         reports = {}

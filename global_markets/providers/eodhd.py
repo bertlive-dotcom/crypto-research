@@ -66,8 +66,6 @@ class EODHDClient:
 
         candles, rejected, seen = [], [], set()
         for index, item in enumerate(payload):
-            if len(candles) >= limit:
-                break
             try:
                 if not isinstance(item, dict):
                     raise ValueError("record is not an object")
@@ -97,6 +95,6 @@ class EODHDClient:
                 "source_timezone": "UTC-date-label; exchange close time not specified by adapter",
             })
         candles.sort(key=lambda row: row["timestamp"])
-        if not candles:
+        # Providers may return oldest-first or newest-first. Always retain the\n        # most recent requested observations after chronological normalization.\n        candles = candles[-limit:]\n        if not candles:
             raise EODHDError("EODHD returned no valid exact-symbol daily ETF records")
         return {"candles": candles, "rejected_records": rejected, "source_records": len(payload)}

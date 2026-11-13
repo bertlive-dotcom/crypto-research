@@ -198,7 +198,16 @@ class ReadOnlyAssistantService:
                 "provider_symbol": instrument.provider_symbol(provider),
                 "coverage_status": instrument.coverage_status,
                 "entitlement_verified": instrument.coverage_status == "verified",
-                "analysis": analysis, "series_quality": series_quality, "rejected_source_records": rejected,\n                "provider_diagnostics": {\n                    "source_records": source_records if source_records is not None else len(candles),\n                    "accepted_bars": len(candles),\n                    "first_date": series_quality.get("first_timestamp"),\n                    "last_date": series_quality.get("last_timestamp"),\n                    "series_quality_reasons": series_quality.get("reasons", []),\n                    "analysis_reasons": analysis.get("reasons", []),\n                },\n                "read_only": True,
+                "analysis": analysis, "series_quality": series_quality, "rejected_source_records": rejected,
+                "provider_diagnostics": {
+                    "source_records": source_records if source_records is not None else len(candles),
+                    "accepted_bars": len(candles),
+                    "first_date": series_quality.get("first_timestamp"),
+                    "last_date": series_quality.get("last_timestamp"),
+                    "series_quality_reasons": series_quality.get("reasons", []),
+                    "analysis_reasons": analysis.get("reasons", []),
+                },
+                "read_only": True,
             })
         return {
             "schema_version": "1.1", "generated_at": self._generated_at(now),

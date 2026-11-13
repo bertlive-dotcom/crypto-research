@@ -1,4 +1,4 @@
-""""Read-only EODHD daily ETF history adapter."""
+"""Read-only EODHD daily ETF history adapter."""
 from __future__ import annotations
 
 import math

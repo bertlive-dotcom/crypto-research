@@ -36,3 +36,25 @@ services:
         value: "2.4"
       - key: SCANNER_STARTING_CAPITAL_USD
         value: "80"
+
+  # Private read-only Telegram interface. Separate process; no scanner or
+  # paper-ledger permissions are required.
+  - type: worker
+    name: crypto-research-telegram
+    runtime: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m telegram_bot
+    autoDeploy: false
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_ID
+        value: "7872565699"
+      - key: FINANCIALDATA_API_KEY
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: EODHD_API_TOKEN
+        sync: false

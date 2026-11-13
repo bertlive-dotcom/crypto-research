@@ -115,6 +115,8 @@ class ReadOnlyAssistantService:
                 instrument = self.registry.resolve(symbol)
             except (LookupError, ValueError) as exc:
                 raise ValueError(f"Instrument is not registered: {symbol}") from exc
+            if instrument.coverage_status in {"pending_verification", "unavailable"}:
+                raise ValueError(f"Instrument is not enabled for assistant research: {symbol}")
             providers = [name for name, _ in instrument.provider_symbols]
             rejected = []
             if instrument.asset_class in {"equity", "etf"}:

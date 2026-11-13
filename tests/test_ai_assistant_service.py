@@ -162,9 +162,9 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
                 error=FinancialDataError("provider access denied (HTTP 403); check API-key validity and endpoint plan entitlement")
             )
         )
-        report = service.daily_multi_asset_overview(["SPY"])
+        report = service.daily_multi_asset_overview(["NVDA"])
         failure = report["unavailable"][0]
-        self.assertEqual(failure["symbol"], "SPY")
+        self.assertEqual(failure["symbol"], "NVDA")
         self.assertEqual(failure["error_type"], "FinancialDataError")
         self.assertIn("HTTP 403", failure["diagnostic"])
         self.assertNotIn("api_key=", str(report))

@@ -129,8 +129,26 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
             FakeFeed(), financialdata_client=FakeFinancialData(error=RuntimeError("private api key"))
         )
         report = service.daily_multi_asset_overview(["NVDA"])
-        self.assertEqual(report["unavailable"][0]["reason"], "financialdata_request_failed")
+        failure = report["unavailable"][0]
+        self.assertEqual(failure["reason"], "financialdata_request_failed")
+        self.assertEqual(failure["error_type"], "RuntimeError")
+        self.assertEqual(failure["diagnostic"], "Provider error; details withheld for credential safety.")
         self.assertNotIn("private api key", str(report))
+
+    def test_financialdata_adapter_error_exposes_safe_http_diagnostic(self):
+        from global_markets.providers.financialdata import FinancialDataError
+
+        service = ReadOnlyAssistantService(
+            FakeFeed(), financialdata_client=FakeFinancialData(
+                error=FinancialDataError("provider access denied (HTTP 403); check API-key validity and endpoint plan entitlement")
+            )
+        )
+        report = service.daily_multi_asset_overview(["SPY"])
+        failure = report["unavailable"][0]
+        self.assertEqual(failure["symbol"], "SPY")
+        self.assertEqual(failure["error_type"], "FinancialDataError")
+        self.assertIn("HTTP 403", failure["diagnostic"])
+        self.assertNotIn("api_key=", str(report))
 
 
 if __name__ == "__main__":

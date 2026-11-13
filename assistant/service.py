@@ -26,10 +26,12 @@ class ReadOnlyAssistantService:
     """Shared read-only facade with injectable, provider-specific adapters."""
 
     def __init__(self, feed: FeedProtocol | None = None, *, financialdata_client: Any | None = None,
-                 alphavantage_client: Any | None = None, registry: InstrumentRegistry | None = None):
+                 alphavantage_client: Any | None = None, twelvedata_client: Any | None = None,
+                 registry: InstrumentRegistry | None = None):
         self.feed = feed
         self.financialdata_client = financialdata_client
         self.alphavantage_client = alphavantage_client
+        self.twelvedata_client = twelvedata_client
         self.registry = registry or initial_registry()
 
     @staticmethod
@@ -120,7 +122,29 @@ class ReadOnlyAssistantService:
                 raise ValueError(f"Instrument is not enabled for assistant research: {symbol}")
             providers = [name for name, _ in instrument.provider_symbols]
             rejected = []
-            if instrument.asset_class in {"equity", "etf"}:
+            if instrument.asset_class == "etf" and "twelve_data" in providers:
+                provider = "twelve_data"
+                if self.twelvedata_client is None:
+                    unavailable.append({"symbol": symbol, "reason": "twelvedata_adapter_not_configured"})
+                    continue
+                try:
+                    result = self.twelvedata_client.fetch_daily_prices_with_quality(
+                        instrument.provider_symbol(provider), "etf", limit=limit
+                    )
+                    candles, rejected = result.get("candles", []), result.get("rejected_records", [])
+                except Exception as exc:
+                    from global_markets.providers.twelvedata import TwelveDataError
+                    failure = {
+                        "symbol": symbol, "reason": "twelvedata_request_failed",
+                        "error_type": type(exc).__name__,
+                    }
+                    if isinstance(exc, TwelveDataError):
+                        failure["diagnostic"] = str(exc)
+                    else:
+                        failure["diagnostic"] = "Provider error; details withheld for credential safety."
+                    unavailable.append(failure)
+                    continue
+            elif instrument.asset_class in {"equity", "etf"}:
                 provider = "financialdata.net"
                 if provider not in providers or self.financialdata_client is None:
                     unavailable.append({"symbol": symbol, "reason": "financialdata_adapter_not_configured"})
@@ -136,8 +160,6 @@ class ReadOnlyAssistantService:
                         "reason": "financialdata_request_failed",
                         "error_type": type(exc).__name__,
                     }
-                    # Only expose messages from our provider adapter's controlled
-                    # exception type; arbitrary exception text may contain secrets.
                     if isinstance(exc, FinancialDataError):
                         failure["diagnostic"] = str(exc)
                     else:

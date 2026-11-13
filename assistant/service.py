@@ -56,7 +56,6 @@ class ReadOnlyAssistantService:
             pair = str(row.get("symbol", "")).upper()
             rows_by_pair.setdefault(pair, []).append(row)
 
-        canonical_by_pair = {pair: canonical for canonical, pair in BINANCE_SPOT_PAIRS.items()}
         analyses: dict[str, dict[str, dict]] = {}
         for canonical in requested:
             pair = BINANCE_SPOT_PAIRS[canonical]
@@ -94,9 +93,12 @@ class ReadOnlyAssistantService:
             if item["daily"].get("eligible") and item["tactical_4h"].get("eligible")
         )
         unavailable = payload.get("unavailable", [])
+        generated_at = now or datetime.now(timezone.utc)
+        if generated_at.tzinfo is None:
+            generated_at = generated_at.replace(tzinfo=timezone.utc)
         return {
             "schema_version": "1.0",
-            "generated_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
+            "generated_at": generated_at.astimezone(timezone.utc).isoformat(),
             "source": payload.get("source", "unknown"),
             "read_only": True,
             "mode": "research_only",

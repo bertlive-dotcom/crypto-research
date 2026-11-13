@@ -1,7 +1,7 @@
 # AI Trading Assistant — provider coverage audit
 
 **Audit date:** 2026-11-13  
-**Scope:** Existing `main` branch code and repository documentation. No live API credentials were used for this audit.
+**Scope:** AI Trading Assistant feature branch, automated tests, provider adapters and user-observed Streamlit smoke test. The assistant did not access or inspect API credentials directly.
 
 ## Executive result
 
@@ -14,9 +14,9 @@ The repository has reusable adapters for crypto Spot candles, FX daily history, 
 | Asset class / instrument | Existing repository support | Current status | Gate before use |
 |---|---|---|---|
 | Crypto Spot (mapped Binance pairs) | Binance public exchange-info + OHLCV adapter; closed-candle analysis | Adapter implemented; live symbol availability is checked at request time | Verify current pair listing, freshness, source and quote currency |
-| Equities | Twelve Data quote path in dashboard; FinancialData.Net daily history | Adapter paths implemented; account entitlements are not proven by symbol-directory matches | Verify quote/history access, venue, currency, adjustment and timestamps per symbol |
-| ETFs | Twelve Data quote path; FinancialData.Net daily history | Adapter paths implemented; per-symbol plan coverage unverified | Verify each instrument and source limits |
-| FX | Alpha Vantage daily FX history; FinancialData.Net has FX quote/history endpoint definitions | Daily adapter implemented; intraday entitlement and live quote coverage unverified | Verify authorized plan, timestamp semantics, spread and request quota |
+| Equities (NVDA smoke test) | FinancialData.Net daily history | User-observed request returned fresh, technically valid NVDA data; plan entitlement/licensing not independently verified | Verify venue, currency, adjustment, history depth and licensing |
+| ETFs (SPY smoke test) | Twelve Data daily time series | User-observed request returned fresh, technically valid SPY data; plan entitlement/licensing not independently verified | Verify venue, adjusted/unadjusted convention, session close timestamp and licensing |
+| FX (EURUSD smoke test) | Alpha Vantage daily FX history | User-observed request returned fresh, technically valid EURUSD data; plan entitlement/licensing not independently verified | Verify FX daily timestamp convention, data depth, request quota and licensing |
 | Commodity futures (e.g. GC) | FinancialData.Net commodity directory and daily OHLCV endpoint | Daily-history adapter implemented; entitlement and contract details unverified | Verify exact contract, roll policy, multiplier, currency and history access |
 | Gold Spot XAUUSD | No explicit provider symbol mapping, spot quote feed or intraday adapter in current assistant-ready code | **Pending / unsupported** | Select a licensed spot data source and verify quote/candle endpoints, timestamp, session, bid/ask, spread, precision and source symbol |
 
@@ -34,7 +34,7 @@ The repository has reusable adapters for crypto Spot candles, FX daily history, 
 2. A daily bar cannot be treated as a real-time quote or intraday alert source.
 3. A futures ticker such as GC must not be relabelled XAUUSD.
 4. Missing volume, spread, contract multiplier or timestamp must remain unavailable, not be imputed.
-5. No live provider smoke test was performed because no API credentials were accessed in this audit.
+5. A user-observed Streamlit smoke test returned NVDA, SPY and EURUSD (3/3) with `fresh` status and technically valid data. This confirms successful requests at that time, not contractual plan entitlement or redistribution rights.\n6. Twelve Data daily bars expose an observation date and exchange timezone; the adapter currently uses a conservative 16:00 exchange-local regular-session close convention. Early-close sessions and special trading days need explicit calendar validation before treating close timestamps as exchange-authoritative.\n7. Daily-series validation rejects malformed OHLC, duplicate/non-increasing dates, mixed symbols/providers/asset classes and gaps over seven calendar days. Weekend and ordinary holiday gaps are tolerated.
 
 ## Recommended provider decision for gold
 
@@ -44,7 +44,7 @@ Keep `COMMODITY:XAU:USD` registered as `pending_verification`, disabled and with
 
 - Provider and plan documented for each selected instrument.
 - Exact symbol and venue mapping tested with authorized credentials.
-- Freshness and timezone semantics validated against provider timestamps.
+- Freshness and timezone semantics validated against provider timestamps and exchange calendars, including early-close sessions.
 - OHLC integrity and closed-candle handling covered by tests.
 - Currency, contract multiplier, trading calendar and estimated transaction costs verified.
 - Market-data licensing and redistribution restrictions recorded.

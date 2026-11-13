@@ -562,12 +562,12 @@ with assistant_tab:
                 crypto_rows.append({
                     "Actiu": item.get("symbol"),
                     "Estat 1d": daily.get("status", "—"),
-                    "RSI 1d": di.get("rsi"),
-                    "MACD 1d": di.get("macd_signal"),
+                    "RSI 1d": di.get("rsi_14"),
+                    "MACD 1d": di.get("macd_12_26"),
                     "Estat 4h": tactical.get("status", "—"),
-                    "RSI 4h": ti.get("rsi"),
+                    "RSI 4h": ti.get("rsi_14"),
                     "Força relativa vs BTC (30d, pp)": item.get("relative_strength_vs_btc_30d_pp"),
-                    "Estructura": item.get("structure", "—"),
+                    "Estructura": item.get("structure", {}).get("label", "—"),
                 })
             if crypto_rows:
                 st.dataframe(pd.DataFrame(crypto_rows), use_container_width=True, hide_index=True)
@@ -593,10 +593,10 @@ with assistant_tab:
                     "Classe": item.get("asset_class"),
                     "Proveïdor": item.get("provider"),
                     "Estat": analysis.get("status", "—"),
-                    "RSI": indicators.get("rsi"),
-                    "MACD": indicators.get("macd_signal"),
-                    "SMA20": indicators.get("sma20"),
-                    "SMA50": indicators.get("sma50"),
+                    "RSI": indicators.get("rsi_14"),
+                    "MACD": indicators.get("macd_12_26"),
+                    "SMA20": indicators.get("sma_20"),
+                    "SMA50": indicators.get("sma_50"),
                     "Entitlement verificat": item.get("entitlement_verified", False),
                     "Registres rebutjats": len(item.get("rejected_source_records", [])),
                 })

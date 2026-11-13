@@ -120,7 +120,7 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
     def test_etf_uses_eodhd_personal_daily_provider(self):
         now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
         financial = FakeFinancialData(error=RuntimeError("should not be called"))
-        twelve = FakeTwelveData(daily_candles("SPY", now=now, asset_class="etf", source="eodhd"))
+        twelve = FakeEODHD(daily_candles("SPY", now=now, asset_class="etf", source="eodhd"))
         report = ReadOnlyAssistantService(
             FakeFeed(), financialdata_client=financial, eodhd_client=twelve
         ).daily_multi_asset_overview(["SPY"], now=now)
@@ -138,7 +138,7 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
         self.assertEqual(report["summary"]["returned"], 0)
         self.assertEqual(report["unavailable"][0]["reason"], "financialdata_adapter_not_configured")
 
-    def test_etf_without_twelve_data_client_is_reported_unavailable(self):
+    def test_etf_without_eodhd_client_is_reported_unavailable(self):
         report = ReadOnlyAssistantService(FakeFeed()).daily_multi_asset_overview(["SPY"])
         self.assertEqual(report["summary"]["returned"], 0)
         self.assertEqual(report["unavailable"][0]["reason"], "eodhd_adapter_not_configured")

@@ -123,9 +123,15 @@ def _format_daily(report: dict) -> str:
     for item in report.get("instruments", []):
         analysis = item.get("analysis", {})
         indicators = analysis.get("indicators", {})
+        latest_close = analysis.get("latest_close")
+        close_text = (
+            f"{latest_close:,.6g}" if isinstance(latest_close, (int, float)) else "no disponible"
+        )
+        analysis_status = analysis.get("status", "—")
         lines.append(
-            f"{item.get('symbol')} ({item.get('provider')}): {analysis.get('structure', {}).get('category', analysis.get('label', '—'))} | "
-            f"RSI {indicators.get('rsi_14', '—')} | cobertura {item.get('coverage_status', '—')}"
+            f"{item.get('symbol')} ({item.get('provider')}): tancament diari {close_text} | "
+            f"estat {analysis_status} | RSI {indicators.get('rsi_14', '—')} | "
+            f"cobertura {item.get('coverage_status', '—')}"
         )
     for item in report.get("unavailable", []):
         lines.append(f"{item.get('symbol')}: no disponible ({item.get('reason')})")

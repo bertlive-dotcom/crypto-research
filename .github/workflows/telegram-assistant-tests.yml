@@ -1,0 +1,29 @@
+name: Telegram assistant tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "telegram_bot/**"
+      - "assistant/**"
+      - "tests/test_telegram_bot.py"
+      - ".github/workflows/telegram-assistant-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  telegram-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Telegram adapter test dependency
+        run: python -m pip install "requests>=2.31,<3.0"
+      - name: Compile Telegram assistant modules
+        run: python -m py_compile telegram_bot/__init__.py telegram_bot/__main__.py assistant/*.py
+      - name: Run Telegram assistant unit tests
+        run: python -m unittest discover -s tests -p "test_telegram_bot.py" -v

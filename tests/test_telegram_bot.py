@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from telegram_bot.__main__ import TelegramClient, TelegramAPIError, TradingAssistantBot
+from telegram_bot.__main__ import TelegramClient, TelegramAPIError, TradingAssistantBot, _format_daily
 
 AUTHORIZED_ID = 7872565699
 
@@ -83,6 +83,29 @@ class TelegramBotTests(unittest.TestCase):
     def test_crypto_and_daily_commands_call_read_only_service(self):
         self.assertIn("CRIPTO", self.bot.dispatch("/crypto", "BTCUSD"))
         self.assertIn("ACCIONS", self.bot.dispatch("/markets", "NVDA"))
+
+
+    def test_daily_formatter_displays_latest_close_and_analysis_status(self):
+        report = {
+            "generated_at": "test",
+            "summary": {"requested": 1, "returned": 1, "data_quality_eligible": 1, "entitlement_verified": 0},
+            "instruments": [{
+                "symbol": "NVDA",
+                "provider": "financialdata.net",
+                "coverage_status": "adapter_available_unverified_entitlement",
+                "analysis": {
+                    "status": "fresh",
+                    "latest_close": 182.45,
+                    "indicators": {"rsi_14": 25.99},
+                },
+            }],
+            "unavailable": [],
+        }
+        result = _format_daily(report)
+        self.assertIn("tancament diari 182.45", result)
+        self.assertIn("estat fresh", result)
+        self.assertIn("RSI 25.99", result)
+        self.assertNotIn("): — |", result)
 
     def test_status_checks_live_binance_connectivity(self):
         result = self.bot.dispatch("/status")

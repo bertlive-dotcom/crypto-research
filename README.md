@@ -62,3 +62,6 @@ The Streamlit server uses the service-role key for the database RPC and read-onl
 
 ## Global multi-asset discovery foundation
 See [GLOBAL_MARKET_ENGINE.md](GLOBAL_MARKET_ENGINE.md) for the selected global/mixed investment profile, supported asset-class configuration, provider-neutral scoring contract, safety boundaries and next integration steps. This foundation does not yet fetch global market data or connect FinancialData.Net.
+
+## AI Trading Assistant core
+The provider coverage findings are documented in [AI_TRADING_ASSISTANT_PROVIDER_AUDIT.md](AI_TRADING_ASSISTANT_PROVIDER_AUDIT.md). The initial provider-neutral instrument registry and fail-closed market-data quality contracts live in `assistant/`, with unit tests in `tests/test_ai_assistant_core.py`. XAUUSD remains disabled until a spot-data source, contract conventions and entitlements are verified.

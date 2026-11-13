@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from global_markets.providers.twelvedata import TwelveDataClient, TwelveDataError
@@ -47,7 +47,7 @@ class TwelveDataETFAdapterTests(unittest.TestCase):
         ny = ZoneInfo("America/New_York")
         expected_open = datetime(2026, 11, 12, 0, 0, tzinfo=ny)
         expected_close = datetime(2026, 11, 12, 16, 0, tzinfo=ny)
-        self.assertEqual(candle["timestamp"], expected_open.astimezone().astimezone(__import__("datetime").timezone.utc).isoformat())
+        self.assertEqual(candle["timestamp"], expected_open.astimezone(timezone.utc).isoformat())
         self.assertEqual(candle["close_timestamp"], expected_close.astimezone(__import__("datetime").timezone.utc).isoformat())
         self.assertEqual(candle["source"], "twelve_data")
         self.assertEqual(session.calls[0][1]["interval"], "1day")

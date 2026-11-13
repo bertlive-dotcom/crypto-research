@@ -19,6 +19,7 @@ from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
 from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
+from assistant.service import ReadOnlyAssistantService
 
 
 
@@ -426,9 +427,9 @@ def get_cross_market_report(api_key):
 
 latest_crypto_prices = {}
 latest_crypto_market_data = {}
-market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab, prediction_tab = st.tabs([
+market_tab, desk_tab, global_tab, scanner_tab, cross_market_tab, bitunix_tab, prediction_tab, assistant_tab = st.tabs([
     "Market dashboard", "AI Crypto Trading Desk", "Global opportunity scanner", "Market Scanner",
-    "Cross-market risk", "Bitunix (read-only)", "Prediction Markets"
+    "Cross-market risk", "Bitunix (read-only)", "Prediction Markets", "AI Trading Assistant"
 ])
 with market_tab:
     st.caption("Checked at " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
@@ -487,6 +488,131 @@ with market_tab:
         with st.expander("Detailed equity and ETF quotes", expanded=False):
             render_mid_cards(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Informational market snapshots only. No trade execution.")
+
+with assistant_tab:
+    st.subheader("AI Trading Assistant · multi-asset research")
+    st.caption("Servei compartit de lectura per Streamlit i Telegram. Espelmes diàries per a accions, ETF i FX; 1d + 4h per a cripto.")
+    st.warning("RESEARCH ONLY · Sense ordres, sense execució i sense modificacions de carteres.")
+
+    assistant_crypto = st.multiselect(
+        "Cripto (Binance Spot)",
+        ["BTCUSD", "ETHUSD", "SOLUSD", "LINKUSD", "XLMUSD", "SUIUSD", "HYPEUSD",
+         "XMRUSD", "LEOUSD", "BATUSD", "PEPEUSD", "BEAMUSD", "ANVLUSD"],
+        ["BTCUSD", "ETHUSD", "SOLUSD"],
+        key="assistant_crypto_symbols",
+    )
+    assistant_daily = st.multiselect(
+        "Accions, ETF i divises (dades diàries)",
+        ["NVDA", "SPY", "EURUSD"],
+        ["NVDA", "SPY", "EURUSD"],
+        key="assistant_daily_symbols",
+    )
+    st.caption(
+        "Les credencials opcionals es llegeixen només de Streamlit Secrets: "
+        "FINANCIALDATA_API_KEY i ALPHA_VANTAGE_API_KEY. "
+        "No s'hi mostren ni s'emmagatzemen en el repositori."
+    )
+
+    if st.button("Executar anàlisi de l'AI Trading Assistant", key="run_ai_assistant"):
+        service = ReadOnlyAssistantService(
+            feed=CryptoWatchlistFeed(),
+            financialdata_client=(
+                FinancialDataClient(secret("FINANCIALDATA_API_KEY"), max_retries=1, max_pages=2)
+                if secret("FINANCIALDATA_API_KEY") else None
+            ),
+            alphavantage_client=(
+                AlphaVantageClient(secret("ALPHA_VANTAGE_API_KEY"))
+                if secret("ALPHA_VANTAGE_API_KEY") else None
+            ),
+        )
+        reports = {}
+        if assistant_crypto:
+            try:
+                with st.spinner("Analitzant cripto amb Binance Spot..."):
+                    reports["crypto"] = service.crypto_overview(assistant_crypto, limit=200)
+            except Exception as error:
+                st.error("No s'ha pogut completar l'anàlisi cripto: " + str(error))
+        if assistant_daily:
+            try:
+                with st.spinner("Analitzant accions, ETF i FX..."):
+                    reports["daily"] = service.daily_multi_asset_overview(assistant_daily, limit=120)
+            except Exception as error:
+                st.error("No s'ha pogut completar l'anàlisi multi-actiu: " + str(error))
+
+        st.session_state["ai_assistant_last_report"] = reports
+        st.session_state["ai_assistant_last_run"] = datetime.now(timezone.utc).isoformat()
+
+    reports = st.session_state.get("ai_assistant_last_report", {})
+    if reports:
+        st.caption("Última execució UTC: " + st.session_state.get("ai_assistant_last_run", "—"))
+        if "crypto" in reports:
+            report = reports["crypto"]
+            st.markdown("#### Cripto · Binance Spot")
+            summary = report.get("summary", {})
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Actius sol·licitats", summary.get("requested", 0))
+            c2.metric("Sèries completes 1d + 4h", summary.get("with_both_timeframes", 0))
+            c3.metric("Sol·licituds no disponibles", summary.get("unavailable_feed_requests", 0))
+            crypto_rows = []
+            for item in report.get("instruments", []):
+                daily = item.get("daily", {})
+                tactical = item.get("tactical_4h", {})
+                di = daily.get("indicators", {})
+                ti = tactical.get("indicators", {})
+                crypto_rows.append({
+                    "Actiu": item.get("symbol"),
+                    "Estat 1d": daily.get("status", "—"),
+                    "RSI 1d": di.get("rsi"),
+                    "MACD 1d": di.get("macd_signal"),
+                    "Estat 4h": tactical.get("status", "—"),
+                    "RSI 4h": ti.get("rsi"),
+                    "Força relativa vs BTC (30d, pp)": item.get("relative_strength_vs_btc_30d_pp"),
+                    "Estructura": item.get("structure", "—"),
+                })
+            if crypto_rows:
+                st.dataframe(pd.DataFrame(crypto_rows), use_container_width=True, hide_index=True)
+            if report.get("unavailable"):
+                with st.expander("Cripto no disponible / motius"):
+                    st.dataframe(pd.DataFrame(report["unavailable"]), use_container_width=True, hide_index=True)
+
+        if "daily" in reports:
+            report = reports["daily"]
+            st.markdown("#### Accions, ETF i FX · dades diàries")
+            summary = report.get("summary", {})
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Sol·licitats", summary.get("requested", 0))
+            c2.metric("Retornats", summary.get("returned", 0))
+            c3.metric("Dades tècnicament vàlides", summary.get("data_quality_eligible", 0))
+            c4.metric("Entitlement verificat", summary.get("entitlement_verified", 0))
+            daily_rows = []
+            for item in report.get("instruments", []):
+                analysis = item.get("analysis", {})
+                indicators = analysis.get("indicators", {})
+                daily_rows.append({
+                    "Actiu": item.get("symbol"),
+                    "Classe": item.get("asset_class"),
+                    "Proveïdor": item.get("provider"),
+                    "Estat": analysis.get("status", "—"),
+                    "RSI": indicators.get("rsi"),
+                    "MACD": indicators.get("macd_signal"),
+                    "SMA20": indicators.get("sma20"),
+                    "SMA50": indicators.get("sma50"),
+                    "Entitlement verificat": item.get("entitlement_verified", False),
+                    "Registres rebutjats": len(item.get("rejected_source_records", [])),
+                })
+            if daily_rows:
+                st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+            if report.get("unavailable"):
+                with st.expander("Actius no disponibles / motius"):
+                    st.dataframe(pd.DataFrame(report["unavailable"]), use_container_width=True, hide_index=True)
+            st.warning(summary.get("warning", "Les dades dels proveïdors no impliquen entitlement verificat."))
+
+        st.caption(
+            "Les puntuacions i indicadors són eines de cribratge tècnic; no són probabilitats, "
+            "rendibilitats esperades ni recomanacions d'inversió."
+        )
+    else:
+        st.info("Selecciona els actius i executa l'anàlisi. No es farà cap consulta fins que premis el botó.")
 
 with desk_tab:
     st.subheader("Paper Trading - virtual capital")

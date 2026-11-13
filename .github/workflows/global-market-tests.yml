@@ -7,7 +7,7 @@ on:
       - "assistant/**"
       - "tests/test_ai_assistant_core.py"
       - "tests/test_ai_assistant_service.py"
-      - "tests/test_twelvedata_adapter.py"
+      - "tests/test_twelvedata_adapter.py"\n      - "tests/test_eodhd_adapter.py"
       - "tests/test_daily_series_validation.py"
       - "app.py"
       - "tests/test_global_market_*.py"

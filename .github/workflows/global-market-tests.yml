@@ -7,6 +7,7 @@ on:
       - "assistant/**"
       - "tests/test_ai_assistant_core.py"
       - "tests/test_ai_assistant_service.py"
+      - "tests/test_twelvedata_adapter.py"
       - "app.py"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"
@@ -47,6 +48,8 @@ jobs:
         run: python -m unittest discover -s tests -p "test_ai_assistant_core.py" -v
       - name: Run AI assistant service tests
         run: python -m unittest discover -s tests -p "test_ai_assistant_service.py" -v
+      - name: Run Twelve Data ETF adapter tests
+        run: python -m unittest discover -s tests -p "test_twelvedata_adapter.py" -v
       - name: Run global market unit tests
         run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
       - name: Run FinancialData.Net adapter tests

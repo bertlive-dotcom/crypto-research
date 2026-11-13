@@ -40,6 +40,21 @@ class EODHDAdapterTests(unittest.TestCase):
         self.assertEqual(candle["close"], 684)
         self.assertEqual(candle["volume"], 1000000)
 
+    def test_limit_keeps_most_recent_rows_after_sorting(self):
+        from datetime import date, timedelta
+        rows = []
+        start = date(2025, 1, 1)
+        for offset in range(130):
+            day = start + timedelta(days=offset)
+            rows.append({
+                "date": day.isoformat(), "open": 100, "high": 102,
+                "low": 99, "close": 101, "volume": 1000,
+            })
+        result = EODHDClient("test-token", session=FakeSession(FakeResponse(payload=rows))).fetch_daily_prices_with_quality("SPY.US", "etf", limit=120)
+        self.assertEqual(len(result["candles"]), 120)
+        self.assertEqual(result["candles"][0]["date"], (start + timedelta(days=10)).isoformat())
+        self.assertEqual(result["candles"][-1]["date"], (start + timedelta(days=129)).isoformat())
+
     def test_rejects_invalid_ohlc_and_duplicate_dates(self):
         rows = self.payload() + [
             {"date": "2026-11-12", "open": 680, "high": 670, "low": 678, "close": 684, "volume": 1}

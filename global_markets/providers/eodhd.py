@@ -89,7 +89,7 @@ class EODHDClient:
                 continue
             seen.add(day)
             candles.append({
-                "asset_id": f"eodhd:etf:{ticker}", "symbol": "SPY",
+                "asset_id": f"eodhd:etf:{ticker}", "symbol": ticker,
                 "asset_class": "etf", "interval": "1d", "date": day.isoformat(),
                 "timestamp": datetime.combine(day, time.min, tzinfo=timezone.utc).isoformat(),
                 "close_timestamp": datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc).isoformat(),

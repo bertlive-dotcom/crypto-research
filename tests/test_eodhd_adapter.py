@@ -35,7 +35,7 @@ class EODHDAdapterTests(unittest.TestCase):
         self.assertEqual(session.calls[0][1]["period"], "d")
         self.assertEqual(session.calls[0][1]["fmt"], "json")
         candle = result["candles"][0]
-        self.assertEqual(candle["symbol"], "SPY")
+        self.assertEqual(candle["symbol"], "SPY.US")
         self.assertEqual(candle["source"], "eodhd")
         self.assertEqual(candle["close"], 684)
         self.assertEqual(candle["volume"], 1000000)

@@ -120,7 +120,7 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
     def test_etf_uses_eodhd_personal_daily_provider(self):
         now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
         financial = FakeFinancialData(error=RuntimeError("should not be called"))
-        twelve = FakeEODHD(daily_candles("SPY", now=now, asset_class="etf", source="eodhd"))
+        twelve = FakeEODHD(daily_candles("SPY.US", now=now, asset_class="etf", source="eodhd"))
         report = ReadOnlyAssistantService(
             FakeFeed(), financialdata_client=financial, eodhd_client=twelve
         ).daily_multi_asset_overview(["SPY"], now=now)

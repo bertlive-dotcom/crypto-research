@@ -162,9 +162,14 @@ class TradingAssistantBot:
         text = str(message.get("text") or "").strip()
         if not text or not isinstance(sender, int) or not isinstance(chat_id, int):
             return
+        chat = message.get("chat") or {}
         if sender != self.allowed_user_id:
             # Do not disclose bot capabilities or market data to unauthorized users.
             LOG.warning("Rejected Telegram message from a non-allowlisted user")
+            return
+        if chat.get("type") != "private" or chat_id != sender:
+            # Never return private market research into groups or channels.
+            LOG.warning("Rejected non-private Telegram chat for the authorized user")
             return
         command, _, args = text.partition(" ")
         command = command.split("@", 1)[0].lower()
@@ -181,17 +186,28 @@ class TradingAssistantBot:
         if command in {"/start", "/help"}:
             return "Bot privat connectat a crypto-research.\n\n" + self.help_text()
         if command == "/status":
+            feed = getattr(self.service, "feed", None)
+            binance_client = getattr(feed, "client", None)
+            if binance_client is None:
+                binance_status = "no configurat"
+            else:
+                try:
+                    binance_client.get_spot_symbol_status()
+                    binance_status = "connectat"
+                except Exception:
+                    binance_status = "no disponible"
             providers = {
-                "Binance Spot": True,
-                "FinancialData.Net": bool(self.service.financialdata_client),
-                "Alpha Vantage": bool(self.service.alphavantage_client),
-                "EODHD": bool(self.service.eodhd_client),
+                "Binance Spot": binance_status,
+                "FinancialData.Net": "configurat" if self.service.financialdata_client else "sense credencial",
+                "Alpha Vantage": "configurat" if self.service.alphavantage_client else "sense credencial",
+                "EODHD": "configurat" if self.service.eodhd_client else "sense credencial",
             }
             lines = ["ESTAT DEL SISTEMA", "Mode: read-only / research-only"]
-            lines.extend(f"{name}: {'configurat' if enabled else 'sense credencial'}" for name, enabled in providers.items())
+            lines.extend(f"{name}: {status}" for name, status in providers.items())
+            lines.append("Nota: configurat no equival a entitlement o llicència verificats.")
             lines.append("Cobertura pendent: " + ", ".join(PENDING_CLASSES) + ".")
             lines.append("Cap connexió d'ordres ni permisos de trading.")
-            return "\n".join(lines)
+            return "\\n".join(lines)
         if command == "/crypto":
             symbols = args.upper().split() if args else CRYPTO_DEFAULTS
             report = self.service.crypto_overview(symbols, limit=200)

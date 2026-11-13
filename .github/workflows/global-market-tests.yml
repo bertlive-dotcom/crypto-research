@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "global_markets/**"
+      - "assistant/**"
+      - "tests/test_ai_assistant_core.py"
+      - "assistant/**"
+      - "tests/test_ai_assistant_core.py"
       - "app.py"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"
@@ -37,7 +41,9 @@ jobs:
       - name: Install test dependency
         run: python -m pip install "requests>=2.31,<3.0"
       - name: Compile dashboard and global market modules
-        run: python -m py_compile app.py global_markets/*.py global_markets/providers/*.py
+        run: python -m py_compile app.py assistant/*.py global_markets/*.py global_markets/providers/*.py
+      - name: Run AI assistant core unit tests
+        run: python -m unittest discover -s tests -p "test_ai_assistant_core.py" -v
       - name: Run global market unit tests
         run: python -m unittest discover -s tests -p "test_global_market_*.py" -v
       - name: Run FinancialData.Net adapter tests

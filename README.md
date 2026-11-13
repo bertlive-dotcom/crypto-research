@@ -62,3 +62,6 @@ The Streamlit server uses the service-role key for the database RPC and read-onl
 
 ## Global multi-asset discovery foundation
 See [GLOBAL_MARKET_ENGINE.md](GLOBAL_MARKET_ENGINE.md) for the selected global/mixed investment profile, supported asset-class configuration, provider-neutral scoring contract, safety boundaries and next integration steps. This foundation does not yet fetch global market data or connect FinancialData.Net.
+
+## AI Trading Assistant core
+The provider coverage findings are documented in [AI_TRADING_ASSISTANT_PROVIDER_AUDIT.md](AI_TRADING_ASSISTANT_PROVIDER_AUDIT.md). The provider-neutral instrument registry and fail-closed market-data quality contracts live in `assistant/`. The read-only service composes the existing Binance crypto feed for daily/4h analysis and existing FinancialData.Net / Alpha Vantage daily adapters for explicitly registered equities, ETFs and FX. Provider entitlement is reported separately and remains unverified until tested with the user's authorized plan. The service is research-only and does not mutate portfolios or execute trades. Unit tests are in `tests/test_ai_assistant_core.py` and `tests/test_ai_assistant_service.py`. XAUUSD remains disabled until a spot-data source, contract conventions and entitlements are verified.

@@ -100,15 +100,20 @@ class InstrumentRegistry:
         for instrument in self._by_id.values():
             if asset_class and instrument.asset_class != asset_class.lower():
                 continue
-            canonical_match = query in {
-                instrument.instrument_id.upper(),
-                instrument.canonical_symbol.upper(),
-            }
-            provider_match = provider_key and any(
-                name.lower() == provider_key and alias.upper() == query
-                for name, alias in instrument.provider_symbols
-            )
-            if canonical_match or provider_match:
+            # When a provider is specified, resolve strictly within that
+            # provider's namespace. A canonical ticker must not bypass the
+            # requested provider constraint (e.g. XAUUSD + Binance).
+            if provider_key:
+                matched = any(
+                    name.lower() == provider_key and alias.upper() == query
+                    for name, alias in instrument.provider_symbols
+                )
+            else:
+                matched = query in {
+                    instrument.instrument_id.upper(),
+                    instrument.canonical_symbol.upper(),
+                }
+            if matched:
                 matches.append(instrument)
         if not matches:
             raise InstrumentNotFoundError(symbol)

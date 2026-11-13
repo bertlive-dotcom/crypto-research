@@ -609,6 +609,28 @@ with assistant_tab:
                 })
             if daily_rows:
                 st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+            diagnostic_rows = []
+            for item in report.get("instruments", []):
+                diagnostics = item.get("provider_diagnostics", {})
+                analysis = item.get("analysis", {})
+                quality = item.get("series_quality", {})
+                diagnostic_rows.append({
+                    "Actiu": item.get("symbol"),
+                    "Registres rebuts": diagnostics.get("source_records"),
+                    "Barres acceptades": diagnostics.get("accepted_bars"),
+                    "Primera data": diagnostics.get("first_date"),
+                    "Última data": diagnostics.get("last_date"),
+                    "Motius qualitat": ", ".join(diagnostics.get("series_quality_reasons", [])) or "—",
+                    "Motius anàlisi": ", ".join(diagnostics.get("analysis_reasons", [])) or "—",
+                })
+            if diagnostic_rows:
+                with st.expander("Diagnòstic detallat de dades i actius rebutjats"):
+                    st.dataframe(pd.DataFrame(diagnostic_rows), use_container_width=True, hide_index=True)
+                    for item in report.get("instruments", []):
+                        rejected = item.get("rejected_source_records", [])
+                        if rejected:
+                            st.caption("Registres rebutjats de " + str(item.get("symbol")))
+                            st.dataframe(pd.DataFrame(rejected), use_container_width=True, hide_index=True)
             if report.get("unavailable"):
                 with st.expander("Actius no disponibles / motius"):
                     st.dataframe(pd.DataFrame(report["unavailable"]), use_container_width=True, hide_index=True)

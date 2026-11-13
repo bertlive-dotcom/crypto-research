@@ -604,7 +604,8 @@ with assistant_tab:
                     "MACD": indicators.get("macd_12_26"),
                     "SMA20": indicators.get("sma_20"),
                     "SMA50": indicators.get("sma_50"),
-                    "Llicència ús personal": item.get("license_status", "not_reviewed"),\n                    "Entitlement del pla": item.get("entitlement_verified", False),
+                    "Llicència ús personal": item.get("license_status", "not_reviewed"),
+                    "Entitlement del pla": item.get("entitlement_verified", False),
                     "Registres rebutjats": len(item.get("rejected_source_records", [])),
                 })
             if daily_rows:

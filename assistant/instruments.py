@@ -29,6 +29,7 @@ class Instrument:
     enabled: bool = False
     session_type: str = "unknown"
     contract_multiplier: float | None = None
+    license_status: str = "not_reviewed"
 
     def __post_init__(self) -> None:
         required = (
@@ -157,6 +158,7 @@ def initial_registry() -> InstrumentRegistry:
             provider_symbols=(("eodhd", "SPY.US"),),
             coverage_status="adapter_available_unverified_entitlement",
             session_type="exchange",
+            license_status="personal_use_scope_confirmed",
         ),
         Instrument(
             instrument_id="FOREX:EUR:USD", asset_class="forex",

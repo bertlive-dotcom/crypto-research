@@ -126,6 +126,10 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
         ).daily_multi_asset_overview(["SPY"], now=now)
         self.assertEqual(report["instruments"][0]["asset_class"], "etf")
         self.assertEqual(report["instruments"][0]["provider"], "eodhd")
+        self.assertEqual(report["instruments"][0]["license_status"], "personal_use_scope_confirmed")
+        self.assertFalse(report["instruments"][0]["entitlement_verified"])
+        self.assertEqual(report["summary"]["personal_use_license_scope_confirmed"], 1)
+        self.assertEqual(report["summary"]["entitlement_verified"], 0)
         self.assertEqual(twelve.calls[0][:2], ("SPY.US", "etf"))
         self.assertEqual(financial.calls, [])
 

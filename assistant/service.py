@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from global_markets.crypto_feed import BINANCE_SPOT_PAIRS
 from global_markets.market_analysis import analyze_candles, classify_timeframe_structure
 from global_markets.providers.financialdata import FinancialDataError
+from assistant.market_data import validate_daily_series
 from .instruments import InstrumentRegistry, initial_registry
 
 
@@ -180,6 +181,19 @@ class ReadOnlyAssistantService:
             else:
                 unavailable.append({"symbol": symbol, "reason": "daily_asset_class_not_enabled_in_assistant"})
                 continue
+            series_quality = validate_daily_series(
+                candles,
+                symbol=instrument.provider_symbol(provider),
+                asset_class=instrument.asset_class,
+                source=provider,
+            )
+            if not series_quality["usable"]:
+                unavailable.append({
+                    "symbol": symbol,
+                    "reason": "daily_series_quality_failed",
+                    "diagnostic": series_quality["reasons"],
+                })
+                continue
             analysis = analyze_candles(candles, now=now)
             records.append({
                 "symbol": instrument.canonical_symbol, "instrument_id": instrument.instrument_id,
@@ -187,7 +201,7 @@ class ReadOnlyAssistantService:
                 "provider_symbol": instrument.provider_symbol(provider),
                 "coverage_status": instrument.coverage_status,
                 "entitlement_verified": instrument.coverage_status == "verified",
-                "analysis": analysis, "rejected_source_records": rejected, "read_only": True,
+                "analysis": analysis, "series_quality": series_quality, "rejected_source_records": rejected, "read_only": True,
             })
         return {
             "schema_version": "1.1", "generated_at": self._generated_at(now),

@@ -49,7 +49,7 @@ class FakeAlphaVantage:
         return self.candles
 
 
-def daily_candles(symbol, days=45, now=None):
+def daily_candles(symbol, days=45, now=None, asset_class="equity", source="financialdata.net"):
     now = now or datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
     start = now.date() - timedelta(days=days)
     rows = []
@@ -57,11 +57,11 @@ def daily_candles(symbol, days=45, now=None):
         day = start + timedelta(days=i)
         close = 100 + i
         rows.append({
-            "symbol": symbol, "asset_class": "equity", "interval": "1d",
+            "symbol": symbol, "asset_class": asset_class, "interval": "1d",
             "timestamp": datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
             "close_timestamp": datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc).isoformat(),
             "open": close - 0.5, "high": close + 1, "low": close - 1,
-            "close": close, "volume": 1000, "source": "test",
+            "close": close, "volume": 1000, "source": source,
         })
     return rows
 
@@ -105,7 +105,7 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
     def test_daily_equity_and_fx_analysis_does_not_claim_entitlement(self):
         now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
         financial = FakeFinancialData(daily_candles("NVDA", now=now))
-        alpha = FakeAlphaVantage(daily_candles("EURUSD", now=now))
+        alpha = FakeAlphaVantage(daily_candles("EURUSD", now=now, asset_class="forex", source="alpha_vantage"))
         service = ReadOnlyAssistantService(
             FakeFeed(), financialdata_client=financial, alphavantage_client=alpha
         )
@@ -120,7 +120,7 @@ class ReadOnlyAssistantServiceTests(unittest.TestCase):
     def test_etf_uses_twelve_data_fallback_not_financialdata_free_tier(self):
         now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
         financial = FakeFinancialData(error=RuntimeError("should not be called"))
-        twelve = FakeTwelveData(daily_candles("SPY", now=now))
+        twelve = FakeTwelveData(daily_candles("SPY", now=now, asset_class="etf", source="twelve_data"))
         report = ReadOnlyAssistantService(
             FakeFeed(), financialdata_client=financial, twelvedata_client=twelve
         ).daily_multi_asset_overview(["SPY"], now=now)

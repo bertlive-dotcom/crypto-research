@@ -19,6 +19,7 @@ from global_markets.alerts import build_technical_alerts
 from global_markets.providers.financialdata import FinancialDataClient, FinancialDataError
 from global_markets.providers.alphavantage import AlphaVantageClient, AlphaVantageError
 from global_markets.providers.twelvedata import TwelveDataClient
+from global_markets.providers.eodhd import EODHDClient
 from prediction_markets.polymarket import PolymarketClient, PolymarketDataError
 from assistant.service import ReadOnlyAssistantService
 
@@ -510,8 +511,8 @@ with assistant_tab:
     )
     st.caption(
         "Les credencials opcionals es llegeixen només de Streamlit Secrets: "
-        "FINANCIALDATA_API_KEY, ALPHA_VANTAGE_API_KEY i TWELVE_DATA_API_KEY. "
-        "SPY utilitza Twelve Data; NVDA FinancialData.Net; EURUSD Alpha Vantage. "
+        "FINANCIALDATA_API_KEY, ALPHA_VANTAGE_API_KEY i EODHD_API_TOKEN. "
+        "SPY utilitza EODHD (dades diàries); NVDA FinancialData.Net; EURUSD Alpha Vantage. "
         "No s'hi mostren ni s'emmagatzemen en el repositori."
     )
 
@@ -526,9 +527,9 @@ with assistant_tab:
                 AlphaVantageClient(secret("ALPHA_VANTAGE_API_KEY"))
                 if secret("ALPHA_VANTAGE_API_KEY") else None
             ),
-            twelvedata_client=(
-                TwelveDataClient(secret("TWELVE_DATA_API_KEY"))
-                if secret("TWELVE_DATA_API_KEY") else None
+            eodhd_client=(
+                EODHDClient(secret("EODHD_API_TOKEN"))
+                if secret("EODHD_API_TOKEN") else None
             ),
         )
         reports = {}

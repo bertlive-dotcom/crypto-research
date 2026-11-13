@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from global_markets.crypto_feed import BINANCE_SPOT_PAIRS
 from global_markets.market_analysis import analyze_candles, classify_timeframe_structure
+from global_markets.providers.financialdata import FinancialDataError
 from .instruments import InstrumentRegistry, initial_registry
 
 
@@ -129,8 +130,19 @@ class ReadOnlyAssistantService:
                         instrument.provider_symbol(provider), instrument.asset_class, limit=limit
                     )
                     candles, rejected = result.get("candles", []), result.get("rejected_records", [])
-                except Exception:
-                    unavailable.append({"symbol": symbol, "reason": "financialdata_request_failed"})
+                except Exception as exc:
+                    failure = {
+                        "symbol": symbol,
+                        "reason": "financialdata_request_failed",
+                        "error_type": type(exc).__name__,
+                    }
+                    # Only expose messages from our provider adapter's controlled
+                    # exception type; arbitrary exception text may contain secrets.
+                    if isinstance(exc, FinancialDataError):
+                        failure["diagnostic"] = str(exc)
+                    else:
+                        failure["diagnostic"] = "Provider error; details withheld for credential safety."
+                    unavailable.append(failure)
                     continue
             elif instrument.asset_class == "forex":
                 provider = "alpha_vantage"

@@ -6,6 +6,7 @@ on:
       - "global_markets/**"
       - "assistant/**"
       - "tests/test_ai_assistant_core.py"
+      - "tests/test_ai_assistant_service.py"
       - "app.py"
       - "tests/test_global_market_*.py"
       - "tests/test_financialdata_adapter.py"

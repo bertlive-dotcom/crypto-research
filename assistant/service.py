@@ -28,11 +28,12 @@ class ReadOnlyAssistantService:
 
     def __init__(self, feed: FeedProtocol | None = None, *, financialdata_client: Any | None = None,
                  alphavantage_client: Any | None = None, twelvedata_client: Any | None = None,
-                 registry: InstrumentRegistry | None = None):
+                 eodhd_client: Any | None = None, registry: InstrumentRegistry | None = None):
         self.feed = feed
         self.financialdata_client = financialdata_client
         self.alphavantage_client = alphavantage_client
         self.twelvedata_client = twelvedata_client
+        self.eodhd_client = eodhd_client
         self.registry = registry or initial_registry()
 
     @staticmethod
@@ -123,26 +124,20 @@ class ReadOnlyAssistantService:
                 raise ValueError(f"Instrument is not enabled for assistant research: {symbol}")
             providers = [name for name, _ in instrument.provider_symbols]
             rejected = []
-            if instrument.asset_class == "etf" and "twelve_data" in providers:
-                provider = "twelve_data"
-                if self.twelvedata_client is None:
-                    unavailable.append({"symbol": symbol, "reason": "twelvedata_adapter_not_configured"})
+            if instrument.asset_class == "etf" and "eodhd" in providers:
+                provider = "eodhd"
+                if self.eodhd_client is None:
+                    unavailable.append({"symbol": symbol, "reason": "eodhd_adapter_not_configured"})
                     continue
                 try:
-                    result = self.twelvedata_client.fetch_daily_prices_with_quality(
+                    result = self.eodhd_client.fetch_daily_prices_with_quality(
                         instrument.provider_symbol(provider), "etf", limit=limit
                     )
                     candles, rejected = result.get("candles", []), result.get("rejected_records", [])
                 except Exception as exc:
-                    from global_markets.providers.twelvedata import TwelveDataError
-                    failure = {
-                        "symbol": symbol, "reason": "twelvedata_request_failed",
-                        "error_type": type(exc).__name__,
-                    }
-                    if isinstance(exc, TwelveDataError):
-                        failure["diagnostic"] = str(exc)
-                    else:
-                        failure["diagnostic"] = "Provider error; details withheld for credential safety."
+                    from global_markets.providers.eodhd import EODHDError
+                    failure = {"symbol": symbol, "reason": "eodhd_request_failed", "error_type": type(exc).__name__}
+                    failure["diagnostic"] = str(exc) if isinstance(exc, EODHDError) else "Provider error; details withheld for credential safety."
                     unavailable.append(failure)
                     continue
             elif instrument.asset_class in {"equity", "etf"}:

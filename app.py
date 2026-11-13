@@ -635,7 +635,32 @@ with assistant_tab:
             if report.get("unavailable"):
                 with st.expander("Actius no disponibles / motius"):
                     st.dataframe(pd.DataFrame(report["unavailable"]), use_container_width=True, hide_index=True)
-            st.warning(summary.get("warning", "Les dades dels proveïdors no impliquen entitlement verificat."))
+            personal_scope_items = [
+                item for item in report.get("instruments", [])
+                if item.get("license_status") == "personal_use_scope_confirmed"
+            ]
+            unreviewed_scope_items = [
+                item for item in report.get("instruments", [])
+                if item.get("license_status", "not_reviewed") != "personal_use_scope_confirmed"
+            ]
+            if personal_scope_items:
+                st.info(
+                    "Llicència d'ús personal documentada per a: "
+                    + ", ".join(str(item.get("symbol")) for item in personal_scope_items)
+                    + ". Aplicable només mentre el dashboard continuï privat, d'un únic usuari i sense redistribució. "
+                    + "L'accés a l'endpoint i els límits del pla es controlen separadament."
+                )
+            if unreviewed_scope_items:
+                st.warning(
+                    "Llicència d'ús personal encara no revisada per a: "
+                    + ", ".join(str(item.get("symbol")) for item in unreviewed_scope_items)
+                    + ". Mantén aquests actius en mode de recerca fins a revisar-ne les condicions."
+                )
+            if any(not item.get("entitlement_verified", False) for item in report.get("instruments", [])):
+                st.caption(
+                    "L'entitlement tècnic del pla/API no s'ha verificat automàticament. "
+                    "Un estat Fresh confirma qualitat i actualitat de les dades, no drets contractuals ni quota disponible."
+                )
 
         st.caption(
             "Les puntuacions i indicadors són eines de cribratge tècnic; no són probabilitats, "

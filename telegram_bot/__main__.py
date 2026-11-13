@@ -207,7 +207,7 @@ class TradingAssistantBot:
             lines.append("Nota: configurat no equival a entitlement o llicència verificats.")
             lines.append("Cobertura pendent: " + ", ".join(PENDING_CLASSES) + ".")
             lines.append("Cap connexió d'ordres ni permisos de trading.")
-            return "\\n".join(lines)
+            return "\n".join(lines)
         if command == "/crypto":
             symbols = args.upper().split() if args else CRYPTO_DEFAULTS
             report = self.service.crypto_overview(symbols, limit=200)

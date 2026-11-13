@@ -62,3 +62,6 @@ The Streamlit server uses the service-role key for the database RPC and read-onl
 
 ## Global multi-asset discovery foundation
 See [GLOBAL_MARKET_ENGINE.md](GLOBAL_MARKET_ENGINE.md) for the selected global/mixed investment profile, supported asset-class configuration, provider-neutral scoring contract, safety boundaries and next integration steps. This foundation does not yet fetch global market data or connect FinancialData.Net.
+
+## Multi-asset AI Trading Assistant
+See [AI_TRADING_ASSISTANT_ARCHITECTURE.md](AI_TRADING_ASSISTANT_ARCHITECTURE.md) for the proposed architecture and phased implementation plan covering crypto, equities, ETFs and XAUUSD, with Streamlit and Telegram interfaces. The proposal is research/paper-only; it does not add live execution.

@@ -15,7 +15,7 @@ The repository has reusable adapters for crypto Spot candles, FX daily history, 
 |---|---|---|---|
 | Crypto Spot (mapped Binance pairs) | Binance public exchange-info + OHLCV adapter; closed-candle analysis | Adapter implemented; live symbol availability is checked at request time | Verify current pair listing, freshness, source and quote currency |
 | Equities (NVDA smoke test) | FinancialData.Net daily history | User-observed request returned fresh, technically valid NVDA data; plan entitlement/licensing not independently verified | Verify venue, currency, adjustment, history depth and licensing |
-| ETFs (SPY smoke test) | Twelve Data daily time series | User-observed request returned fresh, technically valid SPY data; plan entitlement/licensing not independently verified | Verify venue, adjusted/unadjusted convention, session close timestamp and licensing |
+| ETFs (SPY) | EODHD daily EOD API (`SPY.US`) | Adapter implemented and routed; actual account-key runtime test pending | Verify exact ticker entitlement, 1-year history availability, adjusted/unadjusted convention and date-label semantics |
 | FX (EURUSD smoke test) | Alpha Vantage daily FX history | User-observed request returned fresh, technically valid EURUSD data; plan entitlement/licensing not independently verified | Verify FX daily timestamp convention, data depth, request quota and licensing |
 | Commodity futures (e.g. GC) | FinancialData.Net commodity directory and daily OHLCV endpoint | Daily-history adapter implemented; entitlement and contract details unverified | Verify exact contract, roll policy, multiplier, currency and history access |
 | Gold Spot XAUUSD | No explicit provider symbol mapping, spot quote feed or intraday adapter in current assistant-ready code | **Pending / unsupported** | Select a licensed spot data source and verify quote/candle endpoints, timestamp, session, bid/ask, spread, precision and source symbol |
@@ -25,7 +25,7 @@ The repository has reusable adapters for crypto Spot candles, FX daily history, 
 - `global_markets/providers/binance.py`: public Spot exchange-info and OHLCV klines; no account/order endpoints.
 - `global_markets/crypto_feed.py`: explicit canonical-to-Binance pair mappings and runtime listing checks.
 - `global_markets/providers/alphavantage.py`: daily FX and crypto history; no XAUUSD spot endpoint.
-- `global_markets/providers/financialdata.py`: symbol directories and daily price adapters for equities, ETFs, commodities, futures, crypto and FX; quote normalization has asset-class timestamp constraints.
+- `global_markets/providers/financialdata.py`: symbol directories and daily price adapters for equities, ETFs, commodities, futures, crypto and FX; quote normalization has asset-class timestamp constraints.\n- `global_markets/providers/eodhd.py`: read-only daily EOD adapter for SPY.US; personal-plan data display is limited to the individual subscriber's own devices.
 - `GLOBAL_MARKET_ENGINE.md`: FinancialData.Net daily commodity history is optional and plan-dependent; it is not a real-time quote guarantee. Index/futures coverage remains subject to verification.
 
 ## Important limitations

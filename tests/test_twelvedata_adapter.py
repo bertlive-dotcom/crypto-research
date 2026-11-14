@@ -39,16 +39,18 @@ class TwelveDataETFAdapterTests(unittest.TestCase):
             "status": "ok",
         }
 
-    def test_normalizes_etf_daily_bar_using_exchange_timezone_and_close(self):
+    def test_normalizes_etf_daily_bar_as_exchange_local_calendar_bucket(self):
         session = FakeSession(FakeResponse(payload=self.payload()))
         client = TwelveDataClient("test-key", session=session)
         result = client.fetch_daily_prices_with_quality("SPY", "etf", limit=120)
         candle = result["candles"][0]
         ny = ZoneInfo("America/New_York")
         expected_open = datetime(2026, 11, 12, 0, 0, tzinfo=ny)
-        expected_close = datetime(2026, 11, 12, 16, 0, tzinfo=ny)
+        expected_close = datetime(2026, 11, 13, 0, 0, tzinfo=ny)
         self.assertEqual(candle["timestamp"], expected_open.astimezone(timezone.utc).isoformat())
         self.assertEqual(candle["close_timestamp"], expected_close.astimezone(__import__("datetime").timezone.utc).isoformat())
+        self.assertEqual(candle["timestamp_semantics"], "exchange_local_calendar_date_bucket")
+        self.assertEqual(candle["session_date"], "2026-11-12")
         self.assertEqual(candle["source"], "twelve_data")
         self.assertEqual(session.calls[0][1]["interval"], "1day")
         self.assertEqual(session.calls[0][1]["symbol"], "SPY")

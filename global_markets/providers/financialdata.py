@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import math
 import random
-import time
-from datetime import datetime, timedelta, timezone
+import time as time_module
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Mapping
 
 import requests
@@ -38,7 +38,7 @@ class FinancialDataClient:
         max_retries: int = 2,
         backoff_seconds: float = 0.5,
         max_pages: int = 10,
-        sleep=time.sleep,
+        sleep=time_module.sleep,
         random_fn=random.random,
     ):
         if not api_key or not api_key.strip():
@@ -165,10 +165,11 @@ class FinancialDataClient:
             try:
                 day = datetime.strptime(str(item["date"]), "%Y-%m-%d").date()
                 values = {field: float(item[field]) for field in ("open", "high", "low", "close")}
-                volume = float(item.get("volume") or 0)
+                raw_volume = item.get("volume")
+                volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(value) or value <= 0 for value in values.values()):
                     raise ValueError("OHLC values must be finite and positive")
-                if not math.isfinite(volume) or volume < 0:
+                if volume is not None and (not math.isfinite(volume) or volume < 0):
                     raise ValueError("volume must be finite and non-negative")
                 if values["high"] < max(values["open"], values["close"], values["low"]):
                     raise ValueError("high is inconsistent with open/low/close")
@@ -180,13 +181,20 @@ class FinancialDataClient:
                 rejected.append({"record": index, "date": str(item.get("date", "")), "reason": str(exc)})
                 continue
             seen_dates.add(day)
+            # The response supplies a date label but no verified venue/session
+            # timezone. Preserve it as a UTC calendar-date bucket, not a claim
+            # about the exchange open or close.
+            opened = datetime.combine(day, time.min, tzinfo=timezone.utc)
+            closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=timezone.utc)
             normalized.append({
                 "asset_id": f"financialdata.net:{asset_class}:{symbol}",
                 "symbol": symbol, "asset_class": asset_class, "interval": "1d",
-                "date": day.isoformat(),
-                "timestamp": datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
-                "close_timestamp": datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc).isoformat(),
+                "date": day.isoformat(), "session_date": day.isoformat(),
+                "timestamp": opened.isoformat(),
+                "close_timestamp": closed.isoformat(),
+                "timestamp_semantics": "utc_calendar_date_bucket",
                 **values, "volume": volume, "source": "financialdata.net",
+                "source_timezone": "UTC date-label bucket; exchange session timezone not verified",
             })
         normalized.sort(key=lambda row: row["timestamp"])
         if not normalized:
@@ -235,10 +243,10 @@ class FinancialDataClient:
             if source_timezone is None:
                 if asset_class in {"crypto", "forex"}:
                     source_timezone = timezone.utc
-                elif asset_class == "equity":
-                    source_timezone = timezone(timedelta(hours=-5))
                 else:
-                    raise FinancialDataError("source_timezone is required for this asset class")
+                    raise FinancialDataError(
+                        "source_timezone is required for naive equity and non-UTC quote timestamps"
+                    )
             parsed = parsed.replace(tzinfo=source_timezone)
         observed = parsed.astimezone(timezone.utc)
         return {

@@ -39,6 +39,17 @@ class EODHDAdapterTests(unittest.TestCase):
         self.assertEqual(candle["source"], "eodhd")
         self.assertEqual(candle["close"], 684)
         self.assertEqual(candle["volume"], 1000000)
+        self.assertEqual(candle["timestamp"], "2026-11-12T00:00:00+00:00")
+        self.assertEqual(candle["close_timestamp"], "2026-11-13T00:00:00+00:00")
+        self.assertEqual(candle["timestamp_semantics"], "utc_calendar_date_bucket")
+
+    def test_missing_volume_is_not_replaced_with_zero(self):
+        row = self.payload()[0]
+        row.pop("volume")
+        candle = EODHDClient("test-token", session=FakeSession(
+            FakeResponse(payload=[row])
+        )).fetch_daily_prices_with_quality("SPY.US", "etf")["candles"][0]
+        self.assertIsNone(candle["volume"])
 
     def test_limit_keeps_most_recent_rows_after_sorting(self):
         from datetime import date, timedelta

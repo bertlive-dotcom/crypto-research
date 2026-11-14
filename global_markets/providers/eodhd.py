@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 import requests
@@ -71,10 +71,11 @@ class EODHDClient:
                     raise ValueError("record is not an object")
                 day = datetime.strptime(str(item["date"]), "%Y-%m-%d").date()
                 prices = {key: float(item[key]) for key in ("open", "high", "low", "close")}
-                volume = float(item.get("volume") or 0)
+                raw_volume = item.get("volume")
+                volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(value) or value <= 0 for value in prices.values()):
                     raise ValueError("OHLC values must be finite and positive")
-                if not math.isfinite(volume) or volume < 0:
+                if volume is not None and (not math.isfinite(volume) or volume < 0):
                     raise ValueError("volume must be finite and non-negative")
                 if prices["high"] < max(prices["open"], prices["low"], prices["close"]):
                     raise ValueError("high is inconsistent with OHLC")
@@ -86,13 +87,19 @@ class EODHDClient:
                 rejected.append({"record": index, "reason": str(exc)})
                 continue
             seen.add(day)
+            # EODHD's date label does not establish an exchange session close.
+            # Use an explicit UTC calendar-date bucket, not a fabricated 23:59:59 close.
+            opened = datetime.combine(day, time.min, tzinfo=timezone.utc)
+            closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=timezone.utc)
             candles.append({
                 "asset_id": f"eodhd:etf:{ticker}", "symbol": ticker,
                 "asset_class": "etf", "interval": "1d", "date": day.isoformat(),
-                "timestamp": datetime.combine(day, time.min, tzinfo=timezone.utc).isoformat(),
-                "close_timestamp": datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc).isoformat(),
+                "session_date": day.isoformat(),
+                "timestamp": opened.isoformat(),
+                "close_timestamp": closed.isoformat(),
+                "timestamp_semantics": "utc_calendar_date_bucket",
                 **prices, "volume": volume, "source": "eodhd",
-                "source_timezone": "UTC-date-label; exchange close time not specified by adapter",
+                "source_timezone": "UTC date-label bucket; exchange session timezone not verified",
             })
         candles.sort(key=lambda row: row["timestamp"])
         # Providers may return oldest-first or newest-first. Always retain the

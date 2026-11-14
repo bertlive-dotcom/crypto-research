@@ -6,7 +6,7 @@ timezone are validated from provider metadata; no entitlement is inferred.
 from __future__ import annotations
 
 import math
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -97,10 +97,11 @@ class TwelveDataClient:
                     raise ValueError("record is not an object")
                 day = datetime.strptime(str(item["datetime"]), "%Y-%m-%d").date()
                 prices = {key: float(item[key]) for key in ("open", "high", "low", "close")}
-                volume = float(item.get("volume") or 0)
+                raw_volume = item.get("volume")
+                volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(v) or v <= 0 for v in prices.values()):
                     raise ValueError("OHLC values must be finite and positive")
-                if not math.isfinite(volume) or volume < 0:
+                if volume is not None and (not math.isfinite(volume) or volume < 0):
                     raise ValueError("volume must be finite and non-negative")
                 if prices["high"] < max(prices["open"], prices["low"], prices["close"]):
                     raise ValueError("high is inconsistent with OHLC")
@@ -112,14 +113,18 @@ class TwelveDataClient:
                 rejected.append({"record": index, "reason": str(exc)})
                 continue
             seen_dates.add(day)
+            # The provider supplies a session date, not a verified exchange
+            # close instant. Represent the date-label bucket in exchange-local
+            # calendar time; do not invent a 16:00 session close.
             opened = datetime.combine(day, time.min, tzinfo=exchange_tz)
-            closed = datetime.combine(day, time(16, 0), tzinfo=exchange_tz)
+            closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=exchange_tz)
             candles.append({
                 "asset_id": f"twelve_data:etf:{symbol.strip().upper()}",
                 "symbol": symbol.strip().upper(), "asset_class": "etf", "interval": "1d",
-                "date": day.isoformat(),
+                "date": day.isoformat(), "session_date": day.isoformat(),
                 "timestamp": opened.astimezone(timezone.utc).isoformat(),
                 "close_timestamp": closed.astimezone(timezone.utc).isoformat(),
+                "timestamp_semantics": "exchange_local_calendar_date_bucket",
                 **prices, "volume": volume, "source": "twelve_data",
                 "source_timezone": timezone_name,
             })

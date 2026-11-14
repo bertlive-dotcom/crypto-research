@@ -36,6 +36,15 @@ Every observation must retain:
 
 Never infer exchange aliases, fill missing volume with zero, relabel daily data as real-time, or silently substitute stale prices.
 
+### Daily date-label timestamp semantics
+
+The current EODHD and FinancialData.Net daily endpoints provide date labels, not a verified exchange-session open/close pair. Their adapter timestamps therefore describe a **calendar-date bucket**, not the actual trading session:
+- EODHD and FinancialData.Net: UTC date bucket [00:00 UTC on date, 00:00 UTC next date).
+- Twelve Data: exchange-local calendar-date bucket [00:00 local on date, 00:00 local next date), converted to UTC with the provider's IANA exchange timezone. This naturally accounts for 23/25-hour DST days.
+- Each record carries `session_date` and `timestamp_semantics`. Consumers must not interpret these boundaries as exchange open/close times or use them to infer session duration/market hours.
+- Missing volume remains null; it is never converted to zero.
+- These daily adapter outputs remain unsuitable for session-close comparisons until venue-specific session metadata is independently verified. They are not enabled as universal real-time feeds.
+
 ## Provider roles (initial)
 
 | Provider | Initial role | Restrictions |
@@ -122,4 +131,6 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 - Rechecked staging (`jgxrtvqxjtoxmdrpltng`): database inspection still fails with `ECONNRESET`; no DDL was executed.
 - Static review found that the original `volume_available` default could disagree with a non-null `volume`. The SQL now derives this flag as a stored generated column, so it cannot drift from the actual volume value.
 - The SQL remains unexecuted and unvalidated against a live staging schema. Provider adapter integration is held until source-specific timestamp/volume semantics and exact symbol coverage are handled safely.
-- Existing EODHD, Twelve Data and FinancialData.Net adapters were reviewed. They expose narrower daily-history functionality and should not be presented as universal real-time feeds. Some daily candle timestamps need additional source-semantic validation before the canonical worker can consume them.
+- Existing EODHD, Twelve Data and FinancialData.Net adapters were reviewed. They expose narrower daily-history functionality and should not be presented as universal real-time feeds.
+- Daily date labels are represented as explicit calendar-date buckets rather than invented exchange-close timestamps: UTC buckets for EODHD/FinancialData.Net and exchange-local buckets for Twelve Data. Records carry `session_date` and `timestamp_semantics`; consumers must not treat bucket boundaries as trading-session boundaries.
+- EODHD preserves missing volume as null rather than converting it to zero. Provider-specific session close times and symbol/venue coverage still require independent verification before session-based comparisons or worker cutover.

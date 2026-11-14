@@ -87,7 +87,7 @@ create table if not exists public.market_data_candles (
     primary key (instrument_id, provider, interval, opened_at),
     check (closed_at >= opened_at),
     check (high >= greatest(open, low, close)),
-    check (low <= least(open, high, close)),
+    check (low <= least(open, high, close))
 );
 
 create index if not exists market_data_candles_latest_idx

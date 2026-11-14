@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 import random
-import time
+import time as time_module
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Mapping
 
@@ -38,7 +38,7 @@ class FinancialDataClient:
         max_retries: int = 2,
         backoff_seconds: float = 0.5,
         max_pages: int = 10,
-        sleep=time.sleep,
+        sleep=time_module.sleep,
         random_fn=random.random,
     ):
         if not api_key or not api_key.strip():

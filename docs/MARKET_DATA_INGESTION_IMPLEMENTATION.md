@@ -11,8 +11,9 @@
 - The scanner is a separate five-minute worker and currently consumes Binance Spot directly. Its scoring, risk rules and paper ledger are out of scope for the first migration increment.
 - Bigdata adapter work is in open PR #48 (`feat/bigdata-intelligence-connector`), not in main. Do not duplicate or silently merge that work into this branch.
 - Multi-asset assistant architecture documentation is in open PR #49. Coordinate with it; this branch owns the data-ingestion implementation only.
-- Production Supabase tables exist, but the migration registry returned no recorded migrations. Reconcile schema history before applying DDL.
-- Staging project inspection returned a database recovery error. No staging migration or production write is permitted until staging is reachable and its schema is inspected.
+- Supabase project IDs were verified against the project list: production is `bcwiihozbjworhkbufyf`; staging is `jgxrtvqxjtoxmdrpltng`.
+- The earlier successful table inspection was against production (read-only): existing scanner/paper-trading tables and data are present, RLS is enabled, and the migration registry returned no recorded migrations. No production writes were made.
+- Staging inspection currently fails with a database connection reset. No migration has been applied anywhere. Reconcile production schema history separately and inspect staging before applying DDL.
 
 ## Target architecture
 
@@ -54,6 +55,7 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 - [x] Confirm Bigdata PR #48 and architecture PR #49 are separate open work.
 - [ ] Inspect Streamlit/worker secrets and deployment configuration without exposing values.
 - [ ] Restore/inspect staging and reconcile schema migration history.
+- [x] Verify Supabase project IDs and distinguish production from staging.
 
 ### Phase 1 — normalization and adapters
 - [ ] Add canonical instrument/provider-symbol registry.
@@ -104,7 +106,8 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 
 ## Current blockers
 
-1. Staging database was not inspectable during initial audit; recheck before migrations.
-2. Production migration registry is empty despite existing tables; reconcile before migration tooling.
+1. Staging project (`jgxrtvqxjtoxmdrpltng`) is currently not inspectable due to connection resets; recheck before migrations.
+2. Production project (`bcwiihozbjworhkbufyf`) has existing tables/data but an empty migration registry; reconcile before any production migration tooling.
+3. The initial successful schema/RLS/grant inspection was read-only against production, not staging.
 3. Real-time entitlements and permitted private display must be verified per provider, exchange and instrument.
 4. Twelve Data, EODHD and FinancialData.Net adapters in main are not equivalent to a universal global real-time feed.

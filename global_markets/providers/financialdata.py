@@ -169,7 +169,7 @@ class FinancialDataClient:
                 volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(value) or value <= 0 for value in values.values()):
                     raise ValueError("OHLC values must be finite and positive")
-                if not math.isfinite(volume) or volume < 0:
+                if volume is not None and (not math.isfinite(volume) or volume < 0):
                     raise ValueError("volume must be finite and non-negative")
                 if values["high"] < max(values["open"], values["close"], values["low"]):
                     raise ValueError("high is inconsistent with open/low/close")

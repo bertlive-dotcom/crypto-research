@@ -99,6 +99,8 @@ class FinancialDataClientTests(unittest.TestCase):
         self.assertEqual([row["date"] for row in rows], ["2026-10-29", "2026-10-30"])
         self.assertEqual(rows[-1]["interval"], "1d")
         self.assertEqual(rows[-1]["source"], "financialdata.net")
+        self.assertEqual(rows[-1]["timestamp_semantics"], "utc_calendar_date_bucket")
+        self.assertEqual(rows[-1]["close_timestamp"], "2026-10-31T00:00:00+00:00")
 
     def test_missing_daily_volume_stays_missing(self):
         self.session.get.return_value = self.response(payload=[

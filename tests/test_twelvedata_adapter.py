@@ -87,6 +87,13 @@ class TwelveDataETFAdapterTests(unittest.TestCase):
         self.assertEqual(len(result["candles"]), 1)
         self.assertEqual(len(result["rejected_records"]), 1)
 
+    def test_missing_volume_stays_missing(self):
+        payload = self.payload()
+        payload["values"][0].pop("volume")
+        client = TwelveDataClient("test-key", session=FakeSession(FakeResponse(payload=payload)))
+        candle = client.fetch_daily_prices_with_quality("SPY", "etf")["candles"][0]
+        self.assertIsNone(candle["volume"])
+
     def test_rejects_wrong_asset_class_and_small_history(self):
         client = TwelveDataClient("test-key", session=FakeSession(FakeResponse(payload=self.payload())))
         with self.assertRaises(ValueError):

@@ -97,7 +97,8 @@ class TwelveDataClient:
                     raise ValueError("record is not an object")
                 day = datetime.strptime(str(item["datetime"]), "%Y-%m-%d").date()
                 prices = {key: float(item[key]) for key in ("open", "high", "low", "close")}
-                volume = float(item.get("volume") or 0)
+                raw_volume = item.get("volume")
+                volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(v) or v <= 0 for v in prices.values()):
                     raise ValueError("OHLC values must be finite and positive")
                 if not math.isfinite(volume) or volume < 0:

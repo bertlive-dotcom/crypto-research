@@ -1,6 +1,6 @@
 # Market Data Ingestion — Implementation Plan
 
-**Status:** Phase 0 started  
+**Status:** Phase 1 foundation started; staging validation blocked  
 **Branch:** `feat/global-market-data-ingestion`  
 **Target:** private, hybrid deployment; parallel provider migration  
 **Production changes:** none
@@ -68,6 +68,7 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 ### Phase 2 — storage
 - [x] Prepare additive SQL migration for private instrument, provider-symbol, quote, candle, fundamental, provider-run and quality-event tables.
 - [x] Include RLS, client-role revokes and backend service-role grants in the migration.
+- [x] Make `volume_available` a generated column derived from `volume`, preventing inconsistent inserts.
 - [ ] Review SQL against the actual staging schema and apply to staging only after it is reachable.
 - [ ] Add idempotent upserts and retention policies.
 
@@ -113,3 +114,12 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 3. The initial successful schema/RLS/grant inspection was read-only against production, not staging.
 3. Real-time entitlements and permitted private display must be verified per provider, exchange and instrument.
 4. Twelve Data, EODHD and FinancialData.Net adapters in main are not equivalent to a universal global real-time feed.
+
+
+## Review update (2026-11-14)
+
+- Rechecked PR #53: still open, draft and unmerged.
+- Rechecked staging (`jgxrtvqxjtoxmdrpltng`): database inspection still fails with `ECONNRESET`; no DDL was executed.
+- Static review found that the original `volume_available` default could disagree with a non-null `volume`. The SQL now derives this flag as a stored generated column, so it cannot drift from the actual volume value.
+- The SQL remains unexecuted and unvalidated against a live staging schema. Provider adapter integration is held until source-specific timestamp/volume semantics and exact symbol coverage are handled safely.
+- Existing EODHD, Twelve Data and FinancialData.Net adapters were reviewed. They expose narrower daily-history functionality and should not be presented as universal real-time feeds. Some daily candle timestamps need additional source-semantic validation before the canonical worker can consume them.

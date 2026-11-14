@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from global_markets.providers.twelvedata import TwelveDataClient, TwelveDataError
@@ -54,6 +54,30 @@ class TwelveDataETFAdapterTests(unittest.TestCase):
         self.assertEqual(session.calls[0][1]["symbol"], "SPY")
         self.assertEqual(session.calls[0][1]["outputsize"], 120)
         self.assertEqual(result["rejected_records"], [])
+
+    def test_daily_timestamp_is_exchange_local_calendar_bucket_not_assumed_close(self):
+        candle = TwelveDataClient("test-key", session=FakeSession(
+            FakeResponse(payload=self.payload())
+        )).fetch_daily_prices_with_quality("SPY", "etf")["candles"][0]
+        ny = ZoneInfo("America/New_York")
+        start = datetime(2026, 11, 12, 0, 0, tzinfo=ny)
+        end = datetime(2026, 11, 13, 0, 0, tzinfo=ny)
+        self.assertEqual(candle["timestamp"], start.astimezone(timezone.utc).isoformat())
+        self.assertEqual(candle["close_timestamp"], end.astimezone(timezone.utc).isoformat())
+        self.assertEqual(candle["timestamp_semantics"], "exchange_local_calendar_date_bucket")
+        self.assertEqual(candle["session_date"], "2026-11-12")
+
+    def test_calendar_bucket_respects_dst_transition(self):
+        payload = self.payload()
+        payload["values"][0]["datetime"] = "2026-03-08"
+        candle = TwelveDataClient("test-key", session=FakeSession(
+            FakeResponse(payload=payload)
+        )).fetch_daily_prices_with_quality("SPY", "etf")["candles"][0]
+        self.assertEqual(
+            datetime.fromisoformat(candle["close_timestamp"])
+            - datetime.fromisoformat(candle["timestamp"]),
+            timedelta(hours=23),
+        )
 
     def test_rejects_non_etf_metadata_and_wrong_symbol(self):
         payload = self.payload()

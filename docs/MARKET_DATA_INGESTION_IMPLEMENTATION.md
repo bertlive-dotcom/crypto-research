@@ -53,21 +53,23 @@ Never infer exchange aliases, fill missing volume with zero, relabel daily data 
 ### Phase 0 — branch and safety
 - [x] Create isolated feature branch from current main.
 - [x] Confirm Bigdata PR #48 and architecture PR #49 are separate open work.
-- [ ] Inspect Streamlit/worker secrets and deployment configuration without exposing values.
+- [ ] Inspect Streamlit/worker secret names and deployment configuration without exposing values.
 - [ ] Restore/inspect staging and reconcile schema migration history.
 - [x] Verify Supabase project IDs and distinguish production from staging.
 
 ### Phase 1 — normalization and adapters
-- [ ] Add canonical instrument/provider-symbol registry.
-- [ ] Implement provider contract and adapter-level tests.
+- [ ] Add canonical instrument/provider-symbol registry implementation.
+- [x] Define provider contract and structured capability/health models.
+- [x] Add canonical candle normalization and quality tests.
+- [ ] Implement provider-specific adapters against the contract.
 - [ ] Validate symbol mapping, venue, currency, market session and quote-vs-trade semantics.
 - [ ] Add per-provider quota/rate-limit accounting.
 
 ### Phase 2 — storage
-- [ ] Prepare additive migration for private instrument, quote, candle, fundamental, provider-run and quality-event tables.
-- [ ] Enable RLS and explicitly revoke client roles; grant only backend service role.
+- [x] Prepare additive SQL migration for private instrument, provider-symbol, quote, candle, fundamental, provider-run and quality-event tables.
+- [x] Include RLS, client-role revokes and backend service-role grants in the migration.
+- [ ] Review SQL against the actual staging schema and apply to staging only after it is reachable.
 - [ ] Add idempotent upserts and retention policies.
-- [ ] Apply to staging only after schema inspection.
 
 ### Phase 3 — independent worker
 - [ ] Add container, bounded scheduler, health checks and structured logs.

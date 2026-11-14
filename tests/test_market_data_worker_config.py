@@ -44,6 +44,20 @@ class WorkerConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "production or an unknown"):
             load_config(env)
 
+    def test_rejects_http_supabase_url(self):
+        env = self.valid_env()
+        env["SUPABASE_URL"] = f"http://{STAGING_SUPABASE_PROJECT_REF}.supabase.co"
+        with self.assertRaisesRegex(RuntimeError, "HTTPS origin"):
+            load_config(env)
+
+    def test_rejects_supabase_url_with_unexpected_authority(self):
+        env = self.valid_env()
+        env["SUPABASE_URL"] = (
+            f"https://user@{STAGING_SUPABASE_PROJECT_REF}.supabase.co"
+        )
+        with self.assertRaisesRegex(RuntimeError, "HTTPS origin"):
+            load_config(env)
+
     def test_requires_backend_secret(self):
         env = self.valid_env()
         env.pop("SUPABASE_SERVICE_ROLE_KEY")

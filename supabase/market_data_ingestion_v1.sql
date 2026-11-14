@@ -77,7 +77,7 @@ create table if not exists public.market_data_candles (
     low numeric not null check (low > 0),
     close numeric not null check (close > 0),
     volume numeric check (volume is null or volume >= 0),
-    volume_available boolean not null default false,
+    volume_available boolean generated always as (volume is not null) stored,
     currency text,
     exchange text,
     is_closed boolean not null default false,
@@ -88,7 +88,6 @@ create table if not exists public.market_data_candles (
     check (closed_at >= opened_at),
     check (high >= greatest(open, low, close)),
     check (low <= least(open, high, close)),
-    check (volume_available = (volume is not null))
 );
 
 create index if not exists market_data_candles_latest_idx

@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Mapping
 
 import requests
@@ -181,13 +181,20 @@ class FinancialDataClient:
                 rejected.append({"record": index, "date": str(item.get("date", "")), "reason": str(exc)})
                 continue
             seen_dates.add(day)
+            # The response supplies a date label but no verified venue/session
+            # timezone. Preserve it as a UTC calendar-date bucket, not a claim
+            # about the exchange open or close.
+            opened = datetime.combine(day, time.min, tzinfo=timezone.utc)
+            closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=timezone.utc)
             normalized.append({
                 "asset_id": f"financialdata.net:{asset_class}:{symbol}",
                 "symbol": symbol, "asset_class": asset_class, "interval": "1d",
-                "date": day.isoformat(),
-                "timestamp": datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
-                "close_timestamp": datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc).isoformat(),
+                "date": day.isoformat(), "session_date": day.isoformat(),
+                "timestamp": opened.isoformat(),
+                "close_timestamp": closed.isoformat(),
+                "timestamp_semantics": "utc_calendar_date_bucket",
                 **values, "volume": volume, "source": "financialdata.net",
+                "source_timezone": "UTC date-label bucket; exchange session timezone not verified",
             })
         normalized.sort(key=lambda row: row["timestamp"])
         if not normalized:

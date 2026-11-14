@@ -101,7 +101,7 @@ class TwelveDataClient:
                 volume = None if raw_volume in (None, "") else float(raw_volume)
                 if any(not math.isfinite(v) or v <= 0 for v in prices.values()):
                     raise ValueError("OHLC values must be finite and positive")
-                if not math.isfinite(volume) or volume < 0:
+                if volume is not None and (not math.isfinite(volume) or volume < 0):
                     raise ValueError("volume must be finite and non-negative")
                 if prices["high"] < max(prices["open"], prices["low"], prices["close"]):
                     raise ValueError("high is inconsistent with OHLC")

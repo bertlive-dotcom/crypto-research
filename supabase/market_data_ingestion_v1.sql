@@ -13,9 +13,12 @@ create table if not exists public.market_data_instruments (
     is_active boolean not null default false,
     metadata jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    unique (asset_class, canonical_symbol, coalesce(exchange, ''))
+    updated_at timestamptz not null default now()
 );
+
+create unique index if not exists market_data_instruments_identity_idx
+    on public.market_data_instruments
+    (asset_class, canonical_symbol, coalesce(exchange, ''));
 
 create table if not exists public.market_data_provider_symbols (
     provider text not null,
@@ -96,8 +99,8 @@ create table if not exists public.market_data_fundamentals (
         on delete restrict,
     provider text not null,
     metric_key text not null,
-    period_end date,
-    fiscal_period text,
+    period_end date not null,
+    fiscal_period text not null default '',
     reported_at timestamptz,
     observed_at timestamptz not null default now(),
     value numeric,

@@ -118,7 +118,7 @@ class TwelveDataClient:
             # calendar time; do not invent a 16:00 session close.
             opened = datetime.combine(day, time.min, tzinfo=exchange_tz)
             closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=exchange_tz)
-            candles.append({}
+            candles.append({
                 "asset_id": f"twelve_data:etf:{symbol.strip().upper()}",
                 "symbol": symbol.strip().upper(), "asset_class": "etf", "interval": "1d",
                 "date": day.isoformat(), "session_date": day.isoformat(),

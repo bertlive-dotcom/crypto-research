@@ -6,7 +6,7 @@ timezone are validated from provider metadata; no entitlement is inferred.
 from __future__ import annotations
 
 import math
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -113,14 +113,18 @@ class TwelveDataClient:
                 rejected.append({"record": index, "reason": str(exc)})
                 continue
             seen_dates.add(day)
+            # The provider supplies a session date, not a verified exchange
+            # close instant. Represent the date-label bucket in exchange-local
+            # calendar time; do not invent a 16:00 session close.
             opened = datetime.combine(day, time.min, tzinfo=exchange_tz)
-            closed = datetime.combine(day, time(16, 0), tzinfo=exchange_tz)
-            candles.append({
+            closed = datetime.combine(day + timedelta(days=1), time.min, tzinfo=exchange_tz)
+            candles.append({}
                 "asset_id": f"twelve_data:etf:{symbol.strip().upper()}",
                 "symbol": symbol.strip().upper(), "asset_class": "etf", "interval": "1d",
-                "date": day.isoformat(),
+                "date": day.isoformat(), "session_date": day.isoformat(),
                 "timestamp": opened.astimezone(timezone.utc).isoformat(),
                 "close_timestamp": closed.astimezone(timezone.utc).isoformat(),
+                "timestamp_semantics": "exchange_local_calendar_date_bucket",
                 **prices, "volume": volume, "source": "twelve_data",
                 "source_timezone": timezone_name,
             })

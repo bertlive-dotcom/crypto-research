@@ -100,6 +100,21 @@ class FinancialDataClientTests(unittest.TestCase):
         self.assertEqual(rows[-1]["interval"], "1d")
         self.assertEqual(rows[-1]["source"], "financialdata.net")
 
+    def test_missing_daily_volume_stays_missing(self):
+        self.session.get.return_value = self.response(payload=[
+            {"trading_symbol": "MSFT", "date": "2026-10-30", "open": 10,
+             "high": 12, "low": 9, "close": 11},
+        ])
+        row = self.client.fetch_daily_prices("MSFT", "equity")[0]
+        self.assertIsNone(row["volume"])
+
+    def test_equity_quote_requires_verified_timezone_when_timestamp_is_naive(self):
+        with self.assertRaisesRegex(FinancialDataError, "source_timezone is required"):
+            FinancialDataClient.normalize_quote(
+                {"trading_symbol": "MSFT", "price": 100, "time": "2026-11-01 12:00:00"},
+                asset_class="equity",
+            )
+
     def test_fetch_daily_prices_rejects_bad_ohlc(self):
         self.session.get.return_value = self.response(payload=[
             {"trading_symbol": "GC", "date": "2026-10-30", "open": 10,

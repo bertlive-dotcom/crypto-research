@@ -31,8 +31,9 @@ def validate_staging_target(
     supabase_url: str,
     allowed_project_ref: str,
 ) -> None:
-    """Reject all targets except the explicitly approved staging project."""
-    host = urlparse(supabase_url).hostname or ""
+    """Reject all targets except the explicitly approved HTTPS staging origin."""
+    parsed = urlparse(supabase_url)
+    host = parsed.hostname or ""
     expected_host = f"{STAGING_SUPABASE_PROJECT_REF}.supabase.co"
     if environment.strip().lower() != "staging":
         raise RuntimeError("Market-data worker is restricted to staging in this phase.")
@@ -40,6 +41,16 @@ def validate_staging_target(
         raise RuntimeError("Allowed Supabase project ref must match the approved staging project.")
     if allowed_project_ref == PRODUCTION_SUPABASE_PROJECT_REF or host != expected_host:
         raise RuntimeError("Market-data worker refuses the production or an unknown Supabase target.")
+    if (
+        parsed.scheme.lower() != "https"
+        or parsed.netloc.lower() != expected_host
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "Supabase URL must be the HTTPS origin of the approved staging project."
+        )
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> WorkerConfig:

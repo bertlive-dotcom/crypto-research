@@ -61,7 +61,7 @@ def fetch_bitpanda_data(key, database_url, database_key):
     )
     return result
 
-if st.button("Actualitzar ara", type="primary):
+if st.button("Actualitzar ara", type="primary"):
     fetch_bitpanda_data.clear()
     st.rerun()
 

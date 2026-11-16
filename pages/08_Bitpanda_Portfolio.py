@@ -41,13 +41,11 @@ if not supabase_url or not supabase_key:
     st.stop()
 
 st_autorefresh(interval=900_000, limit=None, key="bitpanda-15m-refresh")
-if st.button("Actualitzar ara", type="primary"):
-    st.rerun()
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_bitpanda_data(key):
+def fetch_bitpanda_data(key, database_url, database_key):
     client = BitpandaClient(key)
-    return {
+    result = {
         "holdings": client.get_holdings(),
         "operations": client.get_operations(max_pages=5),
         "history": {
@@ -57,14 +55,19 @@ def fetch_bitpanda_data(key):
         "earn": client.get_earn_configs(max_pages=5),
         "observed_at": datetime.now(timezone.utc).isoformat(),
     }
+    store = BitpandaPortfolioStore(database_url, database_key)
+    store.save_sync(
+        result["holdings"], result["operations"], result["history"], result["earn"]
+    )
+    return result
+
+if st.button("Actualitzar ara", type="primary):
+    fetch_bitpanda_data.clear()
+    st.rerun()
 
 try:
     with st.spinner("Sincronitzant dades de Bitpanda..."):
-        data = fetch_bitpanda_data(api_key)
-        store = BitpandaPortfolioStore(supabase_url, supabase_key)
-        store.save_sync(
-            data["holdings"], data["operations"], data["history"], data["earn"]
-        )
+        data = fetch_bitpanda_data(api_key, supabase_url, supabase_key)
 except (BitpandaAPIError, BitpandaStoreError, ValueError) as exc:
     st.error(str(exc))
     st.stop()

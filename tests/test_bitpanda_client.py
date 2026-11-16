@@ -30,20 +30,36 @@ class BitpandaClientTests(unittest.TestCase):
     def test_holdings_extracts_data_list(self):
         client, session = self.client({"data": [{"symbol": "BTC"}]})
         self.assertEqual(client.get_holdings(), [{"symbol": "BTC"}])
-        self.assertEqual(session.get.call_args.args[0], "https://api.public.bitpanda.com/v1/portfolio/holdings")
+        self.assertEqual(
+            session.get.call_args.args[0],
+            "https://api.public.bitpanda.com/v1/portfolio/holdings",
+        )
 
     def test_history_validates_timeframe(self):
-        client, _ = self.client({"data": {"datapoints": [{"time": "2026-01-01"}]}})
+        client, _ = self.client({"data": []})
         with self.assertRaises(ValueError):
             client.get_history("INVALID")
 
-    def test_operations_follows_cursor(self):
-        client, session = self.client({"data": [{"id": "a"}], "nextCursor": "next"})
+    def test_operations_uses_rest_page_size_and_camel_case_cursor(self):
+        client, session = self.client({"data": [], "nextCursor": "next"})
         session.get.side_effect = [
-            FakeResponse({"data": [{"id": "a"}], "nextCursor": "next"}),
-            FakeResponse({"data": [{"id": "b"}]}),
+            FakeResponse({"data": [{"operationId": "a"}], "nextCursor": "next"}),
+            FakeResponse({"data": [{"operationId": "b"}], "hasNextPage": False}),
         ]
-        self.assertEqual([x["id"] for x in client.get_operations()], ["a", "b"])
+        self.assertEqual(
+            [x["operationId"] for x in client.get_operations()],
+            ["a", "b"],
+        )
+        self.assertEqual(session.get.call_args_list[0].kwargs["params"], {"page_size": 100})
+        self.assertEqual(
+            session.get.call_args_list[1].kwargs["params"],
+            {"page_size": 100, "cursor": "next"},
+        )
+
+    def test_earn_uses_rest_page_size(self):
+        client, session = self.client({"data": []})
+        client.get_earn_configs()
+        self.assertEqual(session.get.call_args.kwargs["params"], {"page_size": 250})
 
     def test_missing_key_rejected(self):
         with self.assertRaises(ValueError):

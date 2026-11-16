@@ -1,4 +1,4 @@
-"""Read-only adapter for the Bitpanda Public API v2."""
+"""Read-only adapter for the Bitpanda Public API."""
 from __future__ import annotations
 
 from typing import Any
@@ -33,7 +33,7 @@ class BitpandaClient:
                 raise BitpandaAPIError("Bitpanda API key is invalid or expired (401).")
             if response.status_code == 403:
                 raise BitpandaAPIError(
-                    "Bitpanda denied access (403). Check that the key has the required read scopes."
+                    "Bitpanda denied access (403). Check the required read scopes."
                 )
             if response.status_code == 429:
                 raise BitpandaAPIError("Bitpanda rate limit reached (429). Retry later.")
@@ -70,8 +70,7 @@ class BitpandaClient:
     def _next_cursor(payload: Any) -> str | None:
         if not isinstance(payload, dict):
             return None
-        candidates = [payload, payload.get("pagination", {}), payload.get("meta", {})]
-        for item in candidates:
+        for item in (payload, payload.get("pagination", {}), payload.get("meta", {})):
             if isinstance(item, dict):
                 cursor = item.get("nextCursor") or item.get("next_cursor")
                 if cursor:
@@ -87,28 +86,21 @@ class BitpandaClient:
             raise ValueError("Unsupported Bitpanda portfolio timeframe.")
         return self._items(self._get("/portfolio/history", {"timeframe": timeframe}))
 
-    def get_operations(self, max_pages: int = 5, page_size: int = 100) -> list[dict]:
+    def _get_paginated(self, path: str, max_pages: int, page_size: int) -> list[dict]:
         rows, cursor = [], None
         for _ in range(max(1, min(int(max_pages), 20))):
-            params = {"pageSize": max(1, min(int(page_size), 100))}
+            params = {"page_size": max(1, min(int(page_size), 250))}
             if cursor:
                 params["cursor"] = cursor
-            payload = self._get("/operations", params)
+            payload = self._get(path, params)
             rows.extend(self._items(payload))
             cursor = self._next_cursor(payload)
             if not cursor:
                 break
         return rows
 
+    def get_operations(self, max_pages: int = 5, page_size: int = 100) -> list[dict]:
+        return self._get_paginated("/operations", max_pages, min(page_size, 100))
+
     def get_earn_configs(self, max_pages: int = 5) -> list[dict]:
-        rows, cursor = [], None
-        for _ in range(max(1, min(int(max_pages), 20))):
-            params = {"pageSize": 250}
-            if cursor:
-                params["cursor"] = cursor
-            payload = self._get("/earn/configs", params)
-            rows.extend(self._items(payload))
-            cursor = self._next_cursor(payload)
-            if not cursor:
-                break
-        return rows
+        return self._get_paginated("/earn/configs", max_pages, 250)

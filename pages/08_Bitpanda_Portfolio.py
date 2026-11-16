@@ -157,11 +157,14 @@ with tab_operations:
         rows = []
         for item in operations:
             rows.append({
-                "Data": item.get("createdAt") or item.get("timestamp") or item.get("date"),
-                "Tipus": item.get("type") or item.get("operationType"),
-                "Actiu": item.get("symbol") or item.get("assetSymbol"),
-                "Estat": item.get("status"),
-                "ID": item.get("id") or item.get("operationId"),
+                "Data": ((item.get("transactions") or [{}])[0].get("creditedAt")
+                         if isinstance(item.get("transactions"), list) and item.get("transactions")
+                         else item.get("createdAt") or item.get("timestamp") or item.get("date")),
+                "Tipus": item.get("operationType") or item.get("operation_type") or item.get("type"),
+                "Actiu ID": ((item.get("transactions") or [{}])[0].get("assetId")
+                             if isinstance(item.get("transactions"), list) and item.get("transactions")
+                             else item.get("assetId") or item.get("asset_id")),
+                "ID": item.get("operationId") or item.get("operation_id") or item.get("id"),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
@@ -182,7 +185,7 @@ with tab_earn:
 
 with tab_quality:
     st.write({
-        "font": "Bitpanda Public API v2",
+        "font": "Bitpanda Public API",
         "observed_at": data["observed_at"],
         "holdings_rows": len(holdings),
         "operations_rows": len(operations),

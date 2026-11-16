@@ -23,5 +23,7 @@ jobs:
           python-version: "3.11"
       - name: Install test dependency
         run: python -m pip install "requests>=2.31,<3.0"
+      - name: Compile Bitpanda modules and page
+        run: python -m py_compile bitpanda/*.py pages/08_Bitpanda_Portfolio.py
       - name: Run Bitpanda adapter tests
         run: python -m unittest discover -s tests -p 'test_bitpanda_client.py' -v

@@ -40,12 +40,11 @@ class BitpandaPortfolioStore:
                   histories: dict[str, list[dict]], earn_configs: list[dict],
                   status: str = "success", error: str | None = None) -> str:
         observed = datetime.now(timezone.utc).isoformat()
-        run = [{
+        self._post("bitpanda_sync_runs", [{
             "status": status, "observed_at": observed,
             "holdings_count": len(holdings), "operations_count": len(operations),
             "earn_configs_count": len(earn_configs), "error": error,
-        }]
-        self._post("bitpanda_sync_runs", run)
+        }])
 
         holding_rows = []
         for item in holdings:
@@ -63,16 +62,19 @@ class BitpandaPortfolioStore:
 
         operation_rows = []
         for item in operations:
-            operation_id = item.get("id") or item.get("operationId") or item.get("operation_id")
+            operation_id = item.get("operationId") or item.get("operation_id") or item.get("id")
             if not operation_id:
                 continue
+            transactions = item.get("transactions") if isinstance(item.get("transactions"), list) else []
+            first_tx = transactions[0] if transactions and isinstance(transactions[0], dict) else {}
+            amount = first_tx.get("assetAmount") if isinstance(first_tx.get("assetAmount"), dict) else {}
             operation_rows.append({
                 "operation_id": str(operation_id),
-                "operation_type": item.get("type") or item.get("operationType"),
+                "operation_type": item.get("operationType") or item.get("operation_type") or item.get("type"),
                 "status": item.get("status"),
-                "asset_id": str(item.get("assetId") or item.get("asset_id") or ""),
+                "asset_id": str(first_tx.get("assetId") or amount.get("assetId") or item.get("assetId") or ""),
                 "symbol": item.get("symbol"),
-                "occurred_at": item.get("createdAt") or item.get("timestamp") or item.get("date"),
+                "occurred_at": first_tx.get("creditedAt") or item.get("createdAt") or item.get("timestamp") or item.get("date"),
                 "raw_data": item,
             })
         self._post("bitpanda_operations", operation_rows, "operation_id")
@@ -86,8 +88,7 @@ class BitpandaPortfolioStore:
                 history_rows.append({
                     "timeframe": timeframe,
                     "observed_at": point.get("time") or point.get("timestamp") or observed,
-                    "value_eur": value,
-                    "raw_data": point,
+                    "value_eur": value, "raw_data": point,
                 })
         self._post("bitpanda_portfolio_history", history_rows, "timeframe,observed_at")
 
@@ -100,10 +101,8 @@ class BitpandaPortfolioStore:
                 "config_id": str(config_id),
                 "asset_id": str(item.get("assetId") or item.get("asset_id") or ""),
                 "apr": item.get("annualPercentageRate") or item.get("annual_percentage_rate"),
-                "product_type": item.get("type"),
-                "mode": item.get("mode"),
-                "enabled": item.get("enabled"),
-                "soldout": item.get("soldout"),
+                "product_type": item.get("type"), "mode": item.get("mode"),
+                "enabled": item.get("enabled"), "soldout": item.get("soldout"),
                 "observed_at": observed, "raw_data": item,
             })
         self._post("bitpanda_earn_configs", earn_rows, "config_id")

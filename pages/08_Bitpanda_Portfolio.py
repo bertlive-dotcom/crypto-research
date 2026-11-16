@@ -1,4 +1,4 @@
-"""Bitpanda Portfolio Intelligence — read-only Streamlit page."""
+"""Bitpanda Portfolio Intelligence — read-only diagnostic Streamlit page."""
 from datetime import datetime, timezone
 import json
 
@@ -7,12 +7,12 @@ import plotly.express as px
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-from bitpanda import BitpandaClient, BitpandaAPIError, BitpandaPortfolioStore, BitpandaStoreError
+from bitpanda import BitpandaClient, BitpandaAPIError
 
 st.set_page_config(page_title="Bitpanda Portfolio Intelligence | MID", layout="wide")
 st.title("Bitpanda Portfolio Intelligence")
-st.caption("Connexió de només lectura · actualització automàtica cada 15 minuts")
-st.warning("READ ONLY · Aquesta pàgina no pot executar compres, vendes, staking ni retirades.")
+st.caption("Diagnòstic de només lectura · actualització automàtica cada 15 minuts")
+st.warning("READ ONLY · Aquesta pàgina només consulta Bitpanda. No escriu a Supabase ni executa operacions.")
 
 def secret(key):
     try:
@@ -22,30 +22,27 @@ def secret(key):
 
 password = secret("DASHBOARD_PASSWORD")
 if not password:
-    st.error("Falta DASHBOARD_PASSWORD a les secrets del desplegament.")
+    st.error("Falta DASHBOARD_PASSWORD a les secrets del desplegament. Configura una contrasenya per protegir l'accés a aquesta pàgina.")
     st.stop()
 if st.session_state.get("dashboard_authenticated") is not True:
-    if st.text_input("Contrasenya del dashboard", type="password", key="bitpanda_password") != password:
+    entered_password = st.text_input("Contrasenya del dashboard", type="password", key="bitpanda_password")
+    if entered_password != password:
         st.stop()
     st.session_state["dashboard_authenticated"] = True
 
 api_key = secret("BITPANDA_API_KEY")
-supabase_url = secret("SUPABASE_URL")
-supabase_key = secret("SUPABASE_SERVICE_ROLE_KEY")
 if not api_key:
-    st.info("Per activar aquesta pàgina, crea una clau Bitpanda v2 de només lectura i afegeix BITPANDA_API_KEY a les secrets del hosting.")
+    st.info("Afegeix BITPANDA_API_KEY a les secrets del hosting per provar la connexió.")
     st.markdown("Permisos necessaris: **Balances**, **Transaction**, **Trade (Read)** i **Earn (Read)**. No activis cap permís Write.")
-    st.stop()
-if not supabase_url or not supabase_key:
-    st.error("Falten SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.")
     st.stop()
 
 st_autorefresh(interval=900_000, limit=None, key="bitpanda-15m-refresh")
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_bitpanda_data(key, database_url, database_key):
+def fetch_bitpanda_data(key):
+    """Fetch data from Bitpanda only. This function performs no database writes."""
     client = BitpandaClient(key)
-    result = {
+    return {
         "holdings": client.get_holdings(),
         "operations": client.get_operations(max_pages=5),
         "history": {
@@ -55,20 +52,15 @@ def fetch_bitpanda_data(key, database_url, database_key):
         "earn": client.get_earn_configs(max_pages=5),
         "observed_at": datetime.now(timezone.utc).isoformat(),
     }
-    store = BitpandaPortfolioStore(database_url, database_key)
-    store.save_sync(
-        result["holdings"], result["operations"], result["history"], result["earn"]
-    )
-    return result
 
-if st.button("Actualitzar ara", type="primary"):
+if st.button("Consultar Bitpanda ara", type="primary"):
     fetch_bitpanda_data.clear()
     st.rerun()
 
 try:
-    with st.spinner("Sincronitzant dades de Bitpanda..."):
-        data = fetch_bitpanda_data(api_key, supabase_url, supabase_key)
-except (BitpandaAPIError, BitpandaStoreError, ValueError) as exc:
+    with st.spinner("Consultant dades de Bitpanda (només lectura)..."):
+        data = fetch_bitpanda_data(api_key)
+except (BitpandaAPIError, ValueError) as exc:
     st.error(str(exc))
     st.stop()
 
@@ -99,9 +91,9 @@ for item in holdings:
 latest_sync = datetime.fromisoformat(data["observed_at"].replace("Z", "+00:00"))
 st.caption("Última consulta UTC: " + latest_sync.strftime("%Y-%m-%d %H:%M:%S"))
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Valor de cartera", money(total_value))
-c2.metric("Posicions", len(holdings))
-c3.metric("Operacions importades", len(operations))
+c1.metric("Valor de cartera (estimació)", money(total_value))
+c2.metric("Posicions retornades", len(holdings))
+c3.metric("Operacions retornades", len(operations))
 c4.metric("Productes Earn disponibles", len(earn))
 
 tab_portfolio, tab_performance, tab_operations, tab_earn, tab_quality = st.tabs(
@@ -156,14 +148,12 @@ with tab_operations:
     if operations:
         rows = []
         for item in operations:
+            transactions = item.get("transactions") or []
+            transaction = transactions[0] if isinstance(transactions, list) and transactions else {}
             rows.append({
-                "Data": ((item.get("transactions") or [{}])[0].get("creditedAt")
-                         if isinstance(item.get("transactions"), list) and item.get("transactions")
-                         else item.get("createdAt") or item.get("timestamp") or item.get("date")),
+                "Data": transaction.get("creditedAt") or item.get("createdAt") or item.get("timestamp") or item.get("date"),
                 "Tipus": item.get("operationType") or item.get("operation_type") or item.get("type"),
-                "Actiu ID": ((item.get("transactions") or [{}])[0].get("assetId")
-                             if isinstance(item.get("transactions"), list) and item.get("transactions")
-                             else item.get("assetId") or item.get("asset_id")),
+                "Actiu ID": transaction.get("assetId") or item.get("assetId") or item.get("asset_id"),
                 "ID": item.get("operationId") or item.get("operation_id") or item.get("id"),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -192,7 +182,8 @@ with tab_quality:
         "earn_config_rows": len(earn),
         "history_timeframes": {key: len(value) for key, value in history.items()},
         "refresh_seconds": 900,
-        "write_operations_enabled": False,
+        "database_writes": False,
+        "trading_or_transfer_actions": False,
     })
     with st.expander("Resposta de diagnòstic (sense credencials)"):
         st.code(json.dumps({

@@ -73,4 +73,6 @@ grant select, insert, update on public.bitpanda_holdings_snapshots to service_ro
 grant select, insert, update on public.bitpanda_operations to service_role;
 grant select, insert, update on public.bitpanda_portfolio_history to service_role;
 grant select, insert, update on public.bitpanda_earn_configs to service_role;
-grant usage, select on all sequences in schema public to service_role;
+grant usage, select on sequence public.bitpanda_sync_runs_id_seq to service_role;
+grant usage, select on sequence public.bitpanda_holdings_snapshots_id_seq to service_role;
+grant usage, select on sequence public.bitpanda_portfolio_history_id_seq to service_role;

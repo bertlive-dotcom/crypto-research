@@ -33,5 +33,5 @@ All tables have RLS enabled and deny access to anon/authenticated roles. The ser
 ## Current limitations
 - Cost basis and realized/unrealized P&L need a validated mapping of Bitpanda operation payloads; do not infer them from current holdings.
 - Earn configuration APRs are product availability, not user staking balances.
-- Card data is excluded because the connected account authorization currently exposes only balance, transaction, trading and earn scopes.
+- Card analytics are not included in this first dashboard increment; they can be added after the portfolio data model is validated.
 - The integration stores the raw provider payload for auditability. Keep Supabase access restricted and apply a retention policy before broadening access.

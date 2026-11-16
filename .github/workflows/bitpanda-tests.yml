@@ -1,0 +1,29 @@
+name: Bitpanda integration tests
+
+on:
+  pull_request:
+    paths:
+      - "bitpanda/**"
+      - "pages/08_Bitpanda_Portfolio.py"
+      - "tests/test_bitpanda_client.py"
+      - ".github/workflows/bitpanda-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bitpanda/**"
+      - "tests/test_bitpanda_client.py"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install "requests>=2.31,<3.0"
+      - name: Compile Bitpanda modules and page
+        run: python -m py_compile bitpanda/*.py pages/08_Bitpanda_Portfolio.py
+      - name: Run Bitpanda adapter tests
+        run: python -m unittest discover -s tests -p 'test_bitpanda_client.py' -v

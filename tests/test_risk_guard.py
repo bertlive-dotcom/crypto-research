@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timezone
 
 from scanner.risk_guard import evaluate_risk_guard
-from trading_desk import new_portfolio
+from trading_desk import Signal, new_portfolio, paper_entry
 
 
 class RiskGuardTests(unittest.TestCase):
@@ -58,6 +58,21 @@ class RiskGuardTests(unittest.TestCase):
         portfolio["cash"] = 84
         result = evaluate_risk_guard(portfolio, now)
         self.assertEqual(result["high_water_equity_usd"], 84)
+
+    def test_aggregate_floating_loss_blocks_new_entries(self):
+        portfolio = new_portfolio(80)
+        signal = Signal(
+            asset="BTC", market="major", price_usd=100,
+            volume_24h_usd=2_000_000, gain_1h_pct=0,
+        )
+        position = paper_entry(portfolio, signal, stop_loss_pct=10)
+        position["last_price_usd"] = position["entry_fill_price"] * 0.70
+        result = evaluate_risk_guard(
+            portfolio, datetime(2026, 11, 20, 9, tzinfo=timezone.utc)
+        )
+        self.assertFalse(result["can_open_new_positions"])
+        self.assertLess(result["floating_pnl_usd"], -1.60)
+        self.assertTrue(any("floating-loss" in reason for reason in result["blocked_reasons"]))
 
 
 if __name__ == "__main__":

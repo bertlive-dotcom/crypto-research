@@ -9,14 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def _finite_positive(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
-
-
 def analyze_price_action(
     candles: list[dict[str, Any]],
     lookback: int = 20,
@@ -103,7 +95,9 @@ def analyze_price_action(
             if touched and current["close"] < breakout_low:
                 retest = "BEARISH"
 
-    baseline = sum(row["volume"] for row in normalized[-21:-1]) / 20
+    volume_period = min(20, len(normalized) - 1)
+    prior_volumes = [row["volume"] for row in normalized[-volume_period-1:-1]]
+    baseline = sum(prior_volumes) / volume_period
     volume_ratio = current["volume"] / baseline if baseline > 0 else None
     exhaustion = "NONE"
     high_volume = volume_ratio is not None and volume_ratio >= 1.5

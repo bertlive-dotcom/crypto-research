@@ -74,6 +74,32 @@ class RiskGuardTests(unittest.TestCase):
         self.assertLess(result["floating_pnl_usd"], -1.60)
         self.assertTrue(any("floating-loss" in reason for reason in result["blocked_reasons"]))
 
+    def test_initial_high_water_never_starts_below_starting_capital(self):
+        portfolio = new_portfolio(80)
+        portfolio["cash"] = 75
+        result = evaluate_risk_guard(
+            portfolio, datetime(2026, 11, 20, 9, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["high_water_equity_usd"], 80)
+        self.assertEqual(result["drawdown_usd"], 5)
+
+    def test_floating_loss_threshold_is_reachable_with_three_open_positions(self):
+        portfolio = new_portfolio(80)
+        for asset in ("BTC", "ETH", "SOL"):
+            signal = Signal(
+                asset=asset, market="major", price_usd=100,
+                volume_24h_usd=2_000_000, gain_1h_pct=0,
+            )
+            position = paper_entry(portfolio, signal, stop_loss_pct=3)
+            position["last_price_usd"] = position["entry_fill_price"] * 0.975
+        result = evaluate_risk_guard(
+            portfolio, datetime(2026, 11, 20, 9, tzinfo=timezone.utc)
+        )
+        self.assertFalse(result["can_open_new_positions"])
+        self.assertAlmostEqual(result["floating_loss_limit_usd"], 0.40)
+        self.assertLess(result["floating_pnl_usd"], -0.40)
+        self.assertTrue(any("floating-loss" in reason for reason in result["blocked_reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

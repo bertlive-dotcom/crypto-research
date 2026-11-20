@@ -1,8 +1,7 @@
 """Portfolio-level risk guard for the Market Scanner paper account.
 
-All limits are measured against the initial virtual capital. This module only
-blocks new paper entries; existing positions continue to be marked and their
-configured stop-loss/take-profit rules remain active.
+The guard blocks new paper entries only. Existing positions remain subject to
+normal stop-loss/take-profit processing by the worker.
 """
 from __future__ import annotations
 
@@ -16,14 +15,13 @@ def evaluate_risk_guard(
     now: datetime | None = None,
     daily_loss_pct: float = 2.0,
     trailing_drawdown_pct: float = 6.0,
-    floating_loss_pct: float = 2.0,
+    floating_loss_pct: float = 0.5,
 ) -> dict:
     """Update persistent risk state and report whether new entries are allowed.
 
-    Daily loss is measured from UTC day-start equity and is latched until the
-    next UTC day. Trailing drawdown is measured from the highest observed
-    portfolio equity and is permanently latched once breached. Floating loss
-    is the sum of estimated unrealized P&L, including simulated exit costs.
+    Daily loss is latched until the next UTC day. Trailing drawdown is latched
+    permanently. Floating loss blocks entries while the aggregate marked loss
+    exceeds its threshold; the worker evaluates it before processing exits.
     """
     if min(daily_loss_pct, trailing_drawdown_pct, floating_loss_pct) <= 0:
         raise ValueError("Risk limits must be greater than zero.")
@@ -46,8 +44,12 @@ def evaluate_risk_guard(
         state["day_start_equity_usd"] = equity
 
     day_start_equity = float(state.get("day_start_equity_usd", equity))
-    high_water = float(state.get("high_water_equity_usd", equity))
-    high_water = max(high_water, equity)
+    # On first initialization, do not erase losses already incurred against
+    # the account's original capital by treating the depressed equity as HWM.
+    if "high_water_equity_usd" not in state:
+        high_water = max(starting_capital, equity)
+    else:
+        high_water = max(float(state["high_water_equity_usd"]), equity)
     state["high_water_equity_usd"] = high_water
 
     floating_pnl = sum(

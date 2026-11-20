@@ -1,4 +1,74 @@
+# AI Crypto Trading Desk - simulation-only MVP
 
+## Scope
+- Virtual starting capital: USD 80.
+- Markets: Solana tokens/memecoins and major crypto assets.
+- No live trading, exchange order endpoints, wallet signing, seed phrases, or private keys.
+- The five roles are deterministic software stages in this MVP, not autonomous LLM agents:
+  1. Scout: accepts a manually entered or externally sourced candidate signal.
+  2. Filter: applies hard eligibility rules.
+  3. Analyst: displays rule outcomes and risk assumptions.
+  4. Sniper: opens a simulated position only.
+  5. Guard: requires a stop-loss percentage and enforces position/exposure limits.
+
+## Filters
+For Solana candidates, missing on-chain inputs fail closed:
+- liquidity >= USD 30,000;
+- top-10 holder concentration <= 40%;
+- developer wallet share <= 8%;
+- no bundled buys in first 60 seconds;
+- 45-minute gain <= 80%;
+- source wallet has not sold.
+
+For major assets, wallet/holder checks are not applicable. The MVP automatically reads 24-hour volume and 1-hour price change from CoinMarketCap. It requires 24-hour volume >= USD 1,000,000 and rejects an indicated 1-hour gain above 80%. The quote must be no older than five minutes. Missing market inputs fail closed. This is a separate ruleset, not equivalent to the Solana checks.
+
+## Risk model
+- Default risk budget: 1% of current virtual cash per trade.
+- Maximum position: 10% of virtual cash.
+- Maximum aggregate open exposure: 25% of virtual cash.
+- Entry and exit simulation includes adverse slippage (0.30% per side) and fees (0.10% per side).
+- Default stop-loss: 10% below simulated entry fill.
+- Default take-profit: 20% above simulated entry fill.
+- Both thresholds are checked against each fresh market quote (60-second refresh) and against manual paper marks; crossing either threshold closes the simulated position and records the exit reason in Supabase.
+- Thresholds are configurable per signal. Simulated execution includes adverse slippage and fees; real fills are not guaranteed because this is paper trading.
+
+## Current limitations
+- No automatic 640-wallet tracker or wallet performance ranking.
+- No automatic Solana token discovery / on-chain holder analytics yet.
+- Solana candidate signals and on-chain metrics remain manual and require explicit values plus source and observation time. Major-asset entry price, 24-hour volume and 1-hour price change are populated from CoinMarketCap.
+- Portfolio state is held in Streamlit session state and is not a durable, cross-device ledger.
+- Major-asset prices and open-position marks refresh automatically from CoinMarketCap every 60 seconds; quote fields used for paper-entry filters are checked for five-minute freshness. Manual marks remain available for testing.
+- No claim of AI-generated analysis or proven profitability; current agents are deterministic rule-based components.
+
+## Validation gates before any live-trading discussion
+1. Unit tests pass for thresholds, missing-data rejection, position sizing, costs, and P&L.
+2. Historical/backtest and paper-trading logs include timestamps, source identifiers, fees, slippage, and rejected signals.
+3. At least 30 days of forward simulation and a meaningful sample of trades are reviewed.
+4. Results are measured net of fees/slippage and include max drawdown, expectancy, profit factor, win rate, and concentration.
+5. Independent review of data quality, execution assumptions, and security.
+6. A separate explicit user decision and separate security review would be required before any live execution feature is designed.
+
+## Security
+Never put API keys, passwords, wallet seed phrases, private keys, or .streamlit/secrets.toml in Git.
+
+
+## Six-agent paper pipeline (experimental branch)
+The standalone Market Scanner now routes eligible candidates through six deterministic, auditable stages:
+1. Scout validates candidate identity, positive price and a closed 1h candle timestamp.
+2. Filter enforces the existing hard gates and auto-entry eligibility.
+3. Analyst records the technical score, RSI, MACD histogram and relative volume; it cannot override a failed gate.
+4. Risk Manager delegates to the existing `apply_paper_rules` controls, including duplicate-asset prevention, maximum open positions and daily loss limit.
+5. Executor authorizes only the existing simulated `paper_entry` path. Any mode other than the literal `paper` fails closed.
+6. Logger persists per-stage audit events in the existing scanner run JSON through Supabase; no new table or credentials are required.
+
+These are software stages, not six independent AI models or LLM agents. They do not broaden the market universe, change entry thresholds, increase risk, or send exchange orders. The pipeline is introduced on branch `feature/six-agent-paper-pipeline` and is not deployed until reviewed and merged. New unit coverage is in `tests/test_six_agent_pipeline.py`.
+
+Validation before deployment:
+- Run `python -m unittest discover -s tests -v`.
+- Run `python -m py_compile scanner/agents.py scanner/worker.py`.
+- Inspect a completed scanner cycle in Supabase and confirm all six agent audit stages are present.
+- Confirm paper entries, exits, fees, slippage, daily loss controls and duplicate-signal protection remain unchanged.
+- Keep the existing 30-day forward-simulation gate; this feature is not evidence of profitability.
 
 ## Portfolio-level Prop-Firm Risk Guard (experimental branch)
 The standalone Market Scanner adds an outer portfolio guard before new paper entries. It reuses the existing portfolio JSON state; no new Supabase table or secret is required.

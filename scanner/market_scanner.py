@@ -7,6 +7,7 @@ from .config import (
 )
 from .indicators import atr_pct, candle_series, ema, macd_histogram, rsi, volume_ratio
 from .market_data import BinanceSpotClient
+from .ttz import analyze_price_action
 
 def _features(raw: list[list], min_closed_candles: int = 60) -> dict:
     c = candle_series(raw)
@@ -19,6 +20,11 @@ def _features(raw: list[list], min_closed_candles: int = 60) -> dict:
     e20, e50 = ema(closes, 20), ema(closes, 50)
     previous_close = closes[-2]
     change_pct = ((closes[-1] / previous_close) - 1.0) * 100.0 if previous_close > 0 else None
+    closed_candles = [
+        {"open": float(raw_row[1]), "high": highs[i], "low": lows[i],
+         "close": closes[i], "volume": volumes[i]}
+        for i, raw_row in enumerate(raw[:-1])
+    ]
     return {
         "close": closes[-1], "ema20": e20[-1] if e20 else None,
         "ema50": e50[-1] if e50 else None, "rsi14": rsi(closes),
@@ -26,6 +32,8 @@ def _features(raw: list[list], min_closed_candles: int = 60) -> dict:
         "volume_ratio": volume_ratio(volumes),
         "change_pct": change_pct,
         "candle_close_time": c["open_time"][-1],
+        # TTZ-inspired diagnostics are research-only and never affect score/gates.
+        "ttz": analyze_price_action(closed_candles),
     }
 
 def score_candidate(ticker: dict, one_hour: dict, four_hour: dict, daily: dict) -> dict:

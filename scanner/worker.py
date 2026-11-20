@@ -13,6 +13,7 @@ from .config import (
 from .agents import run_agent_pipeline
 from .market_data import BinanceSpotClient
 from .market_scanner import scan_market
+from .risk_guard import evaluate_risk_guard
 from .store import ScannerStore
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
@@ -32,15 +33,43 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
 
         prices = client.prices()
         closed = []
+        # First mark every open position without triggering exits. This lets the
+        # aggregate floating-loss guard see the full portfolio before a stop
+        # closes individual positions in this same cycle.
+        marked_prices = {}
         for position in list(portfolio.get("open_positions", [])):
             price = prices.get(position["asset"].upper())
             if price:
-                trade = update_position_mark(portfolio, position["asset"], float(price))
+                marked_prices[position.get("position_id") or position["asset"]] = float(price)
+                position["last_price_usd"] = float(price)
+
+        pre_exit_guard = evaluate_risk_guard(portfolio)
+
+        # Process stop-loss/take-profit exits after the pre-exit floating-loss check.
+        for position in list(portfolio.get("open_positions", [])):
+            price = marked_prices.get(position.get("position_id") or position["asset"])
+            if price is not None:
+                trade = update_position_mark(portfolio, position["asset"], price,
+                                             position_id=position.get("position_id"))
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 
-        # Six deterministic stages; existing Market Scanner risk rules remain authoritative.
-        pipeline = run_agent_pipeline(candidates, portfolio, mode="paper")
+        # Recalculate realized daily loss and drawdown after exits. Preserve any
+        # floating-loss block detected immediately before those exits.
+        risk_guard = evaluate_risk_guard(portfolio)
+        risk_guard["pre_exit_floating_pnl_usd"] = pre_exit_guard["floating_pnl_usd"]
+        risk_guard["pre_exit_floating_loss_limit_usd"] = pre_exit_guard["floating_loss_limit_usd"]
+        combined_reasons = list(dict.fromkeys(
+            pre_exit_guard["blocked_reasons"] + risk_guard["blocked_reasons"]
+        ))
+        risk_guard["blocked_reasons"] = combined_reasons
+        risk_guard["can_open_new_positions"] = not combined_reasons
+        permitted_candidates = candidates if risk_guard["can_open_new_positions"] else []
+        if not risk_guard["can_open_new_positions"]:
+            log.warning("Prop-Firm Risk Guard blocked new entries: %s", "; ".join(risk_guard["blocked_reasons"]))
+
+        # Six deterministic stages remain unchanged; the guard is an additional outer gate.
+        pipeline = run_agent_pipeline(permitted_candidates, portfolio, mode="paper")
         approved = pipeline["approved_candidates"]
         signals = []
         processed = set(portfolio["processed_signal_ids"])
@@ -73,6 +102,7 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         run.update({
             "paper_entries": len(signals), "paper_exits": closed,
             "worker_id": worker_id, "completed_at": datetime.now(timezone.utc).isoformat(),
+            "risk_guard": risk_guard,
             "agent_pipeline": {
                 "mode": pipeline["mode"],
                 "agents": pipeline["agents"],
@@ -86,8 +116,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         })
         store.save_cycle(portfolio, run, candidates, signals)
         log.info(
-            "Cycle complete: analysed=%s candidates=%s six_agent_authorized=%s entries=%s exits=%s",
-            run["analysed_count"], run["candidate_count"],
+            "Cycle complete: analysed=%s candidates=%s risk_guard_allowed=%s six_agent_authorized=%s entries=%s exits=%s",
+            run["analysed_count"], run["candidate_count"], risk_guard["can_open_new_positions"],
             pipeline["authorized_count"], len(signals), len(closed),
         )
         return run
@@ -102,7 +132,7 @@ def main():
     validate_staging_target()
     store = ScannerStore()
     client = BinanceSpotClient()
-    log.info("Market Scanner v1 with six-agent paper pipeline started; interval=%ss; paper-only mode.", SCAN_INTERVAL_SECONDS)
+    log.info("Market Scanner v1 with six-agent paper pipeline and portfolio risk guard started; interval=%ss; paper-only mode.", SCAN_INTERVAL_SECONDS)
     while True:
         started = time.monotonic()
         try:

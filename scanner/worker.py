@@ -33,16 +33,37 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
 
         prices = client.prices()
         closed = []
+        # First mark every open position without triggering exits. This lets the
+        # aggregate floating-loss guard see the full portfolio before a stop
+        # closes individual positions in this same cycle.
+        marked_prices = {}
         for position in list(portfolio.get("open_positions", [])):
             price = prices.get(position["asset"].upper())
             if price:
-                trade = update_position_mark(portfolio, position["asset"], float(price))
+                marked_prices[position.get("position_id") or position["asset"]] = float(price)
+                position["last_price_usd"] = float(price)
+
+        pre_exit_guard = evaluate_risk_guard(portfolio)
+
+        # Process stop-loss/take-profit exits after the pre-exit floating-loss check.
+        for position in list(portfolio.get("open_positions", [])):
+            price = marked_prices.get(position.get("position_id") or position["asset"])
+            if price is not None:
+                trade = update_position_mark(portfolio, position["asset"], price,
+                                             position_id=position.get("position_id"))
                 if trade:
                     closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
 
-        # Portfolio-level guard runs after marks/exits and before any new paper entry.
-        # It persists its high-water and UTC-day baselines inside the existing JSONB state.
+        # Recalculate realized daily loss and drawdown after exits. Preserve any
+        # floating-loss block detected immediately before those exits.
         risk_guard = evaluate_risk_guard(portfolio)
+        risk_guard["pre_exit_floating_pnl_usd"] = pre_exit_guard["floating_pnl_usd"]
+        risk_guard["pre_exit_floating_loss_limit_usd"] = pre_exit_guard["floating_loss_limit_usd"]
+        combined_reasons = list(dict.fromkeys(
+            pre_exit_guard["blocked_reasons"] + risk_guard["blocked_reasons"]
+        ))
+        risk_guard["blocked_reasons"] = combined_reasons
+        risk_guard["can_open_new_positions"] = not combined_reasons
         permitted_candidates = candidates if risk_guard["can_open_new_positions"] else []
         if not risk_guard["can_open_new_positions"]:
             log.warning("Prop-Firm Risk Guard blocked new entries: %s", "; ".join(risk_guard["blocked_reasons"]))

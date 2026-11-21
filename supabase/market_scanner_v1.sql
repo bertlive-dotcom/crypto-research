@@ -104,7 +104,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare item jsonb;
 begin
-    delete from public.scanner_runs where created_at < now() - interval '30 days';
+    delete from public.scanner_runs where created_at < now() - interval '7 days';
     delete from public.market_candidates where scanned_at < now() - interval '30 days';
 
     insert into public.scanner_paper_state (id, state, updated_at)

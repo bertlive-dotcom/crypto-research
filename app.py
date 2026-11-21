@@ -209,8 +209,8 @@ if not cmc_key or not twelve_key:
 
 # Crypto market data and paper-position marks refresh every minute. Keep equity
 # quotes on a slower cache so the Twelve Data credit budget is not consumed rapidly.
-st_autorefresh(interval=60_000, limit=None, key="market-data-auto-refresh")
-st.caption("Crypto market data and paper-position marks refresh every 60 seconds. Stock and ETF quotes refresh hourly in one batched Twelve Data request; credits are still counted per symbol.")
+st_autorefresh(interval=120_000, limit=None, key="market-data-auto-refresh")
+st.caption("Crypto market data and paper-position marks refresh every 120 seconds. Stock and ETF quotes refresh hourly in one batched Twelve Data request; credits are still counted per symbol.")
 
 supabase_url = secret("SUPABASE_URL")
 supabase_service_key = secret("SUPABASE_SERVICE_ROLE_KEY")

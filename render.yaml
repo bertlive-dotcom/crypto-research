@@ -19,7 +19,7 @@ services:
       - key: SCANNER_TOP_UNIVERSE_SIZE
         value: "20"
       - key: SCANNER_MAX_CANDIDATES
-        value: "50"
+        value: "15"
       - key: SCANNER_MIN_QUOTE_VOLUME_USDT
         value: "10000000"
       - key: SCANNER_MIN_SCORE

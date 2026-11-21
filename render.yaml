@@ -15,9 +15,9 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SCANNER_INTERVAL_SECONDS
-        value: "300"
+        value: "900"
       - key: SCANNER_TOP_UNIVERSE_SIZE
-        value: "50"
+        value: "20"
       - key: SCANNER_MAX_CANDIDATES
         value: "50"
       - key: SCANNER_MIN_QUOTE_VOLUME_USDT

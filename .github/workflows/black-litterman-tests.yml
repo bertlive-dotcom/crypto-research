@@ -1,0 +1,54 @@
+name: Black-Litterman engine tests
+
+on:
+  push:
+    branches:
+      - "feature/black-litterman-engine-v1"
+    paths:
+      - "portfolio_engine/**"
+      - "scripts/compare_black_litterman_forecasts.py"
+      - "scripts/track_black_litterman_forecasts.py"
+      - "tests/test_black_litterman_math.py"
+      - "tests/test_historical_forecast.py"
+      - "tests/test_binance_history_integration.py"
+      - "tests/test_portfolio_construction.py"
+      - "tests/test_predictive_model_comparison.py"
+      - "tests/test_prospective_shadow_validation.py"
+      - "requirements-black-litterman-ml.txt"
+      - ".github/workflows/black-litterman-tests.yml"
+  pull_request:
+    paths:
+      - "portfolio_engine/**"
+      - "scripts/compare_black_litterman_forecasts.py"
+      - "scripts/track_black_litterman_forecasts.py"
+      - "tests/test_black_litterman_math.py"
+      - "tests/test_historical_forecast.py"
+      - "tests/test_binance_history_integration.py"
+      - "tests/test_portfolio_construction.py"
+      - "tests/test_predictive_model_comparison.py"
+      - "tests/test_prospective_shadow_validation.py"
+      - "requirements-black-litterman-ml.txt"
+      - ".github/workflows/black-litterman-tests.yml"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install numerical dependency
+        run: python -m pip install "numpy>=1.26,<3.0" "requests>=2.31,<3.0"
+      - name: Install optional model-comparison dependency
+        run: python -m pip install -r requirements-black-litterman-ml.txt
+      - name: Compile portfolio engine
+        run: python -m compileall -q portfolio_engine scripts/compare_black_litterman_forecasts.py scripts/track_black_litterman_forecasts.py
+      - name: Run Black-Litterman and forecast tests
+        run: |
+          python -m unittest discover -s tests -p "test_black_litterman_math.py" -v
+          python -m unittest discover -s tests -p "test_historical_forecast.py" -v
+          python -m unittest discover -s tests -p "test_binance_history_integration.py" -v
+          python -m unittest discover -s tests -p "test_portfolio_construction.py" -v
+          python -m unittest discover -s tests -p "test_predictive_model_comparison.py" -v
+          python -m unittest discover -s tests -p "test_prospective_shadow_validation.py" -v

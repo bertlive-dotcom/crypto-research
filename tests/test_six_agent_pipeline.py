@@ -201,6 +201,55 @@ class PaperCycleIntegrationTests(unittest.TestCase):
         self.assertEqual(len(store.saved["state"]["closed_trades"]), 1)
 
 
+    def test_worker_excludes_partial_candle_that_started_before_position_entry(self):
+        from trading_desk import Signal, paper_entry
+
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_cycle(self, state, run, candidates, signals): self.saved = state
+            def release_lock(self, worker_id): pass
+
+        class EntryBoundaryClient:
+            def __init__(self): self.requested_start = None
+            def klines(self, symbol, interval, limit, start_time=None, end_time=None):
+                self.requested_start = start_time
+                # The first candle began before entry and breached the stop.
+                # The next candle began after entry and did not breach it.
+                rows = [
+                    [0, "100", "101", "80", "100", "10", 299999],
+                    [300000, "100", "102", "99", "101", "10", 599999],
+                ]
+                return [row for row in rows if row[0] >= start_time][:limit]
+
+        store = MemoryStore()
+        position = paper_entry(
+            store.state,
+            Signal(asset="BTC", market="major", price_usd=100,
+                   volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+            stop_loss_pct=10, take_profit_pct=20,
+        )
+        # Entry occurs at 00:02:30, halfway through the first 5m candle.
+        position["opened_at"] = "1970-01-01T00:02:30+00:00"
+        client = EntryBoundaryClient()
+
+        with patch.object(
+            worker, "scan_market",
+            return_value=([], {"analysed_count": 0, "candidate_count": 0}),
+        ):
+            result = worker.run_once(store, client)
+
+        self.assertEqual(client.requested_start, 150000)
+        self.assertEqual(result["paper_exits"], [])
+        self.assertEqual(len(store.saved["open_positions"]), 1)
+        self.assertEqual(
+            store.saved["open_positions"][0]["last_processed_candle_close_time"],
+            599999,
+        )
+
     def test_worker_replays_all_missed_closed_candles_after_downtime(self):
         from trading_desk import Signal, paper_entry
 

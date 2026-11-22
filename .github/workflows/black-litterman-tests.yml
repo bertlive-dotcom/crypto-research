@@ -7,22 +7,26 @@ on:
     paths:
       - "portfolio_engine/**"
       - "scripts/compare_black_litterman_forecasts.py"
+      - "scripts/track_black_litterman_forecasts.py"
       - "tests/test_black_litterman_math.py"
       - "tests/test_historical_forecast.py"
       - "tests/test_binance_history_integration.py"
       - "tests/test_portfolio_construction.py"
       - "tests/test_predictive_model_comparison.py"
+      - "tests/test_prospective_shadow_validation.py"
       - "requirements-black-litterman-ml.txt"
       - ".github/workflows/black-litterman-tests.yml"
   pull_request:
     paths:
       - "portfolio_engine/**"
       - "scripts/compare_black_litterman_forecasts.py"
+      - "scripts/track_black_litterman_forecasts.py"
       - "tests/test_black_litterman_math.py"
       - "tests/test_historical_forecast.py"
       - "tests/test_binance_history_integration.py"
       - "tests/test_portfolio_construction.py"
       - "tests/test_predictive_model_comparison.py"
+      - "tests/test_prospective_shadow_validation.py"
       - "requirements-black-litterman-ml.txt"
       - ".github/workflows/black-litterman-tests.yml"
 
@@ -39,7 +43,7 @@ jobs:
       - name: Install optional model-comparison dependency
         run: python -m pip install -r requirements-black-litterman-ml.txt
       - name: Compile portfolio engine
-        run: python -m compileall -q portfolio_engine scripts/compare_black_litterman_forecasts.py
+        run: python -m compileall -q portfolio_engine scripts/compare_black_litterman_forecasts.py scripts/track_black_litterman_forecasts.py
       - name: Run Black-Litterman and forecast tests
         run: |
           python -m unittest discover -s tests -p "test_black_litterman_math.py" -v
@@ -47,3 +51,4 @@ jobs:
           python -m unittest discover -s tests -p "test_binance_history_integration.py" -v
           python -m unittest discover -s tests -p "test_portfolio_construction.py" -v
           python -m unittest discover -s tests -p "test_predictive_model_comparison.py" -v
+          python -m unittest discover -s tests -p "test_prospective_shadow_validation.py" -v

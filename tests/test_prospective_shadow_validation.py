@@ -5,7 +5,10 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError as exc:
+    raise unittest.SkipTest("NumPy is required for prospective forecast tests") from exc
 
 from portfolio_engine.forecast.prospective import (
     forecast_model_suite_at_index,

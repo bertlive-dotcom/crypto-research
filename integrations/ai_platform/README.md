@@ -29,4 +29,4 @@ required for this contract-only increment.
 
 ## Tests
 
-    python -m unittest tests.test_ai_platform_contracts -v
+    python -m unittest discover -s tests -p 'test_ai_platform_contracts.py' -v

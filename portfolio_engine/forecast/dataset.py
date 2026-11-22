@@ -13,15 +13,28 @@ def validate_prices(prices: object) -> np.ndarray:
     return values
 
 
-def build_supervised_dataset(prices: object, horizon: int = 7) -> dict:
-    """Build features at t and labels close[t+h]/close[t]-1 with explicit maturity indices."""
+def _validate_benchmark(benchmark_prices: object | None, size: int) -> np.ndarray | None:
+    if benchmark_prices is None:
+        return None
+    benchmark = validate_prices(benchmark_prices)
+    if benchmark.size != size:
+        raise ValueError("benchmark_prices must align exactly with prices")
+    return benchmark
+
+
+def build_supervised_dataset(prices: object, horizon: int = 7,
+                             benchmark_prices: object | None = None) -> dict:
+    """Build causal features at t and labels close[t+h]/close[t]-1."""
     values = validate_prices(prices)
+    benchmark = _validate_benchmark(benchmark_prices, values.size)
     if not isinstance(horizon, (int, np.integer)) or isinstance(horizon, bool) or horizon < 1:
         raise ValueError("horizon must be a positive integer")
     origins = np.arange(MIN_FEATURE_HISTORY - 1, values.size - horizon)
     if origins.size == 0:
         raise ValueError("insufficient observations for requested horizon")
-    features = np.vstack([technical_features(values, int(i)) for i in origins])
+    features = np.vstack([
+        technical_features(values, int(i), benchmark) for i in origins
+    ])
     return {
         "features": features,
         "targets": values[origins + horizon] / values[origins] - 1.0,

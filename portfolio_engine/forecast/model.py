@@ -1,7 +1,7 @@
 """Regularized expected-return model and as-of forecasting API."""
 from __future__ import annotations
 import numpy as np
-from .dataset import build_supervised_dataset, validate_prices
+from .dataset import build_supervised_dataset, validate_prices, _validate_benchmark
 from .features import technical_features
 
 
@@ -32,20 +32,25 @@ def _predict(model: dict, feature_row: np.ndarray) -> float:
 
 
 def forecast_at_index(prices: object, as_of_index: int, horizon: int = 7,
-                      min_train_samples: int = 30, alpha: float = 10.0) -> dict:
+                      min_train_samples: int = 30, alpha: float = 10.0,
+                      benchmark_prices: object | None = None) -> dict:
     """Forecast at a historical origin using only labels matured by that origin."""
     values = validate_prices(prices)
+    benchmark = _validate_benchmark(benchmark_prices, values.size)
     if as_of_index < 0 or as_of_index >= values.size:
         raise ValueError("as_of_index is outside the price series")
     if min_train_samples < 2:
         raise ValueError("min_train_samples must be at least 2")
-    dataset = build_supervised_dataset(values[:as_of_index + 1], horizon=horizon)
+    benchmark_prefix = benchmark[:as_of_index + 1] if benchmark is not None else None
+    dataset = build_supervised_dataset(
+        values[:as_of_index + 1], horizon=horizon, benchmark_prices=benchmark_prefix
+    )
     mature = dataset["target_indices"] <= as_of_index
     x_train, y_train = dataset["features"][mature], dataset["targets"][mature]
     if x_train.shape[0] < min_train_samples:
         raise ValueError("insufficient matured historical labels for forecasting")
     model = _fit_ridge(x_train, y_train, alpha)
-    current_features = technical_features(values[:as_of_index + 1], as_of_index)
+    current_features = technical_features(values[:as_of_index + 1], as_of_index, benchmark_prefix)
     prediction = _predict(model, current_features)
     residual_std = float(np.std(model["residuals"], ddof=1)) if y_train.size > 1 else None
     return {"forecast_return": prediction, "training_sample_count": int(y_train.size),
@@ -54,12 +59,18 @@ def forecast_at_index(prices: object, as_of_index: int, horizon: int = 7,
 
 
 def forecast_latest(prices: object, horizon: int = 7, min_train_samples: int = 30,
-                    min_validation_samples: int = 20, alpha: float = 10.0) -> dict:
-    """Forecast latest close; permit BL views only if out-of-sample skill beats zero."""
+                    min_validation_samples: int = 20, alpha: float = 10.0,
+                    benchmark_prices: object | None = None) -> dict:
+    """Forecast latest close; permit BL views only if OOS skill beats zero."""
     from .walk_forward import walk_forward_validate
     values = validate_prices(prices)
-    forecast = forecast_at_index(values, values.size - 1, horizon, min_train_samples, alpha)
-    validation = walk_forward_validate(values, horizon, min_train_samples, alpha)
+    benchmark = _validate_benchmark(benchmark_prices, values.size)
+    forecast = forecast_at_index(
+        values, values.size - 1, horizon, min_train_samples, alpha, benchmark
+    )
+    validation = walk_forward_validate(
+        values, horizon, min_train_samples, alpha, benchmark_prices=benchmark
+    )
     errors = np.asarray(validation["absolute_errors"], dtype=float)
     enough_validation = errors.size >= min_validation_samples
     if enough_validation:
@@ -84,5 +95,6 @@ def forecast_latest(prices: object, horizon: int = 7, min_train_samples: int = 3
         "evidence_level": evidence, "view_eligible": eligible,
         "eligibility_rule": "minimum_validation_count_and_positive_MAE_skill_vs_zero_return",
         "uncertainty_method": "90th_percentile_absolute_walk_forward_error",
+        "benchmark": "BTC" if benchmark is not None else None,
     })
     return forecast

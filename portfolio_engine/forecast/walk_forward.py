@@ -1,18 +1,20 @@
 """Expanding-window validation with strictly matured training labels."""
 from __future__ import annotations
 import numpy as np
-from .dataset import build_supervised_dataset, validate_prices
+from .dataset import build_supervised_dataset, validate_prices, _validate_benchmark
 from .features import MIN_FEATURE_HISTORY, technical_features
 from .model import _fit_ridge, _predict
 
 
 def walk_forward_validate(prices: object, horizon: int = 7,
-                          min_train_samples: int = 30, alpha: float = 10.0) -> dict:
-    """Predict eligible origins using only training labels ending by each origin."""
+                          min_train_samples: int = 30, alpha: float = 10.0,
+                          benchmark_prices: object | None = None) -> dict:
+    """Predict eligible origins using only training labels matured by each origin."""
     values = validate_prices(prices)
+    benchmark = _validate_benchmark(benchmark_prices, values.size)
     if min_train_samples < 2:
         raise ValueError("min_train_samples must be at least 2")
-    dataset = build_supervised_dataset(values, horizon=horizon)
+    dataset = build_supervised_dataset(values, horizon=horizon, benchmark_prices=benchmark)
     targets, target_indices = dataset["targets"], dataset["target_indices"]
     predictions, actuals, origins = [], [], []
     first_origin = MIN_FEATURE_HISTORY - 1 + min_train_samples + horizon
@@ -22,7 +24,8 @@ def walk_forward_validate(prices: object, horizon: int = 7,
         if y_train.size < min_train_samples:
             continue
         model = _fit_ridge(x_train, y_train, alpha)
-        row = technical_features(values[:origin + 1], origin)
+        benchmark_prefix = benchmark[:origin + 1] if benchmark is not None else None
+        row = technical_features(values[:origin + 1], origin, benchmark_prefix)
         predictions.append(_predict(model, row))
         actuals.append(float(values[origin + horizon] / values[origin] - 1.0))
         origins.append(origin)

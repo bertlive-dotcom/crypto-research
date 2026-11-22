@@ -9,6 +9,7 @@ on:
       - "tests/test_black_litterman_math.py"
       - "tests/test_historical_forecast.py"
       - "tests/test_binance_history_integration.py"
+      - "tests/test_portfolio_construction.py"
       - ".github/workflows/black-litterman-tests.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "tests/test_black_litterman_math.py"
       - "tests/test_historical_forecast.py"
       - "tests/test_binance_history_integration.py"
+      - "tests/test_portfolio_construction.py"
       - ".github/workflows/black-litterman-tests.yml"
 
 jobs:
@@ -27,7 +29,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install numerical dependency
-        run: python -m pip install "numpy>=1.26,<3.0"
+        run: python -m pip install "numpy>=1.26,<3.0" "requests>=2.31,<3.0"
       - name: Compile portfolio engine
         run: python -m compileall -q portfolio_engine
       - name: Run Black-Litterman and forecast tests
@@ -35,3 +37,4 @@ jobs:
           python -m unittest discover -s tests -p "test_black_litterman_math.py" -v
           python -m unittest discover -s tests -p "test_historical_forecast.py" -v
           python -m unittest discover -s tests -p "test_binance_history_integration.py" -v
+          python -m unittest discover -s tests -p "test_portfolio_construction.py" -v

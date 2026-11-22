@@ -219,26 +219,31 @@ class PaperCycleIntegrationTests(unittest.TestCase):
                 self.requests.append(start_time)
                 return [row for row in self.candles if row[0] >= start_time][:limit]
 
-        store = MemoryStore()
-        position = paper_entry(
-            store.state,
-            Signal(asset="BTC", market="major", price_usd=100,
-                   volume_24h_usd=10_000_000, gain_1h_pct=1.0),
-            stop_loss_pct=10, take_profit_pct=20,
-        )
-        position["opened_at"] = "1970-01-01T00:00:00+00:00"
-        rows = [
-            [0, "100", "101", "99", "100", "1", 299999],
-            [300000, "100", "101", "80", "100", "1", 599999],
-            [600000, "100", "102", "99", "101", "1", 899999],
-        ]
-        client = DowntimeClient(rows)
-        with patch.object(worker, "scan_market", return_value=([], {"analysed_count": 0, "candidate_count": 0})):
-            result = worker.run_once(store, client)
+        # 30 minutes, 2 hours and 24 hours of missed 5m bars.
+        for missed_candles in (6, 24, 288):
+            with self.subTest(missed_candles=missed_candles):
+                store = MemoryStore()
+                position = paper_entry(
+                    store.state,
+                    Signal(asset="BTC", market="major", price_usd=100,
+                           volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+                    stop_loss_pct=10, take_profit_pct=20,
+                )
+                position["opened_at"] = "1970-01-01T00:00:00+00:00"
+                rows = []
+                for index in range(missed_candles):
+                    low = "80" if index == missed_candles // 2 else "99"
+                    rows.append([
+                        index * 300000, "100", "102", low, "100", "1",
+                        index * 300000 + 299999,
+                    ])
+                client = DowntimeClient(rows)
+                with patch.object(worker, "scan_market", return_value=([], {"analysed_count": 0, "candidate_count": 0})):
+                    result = worker.run_once(store, client)
 
-        self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
-        self.assertEqual(len(store.saved["closed_trades"]), 1)
-        self.assertEqual(client.requests, [0])
+                self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
+                self.assertEqual(len(store.saved["closed_trades"]), 1)
+                self.assertEqual(client.requests, [0])
 
     def test_worker_paginates_more_than_one_thousand_missed_candles(self):
         from scanner.worker import _closed_klines_since

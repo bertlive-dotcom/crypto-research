@@ -34,19 +34,21 @@ class CoinGeckoHistoryClient:
         try:
             response = self.session.get(
                 f"{self.base_url}{path}", params=params,
-                headers={"x-cg-demo-api-key": self.api_key}, timeout=self.timeout,
+                headers={"x-cg-demo-api-key": self.api_key, "accept": "application/json"}, timeout=self.timeout,
             )
             response.raise_for_status()
             payload = response.json()
         except requests.RequestException as exc:
-            status = getattr(getattr(exc, "response", None), "status_code", None)
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+            body = (getattr(response, "text", "") or "")[:500]
             if status == 429:
-                raise RuntimeError("CoinGecko rate limit reached") from exc
-            raise RuntimeError("CoinGecko historical-data request failed") from exc
+                raise RuntimeError(f"CoinGecko rate limit reached (HTTP {status}): {body}") from exc
+            raise RuntimeError(f"CoinGecko request failed (HTTP {status}): {body}") from exc
         except ValueError as exc:
             raise RuntimeError("CoinGecko returned invalid JSON") from exc
-        if not isinstance(payload, dict):
-            raise RuntimeError("CoinGecko returned an unexpected response")
+        if not isinstance(payload, (dict, list)):
+            raise RuntimeError(f"CoinGecko returned unexpected JSON type: {type(payload).__name__}")
         return payload
 
     def get_daily_prices(self, coin_id: str, days: int = 365) -> list[dict]:
@@ -79,7 +81,11 @@ class CoinGeckoHistoryClient:
             "page": 1, "sparkline": "false",
         })
         if not isinstance(payload, list):
-            raise RuntimeError("CoinGecko returned unexpected market-cap data")
+            # Preserve the provider error message (e.g. invalid key, endpoint restriction).
+            if isinstance(payload, dict):
+                error = payload.get("error") or payload.get("status") or payload
+                raise RuntimeError(f"CoinGecko market-cap API error: {error}")
+            raise RuntimeError(f"CoinGecko returned unexpected market-cap data: {type(payload).__name__}")
         caps = {}
         for item in payload:
             if not isinstance(item, dict):
@@ -113,6 +119,9 @@ def fetch_watchlist_history(*, client: CoinGeckoHistoryClient | None = None,
     except Exception as exc:
         for symbol in requested:
             result["unavailable"].append({"symbol": symbol, "reason": "market_cap_fetch_failed", "detail": str(exc)})
+        result["summary"] = {"requested": len(requested), "available": 0,
+                             "unavailable": len(result["unavailable"]),
+                             "market_caps_available": 0}
         return result
 
     for index, symbol in enumerate(requested):

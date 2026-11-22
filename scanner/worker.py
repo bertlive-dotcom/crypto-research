@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, new_portfolio, paper_entry, update_position_mark
+from trading_desk import Signal, new_portfolio, paper_entry, update_position_from_candle
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
     validate_staging_target,
@@ -30,14 +30,32 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 
-        prices = client.prices()
         closed = []
         for position in list(portfolio.get("open_positions", [])):
-            price = prices.get(position["asset"].upper())
-            if price:
-                trade = update_position_mark(portfolio, position["asset"], float(price))
+            # Evaluate the latest completed 5m OHLC candle, not a single sampled
+            # ticker price: this catches intrabar SL/TP touches between worker cycles.
+            symbol = f'{position["asset"].upper()}USDT'
+            try:
+                candles = client.klines(symbol, "5m", 2)
+                if len(candles) < 2:
+                    continue
+                candle = candles[-2]  # Binance's final row is the still-forming candle.
+                if len(candle) < 7:
+                    log.warning("Skipping %s exit check: incomplete Binance kline.", symbol)
+                    continue
+                trade = update_position_from_candle(
+                    portfolio, position["asset"],
+                    high=float(candle[2]), low=float(candle[3]),
+                    close=float(candle[4]), open_price=float(candle[1]),
+                    position_id=position.get("position_id"),
+                )
                 if trade:
-                    closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
+                    closed.append({"asset": trade["asset"], "reason": trade["exit_reason"],
+                                   "pnl_usd": trade["realized_pnl_usd"]})
+            except Exception as exc:
+                # Fail closed for exits: retain the position until a valid OHLC
+                # candle is available rather than treating a missing quote as safe.
+                log.warning("Could not evaluate paper exits for %s: %s", symbol, exc)
 
         # Six deterministic stages; existing Market Scanner risk rules remain authoritative.
         pipeline = run_agent_pipeline(candidates, portfolio, mode="paper")
@@ -51,6 +69,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
             signal = Signal(
                 asset=row["base_asset"], market="major", price_usd=float(row["price_usdt"]),
                 volume_24h_usd=float(row["quote_volume_24h"]),
+                # Percent return over the two most recent CLOSED 1h candles.
+                # This is a percentage value (2.0 == +2%), not a decimal fraction.
                 gain_1h_pct=row.get("features", {}).get("1h", {}).get("change_pct"),
                 source="Market Scanner v1 / Binance Spot / six-agent pipeline",
             )

@@ -97,7 +97,7 @@ def fetch_watchlist_history(*, client: CoinGeckoHistoryClient | None = None,
                             sleep_seconds: float = 0.15) -> dict:
     """Fetch one-source daily USD closes and current caps; keep per-asset failures."""
     client = client or CoinGeckoHistoryClient()
-    requested = list(symbols or COINGECKO_IDS)
+    requested = list(COINGECKO_IDS if symbols is None else symbols)
     if len(requested) != len(set(requested)):
         raise ValueError("symbols must be unique")
     observed_at = datetime.now(timezone.utc).isoformat()

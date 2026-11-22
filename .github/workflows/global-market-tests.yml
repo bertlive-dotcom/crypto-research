@@ -18,6 +18,12 @@ on:
       - "tests/test_crypto_feed.py"
       - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
+      - "scanner/**"
+      - "trading_desk.py"
+      - "tests/test_market_scanner.py"
+      - "tests/test_trading_desk.py"
+      - "tests/test_six_agent_pipeline.py"
+      - "supabase/migrations/**"
   push:
     branches:
       - "main"
@@ -33,6 +39,12 @@ on:
       - "tests/test_crypto_feed.py"
       - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
+      - "scanner/**"
+      - "trading_desk.py"
+      - "tests/test_market_scanner.py"
+      - "tests/test_trading_desk.py"
+      - "tests/test_six_agent_pipeline.py"
+      - "supabase/migrations/**"
 
 jobs:
   unit-tests:

@@ -1,6 +1,13 @@
 name: Black-Litterman engine tests
 
 on:
+  push:
+    branches:
+      - "feature/black-litterman-engine-v1"
+    paths:
+      - "portfolio_engine/**"
+      - "tests/test_black_litterman_math.py"
+      - ".github/workflows/black-litterman-tests.yml"
   pull_request:
     paths:
       - "portfolio_engine/**"

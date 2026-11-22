@@ -1,6 +1,11 @@
 """Deterministic mathematical tests for the independent BL analytics layer."""
 import unittest
-import numpy as np
+
+try:
+    import numpy as np
+except ImportError as exc:  # Other repository suites may not install numerical extras.
+    raise unittest.SkipTest("NumPy is required for the Black-Litterman math suite") from exc
+
 from portfolio_engine.analytics import (
     estimate_covariance, market_cap_weights, market_equilibrium_returns,
     posterior_expected_returns, simple_returns,

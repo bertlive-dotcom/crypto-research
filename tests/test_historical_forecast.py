@@ -1,6 +1,11 @@
 """Tests for causal feature generation and expanding walk-forward forecasts."""
 import unittest
-import numpy as np
+
+try:
+    import numpy as np
+except ImportError as exc:  # Legacy repository test jobs do not install numerical extras.
+    raise unittest.SkipTest("NumPy is required for the historical forecast suite") from exc
+
 from portfolio_engine.forecast import build_supervised_dataset, forecast_at_index, forecast_latest, walk_forward_validate
 from portfolio_engine.forecast.features import technical_features
 

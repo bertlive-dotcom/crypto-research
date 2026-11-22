@@ -188,7 +188,7 @@ class PaperCycleIntegrationTests(unittest.TestCase):
                    volume_24h_usd=10_000_000, gain_1h_pct=1.0),
             stop_loss_pct=10, take_profit_pct=20,
         )
-        # A stop at 89.7 is crossed by the completed candle's low (80).
+        # A stop at 90.27 is crossed by the completed candle's low (80).
         client = FixedClient()
         scan_run = {"analysed_count": 0, "candidate_count": 0}
         with patch.object(worker, "scan_market", return_value=([], scan_run)):

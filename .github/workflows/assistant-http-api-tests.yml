@@ -7,7 +7,7 @@ on:
     paths:
       - "assistant/**"
       - "global_markets/**"
-      - "tests/test_assistant_http_api.py"
+      - "tests/assistant_http_api_checks.py"
       - "requirements-api.txt"
       - ".github/workflows/assistant-http-api-tests.yml"
 
@@ -27,4 +27,4 @@ jobs:
       - name: Compile assistant API
         run: python -m py_compile assistant/http_api.py
       - name: Run read-only API tests
-        run: python -m unittest discover -s tests -p "test_assistant_http_api.py" -v
+        run: python -m unittest discover -s tests -p "assistant_http_api_checks.py" -v

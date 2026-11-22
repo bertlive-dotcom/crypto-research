@@ -30,6 +30,19 @@ class ScannerRuleTests(unittest.TestCase):
         self.assertIsNone(features["ema50"])
         self.assertEqual(features["close"], 144.0)
 
+    def test_features_use_binance_close_time_not_open_time(self):
+        raw = []
+        for index, close in enumerate([100.0] * 59 + [102.0, 999.0]):
+            # Binance kline schema: open time at [0], OHLCV at [1:6],
+            # close time at [6]. The final row is still forming and ignored.
+            raw.append([index * 3_600_000, str(close), str(close + 1),
+                        str(close - 1), str(close), "1000",
+                        index * 3_600_000 + 3_599_999])
+        features = _features(raw)
+        self.assertEqual(features["candle_open_time"], 59 * 3_600_000)
+        self.assertEqual(features["candle_close_time"], 59 * 3_600_000 + 3_599_999)
+        self.assertAlmostEqual(features["change_pct"], 2.0)
+
     def test_one_hour_still_requires_full_ema50_history(self):
         raw = []
         for i in range(60):

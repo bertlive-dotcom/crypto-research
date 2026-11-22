@@ -158,6 +158,159 @@ class PaperCycleIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(result["change_pct"], 2.0)
         self.assertEqual(result["close"], 102.0)
 
+    def test_worker_uses_completed_5m_ohlc_for_intrabar_stop_loss(self):
+        from trading_desk import Signal, paper_entry
+
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_cycle(self, state, run, candidates, signals):
+                self.saved = {"state": state, "run": run, "signals": signals}
+            def release_lock(self, worker_id): pass
+
+        class FixedClient:
+            def klines(self, symbol, interval, limit, start_time=None, end_time=None):
+                self.request = (symbol, interval, limit, start_time, end_time)
+                # Last item is the forming candle; the preceding completed
+                # candle crosses the position stop intrabar and recovers.
+                return [
+                    [0, "100", "101", "80", "100", "10", 299999],
+                    [300000, "100", "102", "99", "101", "10", 599999],
+                ]
+
+        store = MemoryStore()
+        position = paper_entry(
+            store.state,
+            Signal(asset="BTC", market="major", price_usd=100,
+                   volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+            stop_loss_pct=10, take_profit_pct=20,
+        )
+        # A stop at 90.27 is crossed by the completed candle's low (80).
+        position["opened_at"] = "1970-01-01T00:00:00+00:00"
+        client = FixedClient()
+        scan_run = {"analysed_count": 0, "candidate_count": 0}
+        with patch.object(worker, "scan_market", return_value=([], scan_run)):
+            result = worker.run_once(store, client)
+
+        self.assertEqual(client.request[:3], ("BTCUSDT", "5m", 1000))
+        self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
+        self.assertEqual(store.saved["state"]["open_positions"], [])
+        self.assertEqual(len(store.saved["state"]["closed_trades"]), 1)
+
+
+    def test_worker_excludes_partial_candle_that_started_before_position_entry(self):
+        from trading_desk import Signal, paper_entry
+
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_cycle(self, state, run, candidates, signals): self.saved = state
+            def release_lock(self, worker_id): pass
+
+        class EntryBoundaryClient:
+            def __init__(self): self.requested_start = None
+            def klines(self, symbol, interval, limit, start_time=None, end_time=None):
+                self.requested_start = start_time
+                # The first candle began before entry and breached the stop.
+                # The next candle began after entry and did not breach it.
+                rows = [
+                    [0, "100", "101", "80", "100", "10", 299999],
+                    [300000, "100", "102", "99", "101", "10", 599999],
+                ]
+                return [row for row in rows if row[0] >= start_time][:limit]
+
+        store = MemoryStore()
+        position = paper_entry(
+            store.state,
+            Signal(asset="BTC", market="major", price_usd=100,
+                   volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+            stop_loss_pct=10, take_profit_pct=20,
+        )
+        # Entry occurs at 00:02:30, halfway through the first 5m candle.
+        position["opened_at"] = "1970-01-01T00:02:30+00:00"
+        client = EntryBoundaryClient()
+
+        with patch.object(
+            worker, "scan_market",
+            return_value=([], {"analysed_count": 0, "candidate_count": 0}),
+        ):
+            result = worker.run_once(store, client)
+
+        self.assertEqual(client.requested_start, 150000)
+        self.assertEqual(result["paper_exits"], [])
+        self.assertEqual(len(store.saved["open_positions"]), 1)
+        self.assertEqual(
+            store.saved["open_positions"][0]["last_processed_candle_close_time"],
+            599999,
+        )
+
+    def test_worker_replays_all_missed_closed_candles_after_downtime(self):
+        from trading_desk import Signal, paper_entry
+
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_cycle(self, state, run, candidates, signals): self.saved = state
+            def release_lock(self, worker_id): pass
+
+        class DowntimeClient:
+            def __init__(self, candles): self.candles = candles; self.requests = []
+            def klines(self, symbol, interval, limit, start_time=None, end_time=None):
+                self.requests.append(start_time)
+                return [row for row in self.candles if row[0] >= start_time][:limit]
+
+        # 30 minutes, 2 hours and 24 hours of missed 5m bars.
+        for missed_candles in (6, 24, 288):
+            with self.subTest(missed_candles=missed_candles):
+                store = MemoryStore()
+                position = paper_entry(
+                    store.state,
+                    Signal(asset="BTC", market="major", price_usd=100,
+                           volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+                    stop_loss_pct=10, take_profit_pct=20,
+                )
+                position["opened_at"] = "1970-01-01T00:00:00+00:00"
+                rows = []
+                for index in range(missed_candles):
+                    low = "80" if index == missed_candles // 2 else "99"
+                    rows.append([
+                        index * 300000, "100", "102", low, "100", "1",
+                        index * 300000 + 299999,
+                    ])
+                client = DowntimeClient(rows)
+                with patch.object(worker, "scan_market", return_value=([], {"analysed_count": 0, "candidate_count": 0})):
+                    result = worker.run_once(store, client)
+
+                self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
+                self.assertEqual(len(store.saved["closed_trades"]), 1)
+                self.assertEqual(client.requests, [0])
+
+    def test_worker_paginates_more_than_one_thousand_missed_candles(self):
+        from scanner.worker import _closed_klines_since
+
+        class PagedClient:
+            def __init__(self): self.calls = []
+            def klines(self, symbol, interval, limit, start_time=None, end_time=None):
+                self.calls.append(start_time)
+                if len(self.calls) == 1:
+                    return [[i * 300000, "1", "2", "1", "2", "1", i * 300000 + 299999] for i in range(1000)]
+                return [[1000 * 300000, "1", "2", "1", "2", "1", 1000 * 300000 + 299999]]
+
+        client = PagedClient()
+        rows = _closed_klines_since(client, "BTCUSDT", 0, now_ms=2_000_000_000)
+        self.assertEqual(len(rows), 1001)
+        self.assertEqual(len(client.calls), 2)
+        self.assertGreater(client.calls[1], client.calls[0])
+
     def test_worker_opens_and_persists_a_mocked_paper_entry(self):
         class MemoryStore:
             def __init__(self):

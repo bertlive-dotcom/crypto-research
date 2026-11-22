@@ -7,7 +7,8 @@ on:
       - "assistant/**"
       - "tests/test_ai_assistant_core.py"
       - "tests/test_ai_assistant_service.py"
-      - "tests/test_twelvedata_adapter.py"\n      - "tests/test_eodhd_adapter.py"
+      - "tests/test_twelvedata_adapter.py"
+      - "tests/test_eodhd_adapter.py"
       - "tests/test_daily_series_validation.py"
       - "app.py"
       - "tests/test_global_market_*.py"
@@ -17,6 +18,12 @@ on:
       - "tests/test_crypto_feed.py"
       - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
+      - "scanner/**"
+      - "trading_desk.py"
+      - "tests/test_market_scanner.py"
+      - "tests/test_trading_desk.py"
+      - "tests/test_six_agent_pipeline.py"
+      - "supabase/migrations/**"
   push:
     branches:
       - "main"
@@ -32,6 +39,12 @@ on:
       - "tests/test_crypto_feed.py"
       - "tests/test_market_analysis.py"
       - ".github/workflows/global-market-tests.yml"
+      - "scanner/**"
+      - "trading_desk.py"
+      - "tests/test_market_scanner.py"
+      - "tests/test_trading_desk.py"
+      - "tests/test_six_agent_pipeline.py"
+      - "supabase/migrations/**"
 
 jobs:
   unit-tests:

@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from trading_desk import Signal, new_portfolio, paper_entry, update_position_mark
+from trading_desk import Signal, new_portfolio, paper_entry, update_position_from_candle
 from .config import (
     SCAN_INTERVAL_SECONDS, STARTING_CAPITAL_USD, STOP_LOSS_PCT, TAKE_PROFIT_PCT,
     validate_staging_target,
@@ -19,6 +19,32 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(
 log = logging.getLogger("market-scanner")
 
 
+def _closed_klines_since(client, symbol: str, start_time_ms: int, now_ms: int | None = None) -> list[list]:
+    """Fetch every completed 5m candle from start_time_ms, paging Binance's 1000-row limit."""
+    now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
+    cursor = int(start_time_ms)
+    completed = []
+    while cursor < now_ms:
+        rows = client.klines(symbol, "5m", 1000, start_time=cursor)
+        if not rows:
+            break
+        advanced = False
+        for row in rows:
+            if len(row) < 7:
+                raise ValueError(f"Incomplete Binance kline for {symbol}.")
+            open_ms, close_ms = int(row[0]), int(row[6])
+            if close_ms < now_ms and open_ms >= start_time_ms:
+                completed.append(row)
+            if open_ms >= cursor:
+                cursor = open_ms + 1
+                advanced = True
+        if len(rows) < 1000:
+            break
+        if not advanced:
+            raise RuntimeError(f"Binance kline pagination did not advance for {symbol}.")
+    return completed
+
+
 def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> dict:
     worker_id = str(uuid.uuid4())
     if not store.acquire_lock(worker_id):
@@ -30,14 +56,38 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
         client = client or BinanceSpotClient()
         candidates, run = scan_market(client)
 
-        prices = client.prices()
         closed = []
         for position in list(portfolio.get("open_positions", [])):
-            price = prices.get(position["asset"].upper())
-            if price:
-                trade = update_position_mark(portfolio, position["asset"], float(price))
-                if trade:
-                    closed.append({"asset": trade["asset"], "reason": trade["exit_reason"], "pnl_usd": trade["realized_pnl_usd"]})
+            # Replay every completed 5m candle since this position was last checked.
+            # The persisted close-time watermark prevents duplicate processing after restart.
+            symbol = f'{position["asset"].upper()}USDT'
+            try:
+                watermark = position.get("last_processed_candle_close_time")
+                if watermark is None:
+                    opened_at = position.get("opened_at")
+                    if not opened_at:
+                        raise ValueError("Legacy position has no opened_at timestamp; refusing an unsafe partial replay.")
+                    opened = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00"))
+                    start_time_ms = int(opened.timestamp() * 1000)
+                else:
+                    start_time_ms = int(watermark) + 1
+                candles = _closed_klines_since(client, symbol, start_time_ms)
+                for candle in candles:
+                    trade = update_position_from_candle(
+                        portfolio, position["asset"],
+                        high=float(candle[2]), low=float(candle[3]),
+                        close=float(candle[4]), open_price=float(candle[1]),
+                        position_id=position.get("position_id"),
+                    )
+                    position["last_processed_candle_close_time"] = int(candle[6])
+                    if trade:
+                        closed.append({"asset": trade["asset"], "reason": trade["exit_reason"],
+                                       "pnl_usd": trade["realized_pnl_usd"]})
+                        break
+            except Exception as exc:
+                # Fail closed for exits: retain the position until a valid OHLC
+                # candle is available rather than treating a missing quote as safe.
+                log.warning("Could not evaluate paper exits for %s: %s", symbol, exc)
 
         # Six deterministic stages; existing Market Scanner risk rules remain authoritative.
         pipeline = run_agent_pipeline(candidates, portfolio, mode="paper")
@@ -51,6 +101,8 @@ def run_once(store: ScannerStore, client: BinanceSpotClient | None = None) -> di
             signal = Signal(
                 asset=row["base_asset"], market="major", price_usd=float(row["price_usdt"]),
                 volume_24h_usd=float(row["quote_volume_24h"]),
+                # Percent return over the two most recent CLOSED 1h candles.
+                # This is a percentage value (2.0 == +2%), not a decimal fraction.
                 gain_1h_pct=row.get("features", {}).get("1h", {}).get("change_pct"),
                 source="Market Scanner v1 / Binance Spot / six-agent pipeline",
             )

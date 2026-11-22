@@ -255,10 +255,18 @@ def update_position_mark(portfolio: dict, asset: str, price_usd: float,
 
 def update_position_from_candle(portfolio: dict, asset: str, high: float, low: float,
                                 close: Optional[float] = None,
-                                position_id: Optional[str] = None) -> Optional[dict]:
-    """Check candle extremes against one exact position; stop wins if both levels cross."""
+                                position_id: Optional[str] = None,
+                                open_price: Optional[float] = None) -> Optional[dict]:
+    """Evaluate OHLC extremes; stop wins ambiguous bars and gaps fill at the worse open.
+
+    OHLC inputs must describe one completed candle. If both stop and target trade
+    inside the same candle, the stop is assumed to occur first (conservative).
+    A candle opening through the stop fills at its open rather than the stale stop.
+    """
     if high <= 0 or low <= 0 or high < low:
         raise ValueError("Invalid candle high/low.")
+    if open_price is not None and (open_price <= 0 or not low <= open_price <= high):
+        raise ValueError("Invalid candle open price.")
     _, position = _find_open_position(portfolio, asset, position_id)
     if close is not None:
         if close <= 0:
@@ -268,7 +276,10 @@ def update_position_from_candle(portfolio: dict, asset: str, high: float, low: f
     stop_hit = high >= float(position["stop_price"]) if short else low <= float(position["stop_price"])
     tp_hit = low <= float(position["take_profit_price"]) if short else high >= float(position["take_profit_price"])
     if stop_hit:
-        return paper_exit(portfolio, asset, float(position["stop_price"]), reason="stop_loss", position_id=position.get("position_id"))
+        stop_fill = float(position["stop_price"])
+        if open_price is not None:
+            stop_fill = max(stop_fill, open_price) if short else min(stop_fill, open_price)
+        return paper_exit(portfolio, asset, stop_fill, reason="stop_loss", position_id=position.get("position_id"))
     if tp_hit:
         return paper_exit(portfolio, asset, float(position["take_profit_price"]), reason="take_profit", position_id=position.get("position_id"))
     return None

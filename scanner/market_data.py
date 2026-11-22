@@ -81,5 +81,11 @@ class BinanceSpotClient:
                 selected_symbols.add(symbol)
         return selected
 
-    def klines(self, symbol: str, interval: str, limit: int = 120) -> list[list]:
-        return self._get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+    def klines(self, symbol: str, interval: str, limit: int = 120,
+               start_time: int | None = None, end_time: int | None = None) -> list[list]:
+        params = {"symbol": symbol, "interval": interval, "limit": min(int(limit), 1000)}
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+        return self._get("/api/v3/klines", params)

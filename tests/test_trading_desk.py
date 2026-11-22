@@ -18,6 +18,22 @@ class TradingDeskTests(unittest.TestCase):
         self.assertTrue(evaluate_signal(s)["approved"])
         s.volume_24h_usd=100
         self.assertFalse(evaluate_signal(s)["approved"])
+    def test_major_asset_gain_1h_pct_is_percent_not_decimal(self):
+        signal = Signal(asset="BTC", market="major", price_usd=65000,
+                        volume_24h_usd=10_000_000, gain_1h_pct=2.0)
+        self.assertTrue(evaluate_signal(signal)["approved"])
+        signal.gain_1h_pct = 81.0
+        result = evaluate_signal(signal)
+        self.assertFalse(result["approved"])
+        self.assertTrue(any("80%" in reason for reason in result["reasons"]))
+
+    def test_major_asset_missing_gain_1h_is_rejected(self):
+        signal = Signal(asset="BTC", market="major", price_usd=65000,
+                        volume_24h_usd=10_000_000)
+        result = evaluate_signal(signal)
+        self.assertFalse(result["approved"])
+        self.assertTrue(any("Missing 1-hour" in reason for reason in result["reasons"]))
+
     def test_position_size_respects_risk_and_exposure(self):
         self.assertEqual(size_position(80,10),8.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)
@@ -136,6 +152,30 @@ class TradingDeskTests(unittest.TestCase):
         ids = [item["position_id"] for item in p["open_positions"]]
         self.assertEqual(len(set(ids)), 2)
         self.assertFalse(ensure_position_ids(p))
+
+    def test_gap_through_long_stop_fills_at_worse_candle_open(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20)
+        pos = p["open_positions"][0]
+        gap_open = pos["stop_price"] * 0.95
+        trade = update_position_from_candle(
+            p, "TEST", high=gap_open * 1.02, low=gap_open * 0.98,
+            close=gap_open, open_price=gap_open,
+        )
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertAlmostEqual(trade["exit_reference_price"], gap_open)
+
+    def test_gap_through_short_stop_fills_at_worse_candle_open(self):
+        p = new_portfolio(80)
+        paper_entry(p, self.valid_solana(), stop_loss_pct=10, take_profit_pct=20, direction="short")
+        pos = p["open_positions"][0]
+        gap_open = pos["stop_price"] * 1.05
+        trade = update_position_from_candle(
+            p, "TEST", high=gap_open * 1.02, low=gap_open * 0.98,
+            close=gap_open, open_price=gap_open,
+        )
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertAlmostEqual(trade["exit_reference_price"], gap_open)
 
     def test_candle_low_triggers_short_take_profit(self):
         p = new_portfolio(80)

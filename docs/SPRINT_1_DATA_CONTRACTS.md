@@ -32,14 +32,14 @@ The major-asset signal contract is:
 
 ## Paper SL/TP candle evaluation
 
-The scanner worker evaluates each open position against the latest completed 5-minute Binance candle (the penultimate row returned by a two-row kline request). It no longer assumes a sampled ticker quote proves that no stop/target was crossed between worker cycles.
+The scanner worker replays every completed 5-minute Binance candle from the position's persisted `last_processed_candle_close_time` watermark. For legacy positions without a watermark, it starts from `opened_at`. Binance's 1000-row limit is handled with `startTime` pagination; candles are processed chronologically, and replay stops immediately when the position closes. The watermark is saved with the portfolio state to prevent duplicate processing after restart.
 
 - If both stop and take-profit are crossed within one candle, stop-loss wins (conservative ambiguity rule).
 - If the candle opens beyond the stop, the simulated stop fill uses the worse candle open.
 - Take-profit fills at the target threshold; no favorable gap improvement is assumed.
-- A missing or malformed candle does not close the position; the worker logs and retries on the next cycle.
+- A missing or malformed candle does not close the position; the worker logs and retries on the next cycle. A legacy position without a trustworthy `opened_at` timestamp is not partially replayed.
 - This is an OHLC approximation, not tick-level execution or evidence of real-market fills.
 
 ## Regression coverage
 
-Relevant tests: `tests/test_market_scanner.py`, `tests/test_trading_desk.py`, and `tests/test_six_agent_pipeline.py`.
+Relevant tests: `tests/test_market_scanner.py`, `tests/test_trading_desk.py`, and `tests/test_six_agent_pipeline.py`. Worker recovery tests cover a missed 30-minute interval and pagination beyond 1000 candles; the same timestamp-driven replay path supports longer 2-hour and 24-hour interruptions without a fixed lookback window.

@@ -57,21 +57,26 @@ class WalkForwardTests(unittest.TestCase):
         b = forecast_at_index(changed, 150, horizon=7, min_train_samples=30)
         self.assertAlmostEqual(a["forecast_return"], b["forecast_return"], places=12)
 
-    def test_walk_forward_outputs_out_of_sample_metrics(self):
+    def test_walk_forward_outputs_out_of_sample_metrics_and_zero_baseline(self):
         result = walk_forward_validate(synthetic_prices(240), horizon=7, min_train_samples=30)
         self.assertGreater(result["validation_count"], 20)
         self.assertGreaterEqual(result["mae"], 0.0)
+        self.assertGreaterEqual(result["zero_baseline_mae"], 0.0)
+        self.assertIsNotNone(result["mae_skill_vs_zero"])
         self.assertGreaterEqual(result["directional_accuracy"], 0.0)
         self.assertLessEqual(result["directional_accuracy"], 1.0)
 
-    def test_latest_forecast_has_calibrated_interval_and_provenance(self):
+    def test_latest_forecast_never_qualifies_without_positive_out_of_sample_skill(self):
         result = forecast_latest(synthetic_prices(240), horizon=7, min_train_samples=30,
                                  min_validation_samples=20)
-        self.assertTrue(result["view_eligible"])
-        self.assertLess(result["lower_bound_90"], result["forecast_return"])
-        self.assertGreater(result["upper_bound_90"], result["forecast_return"])
         self.assertGreaterEqual(result["walk_forward_validation_count"], 20)
+        self.assertEqual(result["view_eligible"], result["mae_skill_vs_zero"] > 0.0)
         self.assertIn(result["evidence_level"], {"low", "moderate", "high"})
+        if result["view_eligible"]:
+            self.assertLess(result["lower_bound_90"], result["forecast_return"])
+            self.assertGreater(result["upper_bound_90"], result["forecast_return"])
+        else:
+            self.assertIsNone(result["lower_bound_90"])
 
 
 if __name__ == "__main__":

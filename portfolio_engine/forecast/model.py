@@ -55,28 +55,34 @@ def forecast_at_index(prices: object, as_of_index: int, horizon: int = 7,
 
 def forecast_latest(prices: object, horizon: int = 7, min_train_samples: int = 30,
                     min_validation_samples: int = 20, alpha: float = 10.0) -> dict:
-    """Forecast latest close and calibrate uncertainty on matured walk-forward errors."""
+    """Forecast latest close; permit BL views only if out-of-sample skill beats zero."""
     from .walk_forward import walk_forward_validate
     values = validate_prices(prices)
     forecast = forecast_at_index(values, values.size - 1, horizon, min_train_samples, alpha)
     validation = walk_forward_validate(values, horizon, min_train_samples, alpha)
     errors = np.asarray(validation["absolute_errors"], dtype=float)
-    if errors.size >= min_validation_samples:
+    enough_validation = errors.size >= min_validation_samples
+    if enough_validation:
         error_q90 = float(np.quantile(errors, 0.90))
         lower, upper = forecast["forecast_return"] - error_q90, forecast["forecast_return"] + error_q90
-        coverage, eligible = float(np.mean(errors <= error_q90)), True
+        coverage = float(np.mean(errors <= error_q90))
     else:
-        error_q90, lower, upper, coverage, eligible = None, None, None, None, False
+        error_q90, lower, upper, coverage = None, None, None, None
     n_train, n_validation = forecast["training_sample_count"], int(errors.size)
+    skill = validation["mae_skill_vs_zero"]
+    eligible = bool(enough_validation and skill is not None and skill > 0.0)
     evidence = "high" if n_train >= 120 and n_validation >= 60 else (
         "moderate" if n_train >= 60 and n_validation >= min_validation_samples else "low")
     forecast.update({
         "lower_bound_90": lower, "upper_bound_90": upper,
         "walk_forward_validation_count": n_validation,
         "walk_forward_mae": validation["mae"],
+        "zero_return_baseline_mae": validation["zero_baseline_mae"],
+        "mae_skill_vs_zero": skill,
         "walk_forward_directional_accuracy": validation["directional_accuracy"],
         "absolute_error_q90": error_q90, "historical_interval_coverage": coverage,
-        "evidence_level": evidence, "view_eligible": bool(eligible and n_train >= min_train_samples),
+        "evidence_level": evidence, "view_eligible": eligible,
+        "eligibility_rule": "minimum_validation_count_and_positive_MAE_skill_vs_zero_return",
         "uncertainty_method": "90th_percentile_absolute_walk_forward_error",
     })
     return forecast

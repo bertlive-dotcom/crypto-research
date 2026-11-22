@@ -28,12 +28,15 @@ def walk_forward_validate(prices: object, horizon: int = 7,
         origins.append(origin)
     if not predictions:
         return {"predictions": [], "actuals": [], "absolute_errors": [], "origins": [],
-                "mae": None, "directional_accuracy": None, "validation_count": 0,
-                "horizon_days": int(horizon)}
+                "mae": None, "zero_baseline_mae": None, "mae_skill_vs_zero": None,
+                "directional_accuracy": None, "validation_count": 0, "horizon_days": int(horizon)}
     predicted, realized = np.asarray(predictions), np.asarray(actuals)
     errors = np.abs(realized - predicted)
+    mae = float(errors.mean())
+    baseline_mae = float(np.abs(realized).mean())
+    skill = 1.0 - mae / baseline_mae if baseline_mae > 0 else None
     return {"predictions": predicted.tolist(), "actuals": realized.tolist(),
             "absolute_errors": errors.tolist(), "origins": origins,
-            "mae": float(errors.mean()),
+            "mae": mae, "zero_baseline_mae": baseline_mae, "mae_skill_vs_zero": skill,
             "directional_accuracy": float(np.mean(np.sign(predicted) == np.sign(realized))),
             "validation_count": int(errors.size), "horizon_days": int(horizon)}

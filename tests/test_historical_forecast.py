@@ -72,11 +72,8 @@ class WalkForwardTests(unittest.TestCase):
         self.assertGreaterEqual(result["walk_forward_validation_count"], 20)
         self.assertEqual(result["view_eligible"], result["mae_skill_vs_zero"] > 0.0)
         self.assertIn(result["evidence_level"], {"low", "moderate", "high"})
-        if result["view_eligible"]:
-            self.assertLess(result["lower_bound_90"], result["forecast_return"])
-            self.assertGreater(result["upper_bound_90"], result["forecast_return"])
-        else:
-            self.assertIsNone(result["lower_bound_90"])
+        self.assertLess(result["lower_bound_90"], result["forecast_return"])
+        self.assertGreater(result["upper_bound_90"], result["forecast_return"])
 
 
 if __name__ == "__main__":

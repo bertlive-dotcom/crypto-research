@@ -57,6 +57,10 @@ def candle_series(raw: list[list]) -> dict:
     rows = raw[:-1]
     return {
         "open_time": [int(x[0]) for x in rows],
+        # Binance Spot kline field 6 is the candle close time (milliseconds UTC).
+        # Older test/legacy rows may omit it; callers must treat None as unverified.
+        "close_time": [int(x[6]) if len(x) > 6 and x[6] is not None else None for x in rows],
+        "open": [float(x[1]) for x in rows],
         "high": [float(x[2]) for x in rows],
         "low": [float(x[3]) for x in rows],
         "close": [float(x[4]) for x in rows],

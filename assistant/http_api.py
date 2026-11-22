@@ -11,7 +11,7 @@ import secrets
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from assistant.service import AssistantServiceError, ReadOnlyAssistantService
-from global_markets.crypto_feed import CryptoWatchlistFeed
+from global_markets.crypto_feed import BINANCE_SPOT_PAIRS, CryptoWatchlistFeed
 
 app = FastAPI(
     title="Crypto Research Internal Read API",
@@ -38,7 +38,7 @@ def crypto_overview(
     limit: int = Query(default=200, ge=35, le=1000),
 ) -> dict:
     requested = [item.strip().upper() for item in symbols.split(",") if item.strip()]
-    if not requested or len(requested) > len(__import__("global_markets.crypto_feed", fromlist=["BINANCE_SPOT_PAIRS"]).BINANCE_SPOT_PAIRS):
+    if not requested or len(requested) > len(BINANCE_SPOT_PAIRS):
         raise HTTPException(status_code=422, detail="Invalid number of requested symbols")
     if len(requested) != len(set(requested)):
         raise HTTPException(status_code=422, detail="Symbols must be unique")

@@ -24,8 +24,11 @@ def _features(raw: list[list], min_closed_candles: int = 60) -> dict:
         "ema50": e50[-1] if e50 else None, "rsi14": rsi(closes),
         "macd_hist": macd_histogram(closes), "atr_pct": atr_pct(highs, lows, closes),
         "volume_ratio": volume_ratio(volumes),
+        # Contract: percentage change between the two most recent CLOSED candles
+        # for this timeframe; e.g. 1.25 means +1.25%, not +0.0125.
         "change_pct": change_pct,
-        "candle_close_time": c["open_time"][-1],
+        "candle_open_time": c["open_time"][-1],
+        "candle_close_time": c["close_time"][-1],
     }
 
 def score_candidate(ticker: dict, one_hour: dict, four_hour: dict, daily: dict) -> dict:

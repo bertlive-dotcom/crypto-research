@@ -158,6 +158,47 @@ class PaperCycleIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(result["change_pct"], 2.0)
         self.assertEqual(result["close"], 102.0)
 
+    def test_worker_uses_completed_5m_ohlc_for_intrabar_stop_loss(self):
+        from trading_desk import Signal, paper_entry
+
+        class MemoryStore:
+            def __init__(self):
+                self.state = new_portfolio(80)
+                self.saved = None
+            def acquire_lock(self, worker_id): return True
+            def load_state(self): return self.state
+            def save_cycle(self, state, run, candidates, signals):
+                self.saved = {"state": state, "run": run, "signals": signals}
+            def release_lock(self, worker_id): pass
+
+        class FixedClient:
+            def klines(self, symbol, interval, limit):
+                self.request = (symbol, interval, limit)
+                # Last item is the forming candle; the preceding completed
+                # candle crosses the position stop intrabar and recovers.
+                return [
+                    [0, "100", "101", "80", "100", "10", 299999],
+                    [300000, "100", "102", "99", "101", "10", 599999],
+                ]
+
+        store = MemoryStore()
+        position = paper_entry(
+            store.state,
+            Signal(asset="BTC", market="major", price_usd=100,
+                   volume_24h_usd=10_000_000, gain_1h_pct=1.0),
+            stop_loss_pct=10, take_profit_pct=20,
+        )
+        # A stop at 89.7 is crossed by the completed candle's low (80).
+        client = FixedClient()
+        scan_run = {"analysed_count": 0, "candidate_count": 0}
+        with patch.object(worker, "scan_market", return_value=([], scan_run)):
+            result = worker.run_once(store, client)
+
+        self.assertEqual(client.request, ("BTCUSDT", "5m", 2))
+        self.assertEqual(result["paper_exits"][0]["reason"], "stop_loss")
+        self.assertEqual(store.saved["state"]["open_positions"], [])
+        self.assertEqual(len(store.saved["state"]["closed_trades"]), 1)
+
     def test_worker_opens_and_persists_a_mocked_paper_entry(self):
         class MemoryStore:
             def __init__(self):

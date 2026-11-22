@@ -18,6 +18,22 @@ class TradingDeskTests(unittest.TestCase):
         self.assertTrue(evaluate_signal(s)["approved"])
         s.volume_24h_usd=100
         self.assertFalse(evaluate_signal(s)["approved"])
+    def test_major_asset_gain_1h_pct_is_percent_not_decimal(self):
+        signal = Signal(asset="BTC", market="major", price_usd=65000,
+                        volume_24h_usd=10_000_000, gain_1h_pct=2.0)
+        self.assertTrue(evaluate_signal(signal)["approved"])
+        signal.gain_1h_pct = 81.0
+        result = evaluate_signal(signal)
+        self.assertFalse(result["approved"])
+        self.assertTrue(any("80%" in reason for reason in result["reasons"]))
+
+    def test_major_asset_missing_gain_1h_is_rejected(self):
+        signal = Signal(asset="BTC", market="major", price_usd=65000,
+                        volume_24h_usd=10_000_000)
+        result = evaluate_signal(signal)
+        self.assertFalse(result["approved"])
+        self.assertTrue(any("Missing 1-hour" in reason for reason in result["reasons"]))
+
     def test_position_size_respects_risk_and_exposure(self):
         self.assertEqual(size_position(80,10),8.0)
         self.assertEqual(size_position(80,10,open_exposure_usd=19),1.0)

@@ -7,7 +7,7 @@ def estimate_covariance(
     returns: object,
     shrinkage: float = 0.20,
     annualization: float = 1.0,
-    eigenvalue_floor: float = 1e-12,
+    eigenvalue_floor: float = 1e-15,
 ) -> np.ndarray:
     """Estimate symmetric positive-definite covariance with diagonal shrinkage.
 
@@ -35,7 +35,7 @@ def estimate_covariance(
     shrunk = (1.0 - shrinkage) * sample + shrinkage * target
     shrunk = (shrunk + shrunk.T) * 0.5
     eigenvalues, eigenvectors = np.linalg.eigh(shrunk)
-    scale = max(float(np.max(np.abs(eigenvalues))), 1.0)
+    scale = float(np.max(np.abs(eigenvalues)))
     floor = max(eigenvalue_floor, scale * 1e-12)
     eigenvalues = np.maximum(eigenvalues, floor)
     positive_definite = (eigenvectors * eigenvalues) @ eigenvectors.T

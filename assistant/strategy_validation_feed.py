@@ -37,12 +37,15 @@ def normalize_closed_trade(trade: dict) -> dict:
     """
     issues: list[str] = []
     asset = str(trade.get("asset") or "").strip().upper()
-    direction = str(trade.get("direction") or "long").strip().lower()
+    raw_direction = trade.get("direction")
+    direction = str(raw_direction).strip().lower() if raw_direction is not None else ""
     symbol = f"{asset}USDT" if asset else None
     closed_at = _aware_timestamp(trade.get("closed_at"))
     if not symbol:
         issues.append("missing_asset")
-    if direction not in {"long", "short"}:
+    if not direction:
+        issues.append("missing_direction")
+    elif direction not in {"long", "short"}:
         issues.append("unsupported_direction")
     if closed_at is None:
         issues.append("missing_or_invalid_closed_at")

@@ -50,6 +50,12 @@ class StrategyValidationFeedTests(unittest.TestCase):
         self.assertIsNone(result["total_cost"])
         self.assertIn("inconsistent_gross_net_cost_relationship", result["data_quality_issues"])
 
+    def test_missing_direction_is_not_assumed_to_be_long(self):
+        result = normalize_closed_trade(self.trade(direction=None))
+        self.assertIsNone(result["direction"])
+        self.assertIsNone(result["gross_pnl"])
+        self.assertIn("missing_direction", result["data_quality_issues"])
+
     def test_naive_timestamp_is_rejected(self):
         result = normalize_closed_trade(self.trade(closed_at="2026-11-25T12:00:00"))
         self.assertIsNone(result["closed_at"])

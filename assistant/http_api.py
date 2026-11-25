@@ -11,6 +11,7 @@ import secrets
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from assistant.service import AssistantServiceError, ReadOnlyAssistantService
+from assistant.strategy_validation_feed import StrategyValidationFeedError, StrategyValidationReadService
 from global_markets.crypto_feed import BINANCE_SPOT_PAIRS, CryptoWatchlistFeed
 
 app = FastAPI(
@@ -21,6 +22,7 @@ app = FastAPI(
     openapi_url=None,
 )
 service = ReadOnlyAssistantService(feed=CryptoWatchlistFeed())
+strategy_validation_service = StrategyValidationReadService()
 
 
 def require_internal_token(authorization: str | None = Header(default=None)) -> None:
@@ -48,3 +50,17 @@ def crypto_overview(
         raise HTTPException(status_code=422, detail="Unsupported market symbol or request") from exc
     except AssistantServiceError as exc:
         raise HTTPException(status_code=503, detail="Market data service unavailable") from exc
+
+
+
+@app.get("/internal/v1/strategy-validation/dataset", dependencies=[Depends(require_internal_token)])
+def strategy_validation_dataset(
+    symbol: str | None = Query(default=None, min_length=5, max_length=24),
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict:
+    try:
+        return strategy_validation_service.dataset(symbol=symbol, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid strategy validation dataset request") from exc
+    except StrategyValidationFeedError as exc:
+        raise HTTPException(status_code=503, detail="Strategy validation dataset unavailable") from exc
